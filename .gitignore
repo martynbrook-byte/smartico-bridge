@@ -1,0 +1,19 @@
+# Dependencies
+node_modules/
+
+# Environment secrets
+.env
+
+# Uploaded CSV files (transient)
+uploads/
+
+# Persisted datasets — these live on the Railway volume, not in git.
+# Keep the folder structure but not the data files.
+data/datasets/*.json
+
+# macOS
+.DS_Store
+
+# Editor
+.vscode/
+*.swp

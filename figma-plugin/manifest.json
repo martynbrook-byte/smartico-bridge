@@ -1,0 +1,17 @@
+{
+  "name": "Smartico Bridge",
+  "id": "smartico-bridge-plugin",
+  "api": "1.0.0",
+  "main": "code.js",
+  "ui": "ui.html",
+  "editorType": ["figma"],
+  "networkAccess": {
+    "allowedDomains": [
+      "http://localhost:3001",
+      "https://888africa.com",
+      "https://*.888bets.co.mz",
+      "https://*.betlion.co.zm"
+    ],
+    "reasoning": "Fetches winners datasets from the local Smartico Bridge server and avatar images from brand CDNs."
+  }
+}

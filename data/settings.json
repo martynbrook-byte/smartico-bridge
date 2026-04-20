@@ -1,0 +1,139 @@
+{
+  "columnMappings": {
+    "prize_name": "prize",
+    "user_id": "PID"
+  },
+  "ruleSets": [
+    {
+      "id": "rs_default",
+      "name": "RODA BLAZE WINNERS",
+      "description": "Migrated from legacy settings.",
+      "rules": [
+        {
+          "id": "r3",
+          "type": "sum",
+          "name": "Prize amount total",
+          "config": {
+            "column": "prize_amount"
+          }
+        },
+        {
+          "id": "r_ghjrkbjk7",
+          "type": "count",
+          "name": "Free Flight 20MT  Count",
+          "config": {
+            "matchMode": "exact",
+            "column": "prize",
+            "value": "Free Flight 20MT"
+          }
+        },
+        {
+          "id": "r1",
+          "type": "count",
+          "name": "Free Flight 10MT count",
+          "config": {
+            "column": "prize",
+            "value": "Free Flight 10MT",
+            "matchMode": "exact"
+          }
+        },
+        {
+          "id": "r_84po9s4cs",
+          "type": "count",
+          "name": "Free Flight 5MT count",
+          "config": {
+            "matchMode": "exact",
+            "column": "prize",
+            "value": "Free Flight 5MT"
+          }
+        },
+        {
+          "id": "r2",
+          "type": "count",
+          "name": "All Free Flights",
+          "config": {
+            "column": "prize",
+            "value": "Free Flight",
+            "matchMode": "contains"
+          }
+        },
+        {
+          "id": "r_wjenm6qty",
+          "type": "count",
+          "name": "50,000 Cash Count",
+          "config": {
+            "matchMode": "exact",
+            "column": "prize",
+            "value": "50,000 Cash"
+          }
+        },
+        {
+          "id": "r_futa88oal",
+          "type": "count",
+          "name": "500 Cash Count",
+          "config": {
+            "matchMode": "exact",
+            "column": "prize",
+            "value": "500 Cash"
+          }
+        },
+        {
+          "id": "r_gfocuziti",
+          "type": "count",
+          "name": "100 Cash Count",
+          "config": {
+            "matchMode": "exact",
+            "value": "100 Cash",
+            "column": "prize"
+          }
+        },
+        {
+          "id": "r_9janawnhd",
+          "type": "count-times",
+          "name": "Count 50,000 Cash value",
+          "config": {
+            "matchMode": "exact",
+            "multiplier": 50000,
+            "column": "prize",
+            "value": "50,000 Cash"
+          }
+        },
+        {
+          "id": "r_ego0kdnfn",
+          "type": "count-times",
+          "name": "Count 500 Cash value",
+          "config": {
+            "matchMode": "exact",
+            "multiplier": 500,
+            "column": "prize",
+            "value": "500 Cash"
+          }
+        },
+        {
+          "id": "r_7pm9x7ljw",
+          "type": "count-times",
+          "name": "Count 100 Cash value",
+          "config": {
+            "matchMode": "exact",
+            "multiplier": 100,
+            "column": "prize",
+            "value": "100 Cash"
+          }
+        },
+        {
+          "id": "r_j2uplhta9",
+          "type": "aggregate-metrics",
+          "name": "Total Cash",
+          "config": {
+            "op": "sum",
+            "ruleIds": [
+              "r_9janawnhd",
+              "r_ego0kdnfn",
+              "r_7pm9x7ljw"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

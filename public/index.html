@@ -1,0 +1,2293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Smartico Bridge — Dashboard</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #0d0d12;
+      --surface:  #16161e;
+      --surface2: #1f1f2e;
+      --surface3: #2a2a3a;
+      --gold:     #f5c842;
+      --gold2:    #c9a227;
+      --text:     #e2e2f0;
+      --muted:    #7f7f9a;
+      --border:   #2e2e42;
+      --green:    #4ade80;
+      --red:      #f87171;
+      --blue:     #60a5fa;
+      --indigo:   #818cf8;
+      --radius:   8px;
+    }
+
+    html { font-size: 14px; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      min-height: 100vh;
+    }
+
+    a { color: var(--gold); text-decoration: none; }
+
+    /* ── Header ── */
+    header {
+      background: linear-gradient(135deg, #16161e 0%, #1f1f2e 100%);
+      border-bottom: 1px solid var(--border);
+      padding: 0 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 60px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 1.2rem;
+      font-weight: 700;
+      color: var(--gold);
+      letter-spacing: 0.5px;
+    }
+    .logo .icon { font-size: 1.5rem; }
+    .logo .sub {
+      font-size: 0.72rem;
+      color: var(--muted);
+      font-weight: 500;
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+      margin-left: 4px;
+    }
+    .header-right { display: flex; align-items: center; gap: 12px; }
+    .api-status {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.85rem;
+      color: var(--muted);
+    }
+    .status-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--green);
+      animation: pulse 2s infinite;
+    }
+    .status-dot.offline { background: var(--red); animation: none; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+    /* ── Layout ── */
+    .container { max-width: 1400px; margin: 0 auto; padding: 24px; }
+
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+    .panel-title {
+      font-size: 0.85rem;
+      color: var(--gold);
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      font-weight: 700;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .panel-title .hint {
+      font-size: 0.72rem;
+      color: var(--muted);
+      text-transform: none;
+      letter-spacing: 0;
+      font-weight: 500;
+      margin-left: auto;
+    }
+
+    /* ── Buttons ── */
+    .btn {
+      background: var(--surface3);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 7px 14px;
+      border-radius: var(--radius);
+      cursor: pointer;
+      font-size: 0.85rem;
+      font-family: inherit;
+      transition: all 0.15s;
+    }
+    .btn:hover { border-color: var(--gold); color: var(--gold); }
+    .btn-primary {
+      background: var(--gold);
+      border-color: var(--gold);
+      color: #000;
+      font-weight: 600;
+    }
+    .btn-primary:hover { background: var(--gold2); border-color: var(--gold2); color: #000; }
+    .btn-ghost {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--muted);
+    }
+    .btn-ghost:hover { border-color: var(--gold); color: var(--gold); }
+    .btn-danger {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--muted);
+    }
+    .btn-danger:hover { border-color: var(--red); color: var(--red); }
+    .btn-small { padding: 4px 10px; font-size: 0.78rem; }
+
+    /* ── Pill tabs (site-tab style from casino-api) ── */
+    .pill-tabs {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin-bottom: 16px;
+    }
+    .pill-tab {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--muted);
+      padding: 6px 16px;
+      border-radius: 20px;
+      cursor: pointer;
+      font-size: 0.86rem;
+      transition: all 0.15s;
+      user-select: none;
+      white-space: nowrap;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-family: inherit;
+    }
+    .pill-tab:hover { border-color: var(--gold2); color: var(--text); }
+    .pill-tab.active {
+      background: var(--gold);
+      border-color: var(--gold);
+      color: #000;
+      font-weight: 600;
+    }
+    .pill-tab .count {
+      background: rgba(0,0,0,0.18);
+      color: inherit;
+      border-radius: 10px;
+      padding: 1px 7px;
+      font-size: 0.72rem;
+      font-weight: 600;
+    }
+    .pill-tab:not(.active) .count {
+      background: var(--surface3);
+      color: var(--muted);
+    }
+
+    /* ── Stat cards ── */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(155px, 1fr));
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+    .stat-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px;
+      transition: border-color 0.15s;
+    }
+    .stat-card:hover { border-color: var(--gold2); }
+    .stat-card.accent { border-top: 3px solid var(--gold); }
+    .stat-card.green  { border-top: 3px solid var(--green); }
+    .stat-card.blue   { border-top: 3px solid var(--blue); }
+    .stat-card.indigo { border-top: 3px solid var(--indigo); }
+    .stat-label { font-size: 0.72rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 6px; }
+    .stat-value { font-size: 1.8rem; font-weight: 700; line-height: 1; color: var(--text); }
+    .stat-value.gold { color: var(--gold); }
+    .stat-sub { font-size: 0.72rem; color: var(--muted); margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    /* ── Inputs ── */
+    input[type="text"], input[type="number"], select, textarea {
+      width: 100%;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      padding: 8px 12px;
+      font-size: 0.9rem;
+      font-family: inherit;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:focus {
+      border-color: var(--gold);
+    }
+    input::placeholder, textarea::placeholder { color: var(--muted); }
+    select {
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%237f7f9a' d='M6 8 0 0h12z'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 12px center;
+      padding-right: 30px;
+    }
+    label.field-label {
+      display: block;
+      font-size: 0.7rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      margin-bottom: 5px;
+      font-weight: 600;
+    }
+
+    /* ── Upload drop zone ── */
+    .drop-zone {
+      border: 2px dashed var(--border);
+      border-radius: var(--radius);
+      padding: 28px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s;
+      background: var(--surface2);
+    }
+    .drop-zone:hover, .drop-zone.over {
+      border-color: var(--gold);
+      background: rgba(245,200,66,0.06);
+    }
+    .drop-zone .dz-icon { font-size: 2rem; margin-bottom: 8px; display: block; }
+    .drop-zone .dz-hint { color: var(--muted); font-size: 0.82rem; margin-top: 4px; }
+
+    /* ── Dataset list ── */
+    .dataset-list { display: flex; flex-direction: column; gap: 8px; }
+    .dataset-row {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 10px 14px;
+      transition: border-color 0.15s;
+    }
+    .dataset-row:hover { border-color: var(--gold2); }
+    .dataset-row-top {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .dataset-meta {
+      font-size: 0.76rem;
+      color: var(--muted);
+      display: flex;
+      gap: 10px;
+      white-space: nowrap;
+    }
+    .dataset-actions { display: flex; gap: 6px; }
+
+    /* Summary chips (template/game/brand/id/dates) shown under the name */
+    .dataset-summary {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      padding-left: 2px;
+    }
+    .dataset-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--surface3);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 2px 10px 2px 8px;
+      font-size: 0.74rem;
+      max-width: 100%;
+    }
+    .dataset-chip .chip-label {
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      font-size: 0.65rem;
+      font-weight: 600;
+    }
+    .dataset-chip .chip-value {
+      color: var(--text);
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 240px;
+    }
+    .dataset-chip.muted .chip-value { color: var(--muted); font-weight: 500; }
+    .dataset-chip.brand  { border-color: #a78bfa55; }
+    .dataset-chip.game   { border-color: #22c55e55; }
+    .dataset-chip.template { border-color: #fbbf2455; }
+    .dataset-chip.id     { border-color: #475569; font-family: ui-monospace,Menlo,monospace; }
+    .dataset-chip.date   { border-color: #38bdf855; }
+
+    /* Enrich button + status line under a dataset */
+    .btn.btn-enrich { background: #14b8a615; border-color: #14b8a666; color: #5eead4; }
+    .btn.btn-enrich:hover:not(:disabled) { background: #14b8a630; border-color: #14b8a6; }
+    .btn.btn-enrich:disabled { opacity: 0.6; cursor: wait; }
+    .enrich-report {
+      display: flex; flex-wrap: wrap; gap: 8px;
+      align-items: center;
+      padding: 4px 2px 0;
+      font-size: 0.72rem;
+      color: var(--muted);
+    }
+    .enrich-stat {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--surface3);
+      font-weight: 600;
+    }
+    .enrich-stat.ok   { color: #5eead4; border-color: #14b8a666; }
+    .enrich-stat.miss { color: #fbbf24; border-color: #fbbf2466; }
+    .enrich-stat.skip { color: #94a3b8; }
+    .enrich-stat.err  { color: #f87171; border-color: #ef444466; cursor: help; }
+
+    /* Profile API settings */
+    .profile-brand-row {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 10px;
+      background: var(--surface2);
+    }
+    .profile-brand-head {
+      display: flex; align-items: center; gap: 8px;
+    }
+    .profile-brand-row input[type="text"] {
+      width: 100%;
+    }
+    .profile-brand-key {
+      flex: 1;
+      font-weight: 600;
+      color: var(--gold);
+    }
+
+    /* ── Rule sets layout ── */
+    .rulesets-layout {
+      display: grid;
+      grid-template-columns: 260px minmax(0, 1fr);
+      gap: 16px;
+      align-items: start;
+    }
+    .rulesets-sidebar {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .ruleset-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+      border-radius: 6px;
+      border: 1px solid transparent;
+      cursor: pointer;
+      transition: all 0.15s;
+      min-width: 0;
+    }
+    .ruleset-item:hover { background: var(--surface2); border-color: var(--border); }
+    .ruleset-item.active {
+      background: var(--surface2);
+      border-color: var(--gold);
+    }
+    .ruleset-item-name {
+      flex: 1;
+      font-size: 0.88rem;
+      font-weight: 600;
+      color: var(--text);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .ruleset-item.active .ruleset-item-name { color: var(--gold); }
+    .ruleset-item-count {
+      font-size: 0.7rem;
+      color: var(--muted);
+      background: var(--surface3);
+      padding: 1px 7px;
+      border-radius: 10px;
+      font-weight: 600;
+    }
+    .ruleset-new-btn {
+      margin-top: 8px;
+      border-top: 1px dashed var(--border);
+      padding-top: 12px;
+      text-align: left;
+    }
+
+    .ruleset-editor {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px;
+    }
+    .ruleset-editor-header {
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+      margin-bottom: 16px;
+      padding-bottom: 14px;
+      border-bottom: 1px solid var(--border);
+    }
+    .ruleset-editor-header .names { flex: 1; min-width: 0; }
+    .ruleset-editor-header input[type="text"],
+    .ruleset-editor-header textarea { margin-bottom: 6px; }
+
+    /* ── Rule cards ── */
+    .rule-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+    .rule-card {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 8px 10px;
+      transition: padding 0.15s ease;
+    }
+    .rule-card.open { padding: 10px 12px 12px; }
+    .rule-card-header {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      margin-bottom: 0;
+    }
+    .rule-card.open .rule-card-header { margin-bottom: 10px; }
+    .rule-chevron {
+      width: 22px;
+      height: 22px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: transparent;
+      border: none;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 0.8rem;
+      padding: 0;
+      border-radius: 4px;
+      flex-shrink: 0;
+      transition: transform 0.15s ease, color 0.15s ease;
+    }
+    .rule-chevron:hover { color: var(--text); background: var(--surface3); }
+    .rule-card.open .rule-chevron { transform: rotate(90deg); color: var(--gold); }
+    .rule-type-badge {
+      font-size: 0.68rem;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      background: var(--surface3);
+      color: var(--gold);
+      border: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    .rule-type-badge.metric { color: var(--green); border-color: rgba(74,222,128,0.3); }
+    .rule-type-badge.transform { color: var(--blue); border-color: rgba(96,165,250,0.3); }
+    .rule-name-input {
+      flex: 1;
+      font-weight: 600;
+      background: transparent;
+      border: 1px solid transparent;
+      padding: 4px 6px;
+    }
+    .rule-name-input:hover  { border-color: var(--border); background: var(--bg); }
+    .rule-name-input:focus  { border-color: var(--gold); background: var(--bg); }
+    .rule-summary {
+      flex: 0 1 auto;
+      min-width: 0;
+      color: var(--muted);
+      font-size: 0.78rem;
+      font-family: 'SF Mono', Consolas, monospace;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      padding: 0 6px;
+    }
+    .rule-card.open .rule-summary { display: none; }
+    .rule-card-config {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+      gap: 8px;
+    }
+    .rule-card:not(.open) .rule-card-config { display: none; }
+    .rule-card-config .field { display: flex; flex-direction: column; gap: 4px; }
+    .rule-card-config .columns-input { grid-column: 1 / -1; }
+
+    /* Chip picker for select-columns */
+    .chip-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+      padding: 6px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      min-height: 36px;
+      align-items: center;
+    }
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      background: var(--surface3);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 3px 4px 3px 10px;
+      font-size: 0.78rem;
+      color: var(--text);
+    }
+    .chip.selected {
+      background: var(--gold);
+      border-color: var(--gold);
+      color: #000;
+      font-weight: 600;
+    }
+    .chip-btn {
+      background: none;
+      border: none;
+      color: inherit;
+      cursor: pointer;
+      padding: 0 4px;
+      font-size: 0.9rem;
+      line-height: 1;
+    }
+    .chip-picker {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+      margin-top: 6px;
+    }
+    .chip-picker .chip {
+      background: var(--surface2);
+      color: var(--muted);
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .chip-picker .chip:hover { border-color: var(--gold); color: var(--text); }
+
+    /* ── Add-rule row ── */
+    .add-rule-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      padding: 10px;
+      border: 1px dashed var(--border);
+      border-radius: var(--radius);
+      background: rgba(245,200,66,0.03);
+    }
+    .add-rule-row select { flex: 1; max-width: 220px; }
+
+    /* ── View data ── */
+    .view-controls {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: flex-end;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+    .view-controls .vc-field { flex: 1; min-width: 200px; }
+    .view-controls .vc-field label { display: block; font-size: 0.7rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 5px; font-weight: 600; }
+
+    /* ── Metrics strip ── */
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+    .metric-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 12px 14px;
+    }
+    .metric-card.count        { border-left: 3px solid var(--gold); }
+    .metric-card.count-times  { border-left: 3px solid #f59e0b; }
+    .metric-card.sum          { border-left: 3px solid var(--green); }
+    .metric-card.avg          { border-left: 3px solid var(--blue); }
+    .metric-card.min          { border-left: 3px solid var(--indigo); }
+    .metric-card.max          { border-left: 3px solid #f472b6; }
+    .metric-card.count-by     { border-left: 3px solid #c084fc; }
+    .metric-card.aggregate-metrics { border-left: 3px solid #14b8a6; }
+    .metric-card.aggregate-metrics .aggregate-sources {
+      margin-top: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      font-family: 'SF Mono', Consolas, monospace;
+      font-size: 0.76rem;
+    }
+    .metric-card.aggregate-metrics .aggregate-source-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      color: var(--muted);
+    }
+    .metric-card.aggregate-metrics .aggregate-source-row.missing {
+      color: #f87171;
+    }
+    .metric-card.aggregate-metrics .aggregate-source-name {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .metric-card.aggregate-metrics .aggregate-source-val {
+      color: var(--text);
+      font-variant-numeric: tabular-nums;
+      margin-left: auto;
+    }
+    .metric-card.aggregate-metrics .aggregate-source-type {
+      font-size: 0.62rem;
+      padding: 1px 5px;
+      border-radius: 3px;
+      background: rgba(20, 184, 166, 0.15);
+      color: #5eead4;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .aggregate-rule-picker {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      max-height: 200px;
+      overflow-y: auto;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 8px;
+      background: var(--bg-2);
+    }
+    .aggregate-rule-option {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 4px 2px;
+      font-size: 0.82rem;
+      cursor: pointer;
+      user-select: none;
+    }
+    .aggregate-rule-option input[type=checkbox] {
+      accent-color: var(--gold);
+      cursor: pointer;
+    }
+    .aggregate-rule-option .rule-type-mini {
+      font-size: 0.68rem;
+      padding: 1px 5px;
+      border-radius: 3px;
+      background: rgba(245, 200, 66, 0.12);
+      color: var(--gold);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .aggregate-rule-option .rule-label-mini {
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .aggregate-rule-empty {
+      color: var(--muted);
+      font-size: 0.8rem;
+      font-style: italic;
+    }
+    .aggregate-rule-option .rule-preview-val {
+      font-family: 'SF Mono', Consolas, monospace;
+      font-size: 0.78rem;
+      color: var(--gold);
+      padding: 1px 6px;
+      border-radius: 3px;
+      background: rgba(245, 200, 66, 0.08);
+      white-space: nowrap;
+      flex-shrink: 0;
+      font-variant-numeric: tabular-nums;
+    }
+    .aggregate-rule-option .rule-preview-val.muted,
+    .aggregate-rule-option .rule-preview-val.pending {
+      color: var(--muted);
+      background: transparent;
+    }
+    .metric-name { font-size: 0.76rem; color: var(--muted); margin-bottom: 4px; letter-spacing: 0.3px; }
+    .metric-value { font-size: 1.5rem; font-weight: 700; color: var(--text); line-height: 1.1; }
+    .metric-value.gold { color: var(--gold); }
+    .metric-sub { font-size: 0.72rem; color: var(--muted); margin-top: 4px; }
+    .metric-breakdown { margin-top: 8px; font-size: 0.78rem; }
+    .metric-breakdown-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 3px 0;
+      border-bottom: 1px dashed var(--border);
+    }
+    .metric-breakdown-row:last-child { border-bottom: none; }
+    .metric-breakdown-key { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-right: 6px; }
+    .metric-breakdown-val { color: var(--gold); font-weight: 700; }
+
+    /* ── Data table ── */
+    .table-wrap {
+      background: var(--surface);
+      overflow: auto;
+      max-height: 520px;
+    }
+    table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+    thead th {
+      text-align: left;
+      background: var(--surface2);
+      color: var(--gold);
+      font-weight: 600;
+      padding: 9px 12px;
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+    tbody td {
+      padding: 7px 12px;
+      border-bottom: 1px solid rgba(46,46,66,0.6);
+      color: var(--text);
+      white-space: nowrap;
+    }
+    tbody tr:hover { background: rgba(245,200,66,0.04); }
+
+    /* ── Banner ── */
+    .banner {
+      padding: 10px 14px;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      margin-bottom: 12px;
+      font-size: 0.88rem;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+    .banner.success { border-color: rgba(74,222,128,0.35); background: rgba(74,222,128,0.07); color: #86efac; }
+    .banner.error   { border-color: rgba(248,113,113,0.35); background: rgba(248,113,113,0.07); color: #fca5a5; }
+    .banner.info    { border-color: rgba(96,165,250,0.3);  background: rgba(96,165,250,0.07); color: #93c5fd; }
+
+    .empty-state {
+      text-align: center;
+      padding: 40px 20px;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+    .empty-state .empty-icon { font-size: 2.5rem; display: block; margin-bottom: 8px; opacity: 0.5; }
+
+    .hidden { display: none !important; }
+
+    .mapping-row { display: grid; grid-template-columns: 1fr 20px 1fr auto; gap: 8px; align-items: center; margin-bottom: 6px; }
+    .mapping-arrow { color: var(--muted); text-align: center; }
+
+    @media (max-width: 900px) {
+      .rulesets-layout { grid-template-columns: 1fr; }
+      .container { padding: 16px; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <span class="icon">🎰</span>
+    Smartico Bridge
+    <span class="sub">winners data pipeline</span>
+  </div>
+  <div class="header-right">
+    <span class="api-status">
+      <span class="status-dot" id="statusDot"></span>
+      <span id="statusText">Online</span>
+    </span>
+    <button class="btn" onclick="refreshAll()">Refresh</button>
+  </div>
+</header>
+
+<main class="container">
+
+  <div class="pill-tabs" id="mainTabs">
+    <button class="pill-tab active" data-tab="datasets" onclick="switchTab('datasets')">
+      Datasets <span class="count" id="tabCountDatasets">0</span>
+    </button>
+    <button class="pill-tab" data-tab="rulesets" onclick="switchTab('rulesets')">
+      Rule Sets <span class="count" id="tabCountRulesets">0</span>
+    </button>
+    <button class="pill-tab" data-tab="view" onclick="switchTab('view')">
+      View Data
+    </button>
+    <button class="pill-tab" data-tab="settings" onclick="switchTab('settings')">
+      Settings
+    </button>
+  </div>
+
+  <div id="bannerHost"></div>
+
+  <!-- ═══ Datasets ═══ -->
+  <section id="tab-datasets" class="tab-panel">
+
+    <div class="stats-grid">
+      <div class="stat-card accent">
+        <div class="stat-label">Total datasets</div>
+        <div class="stat-value gold" id="statTotalDatasets">0</div>
+        <div class="stat-sub" id="statTotalRows">0 rows total</div>
+      </div>
+      <div class="stat-card green">
+        <div class="stat-label">Latest upload</div>
+        <div class="stat-value" id="statLatestRows">—</div>
+        <div class="stat-sub" id="statLatestAt">No uploads yet</div>
+      </div>
+      <div class="stat-card blue">
+        <div class="stat-label">Rule sets</div>
+        <div class="stat-value" id="statRuleSets">0</div>
+        <div class="stat-sub" id="statRulesTotal">0 rules across sets</div>
+      </div>
+      <div class="stat-card indigo">
+        <div class="stat-label">Service</div>
+        <div class="stat-value" id="statUptime">—</div>
+        <div class="stat-sub">Uptime (hh:mm:ss)</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">Upload CSV <span class="hint">Smartico winners export → parsed &amp; mapped on upload</span></div>
+      <div class="drop-zone" id="dropZone" onclick="document.getElementById('fileInput').click()">
+        <span class="dz-icon">📥</span>
+        <div><strong>Drop a .csv here</strong> or click to browse</div>
+        <div class="dz-hint">Max 20MB · Applies current column mappings</div>
+        <input type="file" id="fileInput" accept=".csv" class="hidden" onchange="handleFileChosen(event)">
+      </div>
+      <div id="uploadProgress" class="hidden" style="margin-top:10px;color:var(--muted);font-size:0.86rem"></div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">Dataset records <span class="hint">newest first</span></div>
+      <div id="datasetList" class="dataset-list"></div>
+    </div>
+  </section>
+
+  <!-- ═══ Rule Sets ═══ -->
+  <section id="tab-rulesets" class="tab-panel hidden">
+    <div class="rulesets-layout">
+      <aside class="rulesets-sidebar" id="rulesetSidebar"></aside>
+      <div id="rulesetMain">
+        <div class="panel empty-state" id="rulesetEmpty">
+          <span class="empty-icon">📜</span>
+          No rule set selected.<br>
+          Create one on the left to start building rules.
+        </div>
+        <div id="rulesetEditor" class="ruleset-editor hidden"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ View Data ═══ -->
+  <section id="tab-view" class="tab-panel hidden">
+    <div class="panel">
+      <div class="panel-title">Apply a rule set to a dataset</div>
+      <div class="view-controls">
+        <div class="vc-field">
+          <label for="viewDataset">Dataset</label>
+          <select id="viewDataset"></select>
+        </div>
+        <div class="vc-field">
+          <label for="viewRuleSet">Rule set</label>
+          <select id="viewRuleSet">
+            <option value="">— None (raw data) —</option>
+          </select>
+        </div>
+        <button class="btn btn-primary" onclick="applyView()">Apply</button>
+      </div>
+    </div>
+
+    <div id="viewResult" class="hidden">
+      <div class="metrics-grid" id="viewMetrics"></div>
+      <div class="panel" style="padding:0;overflow:hidden">
+        <div style="padding:12px 16px;display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--border);background:var(--surface2)">
+          <strong style="font-size:0.88rem">Rows</strong>
+          <span id="viewRowCount" style="color:var(--muted);font-size:0.82rem"></span>
+          <span style="margin-left:auto;color:var(--muted);font-size:0.78rem">Showing first 200</span>
+        </div>
+        <div class="table-wrap" id="viewTableWrap"></div>
+      </div>
+    </div>
+    <div id="viewEmpty" class="panel empty-state">
+      <span class="empty-icon">📊</span>
+      Pick a dataset and a rule set, then hit Apply.
+    </div>
+  </section>
+
+  <!-- ═══ Settings ═══ -->
+  <section id="tab-settings" class="tab-panel hidden">
+    <div class="panel">
+      <div class="panel-title">Column mappings <span class="hint">Applied at upload time · original → friendly name</span></div>
+      <div id="mappingList"></div>
+      <div class="mapping-row" style="margin-top:10px">
+        <input type="text" id="newMapFrom" placeholder="original column (e.g. prize_name)">
+        <div class="mapping-arrow">→</div>
+        <input type="text" id="newMapTo"   placeholder="friendly name (e.g. prize)">
+        <button class="btn btn-primary btn-small" onclick="addMapping()">Add</button>
+      </div>
+      <div style="margin-top:12px;display:flex;gap:8px">
+        <button class="btn btn-primary" onclick="saveMappings()">Save mappings</button>
+        <button class="btn btn-ghost" onclick="loadSettings().then(renderMappings)">Revert</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">Profile API
+        <span class="hint">PID → profile name, avatar, phone · per brand (from crm_brand_name)</span>
+      </div>
+      <div class="profile-api-row" style="display:grid;grid-template-columns:200px 1fr;gap:10px;margin-bottom:10px">
+        <label class="field-label" style="align-self:center;margin:0">PID column</label>
+        <input type="text" id="profilePidCol" style="width:100%"
+               onchange="settings.profileApi.pidColumn = this.value">
+      </div>
+      <div id="profileApiBrands"></div>
+      <div style="margin-top:10px">
+        <button class="btn btn-ghost btn-small" onclick="addProfileBrand()">+ Add brand</button>
+      </div>
+      <div class="panel-title" style="margin-top:16px;font-size:0.85rem">Brand name aliases
+        <span class="hint">Maps values in <code>crm_brand_name</code> (left) to the brand keys above (right)</span>
+      </div>
+      <div id="profileApiAliases"></div>
+      <div style="margin-top:8px">
+        <button class="btn btn-ghost btn-small" onclick="addProfileAlias()">+ Add alias</button>
+      </div>
+      <div style="margin-top:14px;display:flex;gap:8px">
+        <button class="btn btn-primary" onclick="saveProfileApi()">Save profile API</button>
+        <button class="btn btn-ghost" onclick="loadSettings().then(renderProfileApi)">Revert</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">Endpoints</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;font-size:0.85rem">
+        <div><strong style="color:var(--gold)">GET</strong> /api/health</div>
+        <div><strong style="color:var(--gold)">GET</strong> /api/datasets</div>
+        <div><strong style="color:var(--gold)">POST</strong> /api/datasets/:id/apply-rules</div>
+        <div><strong style="color:var(--gold)">POST</strong> /api/datasets/:id/enrich</div>
+        <div><strong style="color:var(--gold)">GET</strong> /api/settings</div>
+        <div><strong style="color:var(--gold)">POST</strong> /api/rule-sets</div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<script>
+// ── State ───────────────────────────────────────────────────────────────────
+let settings = { columnMappings: {}, ruleSets: [] };
+let datasets = [];
+let activeRuleSetId = null;
+const openRuleIds = new Set(); // rule ids whose config is expanded
+let bootTime = Date.now();
+
+// Cache of computed metric values per rule id for the active rule set, so the
+// aggregate-metrics picker can show "= 14" or "= 7,000" next to each option.
+// Populated by refreshRulePreview().
+const rulePreviewByRuleId = Object.create(null);
+let rulePreviewInFlightFor = null; // ruleSetId currently being fetched
+
+const RULE_TYPES = [
+  { value: 'select-columns', label: 'Keep columns',         category: 'transform' },
+  { value: 'rename',         label: 'Rename column',        category: 'transform' },
+  { value: 'sort',           label: 'Sort',                 category: 'transform' },
+  { value: 'count',          label: 'Count (match value)',  category: 'metric' },
+  { value: 'count-times',    label: 'Count × value',        category: 'metric' },
+  { value: 'sum',            label: 'Sum',                  category: 'metric' },
+  { value: 'avg',            label: 'Average',              category: 'metric' },
+  { value: 'min',            label: 'Min',                  category: 'metric' },
+  { value: 'max',            label: 'Max',                  category: 'metric' },
+  { value: 'count-by',       label: 'Count by (breakdown)', category: 'metric' },
+  { value: 'aggregate-metrics', label: 'Combine rules (sum/avg/min/max)', category: 'metric' },
+];
+
+function ruleCategory(type) {
+  const r = RULE_TYPES.find(x => x.value === type);
+  return r ? r.category : 'transform';
+}
+function ruleLabel(type) {
+  const r = RULE_TYPES.find(x => x.value === type);
+  return r ? r.label : type;
+}
+
+function esc(s) {
+  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function fmtNumber(n) {
+  if (n === null || n === undefined || !Number.isFinite(n)) return '—';
+  return n.toLocaleString(undefined, { maximumFractionDigits: 2 });
+}
+function fmtDate(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  const dd  = String(d.getDate()).padStart(2,'0');
+  const mm  = String(d.getMonth()+1).padStart(2,'0');
+  const hh  = String(d.getHours()).padStart(2,'0');
+  const min = String(d.getMinutes()).padStart(2,'0');
+  return `${dd}/${mm}/${d.getFullYear()} ${hh}:${min}`;
+}
+function fmtUptime(ms) {
+  const s = Math.floor(ms / 1000);
+  const hh = String(Math.floor(s / 3600)).padStart(2,'0');
+  const mm = String(Math.floor((s % 3600) / 60)).padStart(2,'0');
+  const ss = String(s % 60).padStart(2,'0');
+  return `${hh}:${mm}:${ss}`;
+}
+function banner(msg, kind = 'info', durationMs = 3500) {
+  const host = document.getElementById('bannerHost');
+  const div = document.createElement('div');
+  div.className = `banner ${kind}`;
+  div.innerHTML = esc(msg);
+  host.appendChild(div);
+  setTimeout(() => div.remove(), durationMs);
+}
+function rid(prefix = 'r') {
+  return `${prefix}_${Math.random().toString(36).slice(2, 8)}${Date.now().toString(36).slice(-3)}`;
+}
+
+// ── API ─────────────────────────────────────────────────────────────────────
+async function api(path, opts = {}) {
+  const res = await fetch(path, {
+    headers: { 'Content-Type': 'application/json' },
+    ...opts,
+  });
+  if (!res.ok) {
+    let msg = `HTTP ${res.status}`;
+    try { const j = await res.json(); if (j.error) msg = j.error; } catch (_) {}
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
+async function loadSettings() {
+  settings = await api('/api/settings');
+  return settings;
+}
+async function loadDatasets() {
+  const r = await api('/api/datasets');
+  datasets = r.datasets || [];
+  return datasets;
+}
+async function loadHealth() {
+  try {
+    const h = await api('/api/health');
+    bootTime = Date.now() - (h.uptimeSec * 1000 || 0);
+    document.getElementById('statusDot').classList.remove('offline');
+    document.getElementById('statusText').textContent = 'Online';
+    return h;
+  } catch (e) {
+    document.getElementById('statusDot').classList.add('offline');
+    document.getElementById('statusText').textContent = 'Offline';
+    throw e;
+  }
+}
+
+// ── Tabs ────────────────────────────────────────────────────────────────────
+function switchTab(name) {
+  document.querySelectorAll('.pill-tab').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.add('hidden'));
+  document.getElementById(`tab-${name}`).classList.remove('hidden');
+  if (name === 'view') refreshViewSelectors();
+  if (name === 'rulesets') renderRuleSets();
+}
+
+// ── Datasets ────────────────────────────────────────────────────────────────
+function renderDatasets() {
+  const host = document.getElementById('datasetList');
+  if (!datasets.length) {
+    host.innerHTML = `
+      <div class="empty-state">
+        <span class="empty-icon">📂</span>
+        No datasets yet. Upload a CSV above.
+      </div>`;
+    return;
+  }
+  host.innerHTML = datasets.map(d => `
+    <div class="dataset-row" data-id="${esc(d.id)}">
+      <div class="dataset-row-top">
+        <input type="text" value="${esc(d.label || d.filename)}"
+               placeholder="${esc(d.filename)}"
+               title="Rename this dataset"
+               style="flex:1;background:transparent;border:1px solid transparent;font-weight:600;padding:5px 8px;min-width:0"
+               onblur="renameDataset('${esc(d.id)}', this.value)"
+               onkeydown="if(event.key==='Enter'){this.blur()}">
+        <div class="dataset-meta">
+          <span>${fmtNumber(d.rowCount)} rows</span>
+          <span>${(d.headers || []).length} cols</span>
+          <span>${fmtDate(d.uploadedAt)}</span>
+        </div>
+        <div class="dataset-actions">
+          <button class="btn btn-small" onclick="gotoView('${esc(d.id)}')">View</button>
+          <button class="btn btn-small btn-enrich" onclick="enrichDataset('${esc(d.id)}', this)"
+                  title="Fetch profile name, avatar and phone for each PID from the brand's profile API">
+            ${d.enrichment ? '↻ Re-enrich' : '✨ Enrich'}
+          </button>
+          <button class="btn btn-danger btn-small" onclick="deleteDataset('${esc(d.id)}')">Delete</button>
+        </div>
+      </div>
+      ${renderDatasetSummary(d.summary)}
+      ${renderEnrichmentReport(d.enrichment)}
+    </div>
+  `).join('');
+}
+
+// A one-line badge under the chips showing the last enrichment outcome.
+// Helps users tell at a glance whether a dataset is ready for Figma.
+function renderEnrichmentReport(e) {
+  if (!e) return '';
+  const bits = [];
+  bits.push(`<span class="enrich-stat ok">${fmtNumber(e.enriched || 0)} matched</span>`);
+  if (e.missing)     bits.push(`<span class="enrich-stat miss">${fmtNumber(e.missing)} default avatar</span>`);
+  if (e.skippedRows) bits.push(`<span class="enrich-stat skip">${fmtNumber(e.skippedRows)} skipped</span>`);
+  if (Array.isArray(e.errors) && e.errors.length) {
+    const msg = e.errors.map(x => `${x.brandKey || '?'}: ${x.error}`).join(' · ');
+    bits.push(`<span class="enrich-stat err" title="${esc(msg)}">${e.errors.length} error${e.errors.length === 1 ? '' : 's'}</span>`);
+  }
+  const when = e.lastRunAt ? fmtDate(e.lastRunAt) : '';
+  return `<div class="enrich-report">Enriched ${when ? '· ' + esc(when) : ''} ${bits.join(' ')}</div>`;
+}
+
+async function enrichDataset(id, btn) {
+  const original = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '⏳ Enriching…';
+  try {
+    const j = await api(`/api/datasets/${id}/enrich`, { method: 'POST' });
+    const r = j.enrichment || {};
+    const msg = `Enriched ${fmtNumber(r.enriched || 0)} · ${fmtNumber(r.missing || 0)} default avatars · ${r.skippedRows || 0} skipped`;
+    banner(msg, (r.errors || []).length ? 'error' : 'success');
+    await loadDatasets(); renderDatasets(); renderStats();
+  } catch (err) {
+    banner(`Enrich failed: ${err.message}`, 'error', 6000);
+    btn.innerHTML = original;
+    btn.disabled = false;
+  }
+}
+
+// Pretty-print the 5 summary columns (saw_template_ui_name, saw_game_name,
+// crm_brand_name, saw_template_id, create_date) as chips under each dataset.
+// Returns empty string if the server couldn't extract a summary (e.g. empty
+// CSV or columns absent) — avoids a stray empty row in the UI.
+function renderDatasetSummary(s) {
+  if (!s) return '';
+  const chips = [];
+  if (s.brandName)      chips.push(chip('brand',    'Brand',    s.brandName));
+  if (s.templateUiName) chips.push(chip('template', 'Template', s.templateUiName));
+  if (s.gameName)       chips.push(chip('game',     'Game',     s.gameName));
+  if (s.templateId)     chips.push(chip('id',       'ID',       s.templateId));
+  const dateLabel = formatDateRange(s.createDateMin, s.createDateMax) || s.createDate;
+  if (dateLabel)        chips.push(chip('date',     'Created',  dateLabel));
+  if (!chips.length) return '';
+  return `<div class="dataset-summary">${chips.join('')}</div>`;
+}
+
+function chip(cls, label, value) {
+  return `<span class="dataset-chip ${cls}" title="${esc(label)}: ${esc(value)}">
+    <span class="chip-label">${esc(label)}</span>
+    <span class="chip-value">${esc(value)}</span>
+  </span>`;
+}
+
+// Pretty range like "12 Apr 2026" for single-day, "12–15 Apr 2026" for a
+// range in the same month, or "28 Mar → 03 Apr 2026" across months. Falls
+// back to returning the raw min value if parsing fails.
+function formatDateRange(min, max) {
+  if (!min) return '';
+  const dMin = parseSmarticoDate(min);
+  const dMax = max ? parseSmarticoDate(max) : dMin;
+  if (!dMin || !dMax) return String(min);
+  const sameDay = dMin.toDateString() === dMax.toDateString();
+  const short = (d) => `${String(d.getDate()).padStart(2,'0')} ${d.toLocaleString('en', { month:'short' })} ${d.getFullYear()}`;
+  if (sameDay) return short(dMin);
+  const sameMonth = dMin.getMonth() === dMax.getMonth() && dMin.getFullYear() === dMax.getFullYear();
+  if (sameMonth) return `${String(dMin.getDate()).padStart(2,'0')}–${short(dMax)}`;
+  return `${short(dMin)} → ${short(dMax)}`;
+}
+
+// Smartico exports `create_date` as DD/MM/YYYY HH:mm:ss which JS Date parses
+// as NaN in most locales. Try that format first, then fall back to native.
+function parseSmarticoDate(s) {
+  if (!s) return null;
+  const m = String(s).match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+  if (m) {
+    const d = new Date(+m[3], +m[2] - 1, +m[1], +(m[4]||0), +(m[5]||0), +(m[6]||0));
+    if (!isNaN(d.getTime())) return d;
+  }
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+function renderStats() {
+  document.getElementById('statTotalDatasets').textContent = datasets.length;
+  const totalRows = datasets.reduce((acc, d) => acc + (d.rowCount || 0), 0);
+  document.getElementById('statTotalRows').textContent = `${fmtNumber(totalRows)} rows total`;
+
+  const latest = datasets[0];
+  document.getElementById('statLatestRows').textContent = latest ? fmtNumber(latest.rowCount) : '—';
+  document.getElementById('statLatestAt').textContent = latest
+    ? `${latest.label || latest.filename} · ${fmtDate(latest.uploadedAt)}`
+    : 'No uploads yet';
+
+  document.getElementById('statRuleSets').textContent = (settings.ruleSets || []).length;
+  const totalRules = (settings.ruleSets || []).reduce((a, rs) => a + (rs.rules || []).length, 0);
+  document.getElementById('statRulesTotal').textContent = `${totalRules} rules across sets`;
+
+  document.getElementById('tabCountDatasets').textContent = datasets.length;
+  document.getElementById('tabCountRulesets').textContent = (settings.ruleSets || []).length;
+}
+
+function tickUptime() {
+  document.getElementById('statUptime').textContent = fmtUptime(Date.now() - bootTime);
+}
+
+// ── Upload ──────────────────────────────────────────────────────────────────
+const dropZone = document.getElementById('dropZone');
+['dragenter','dragover'].forEach(e => dropZone.addEventListener(e, evt => {
+  evt.preventDefault(); dropZone.classList.add('over');
+}));
+['dragleave','drop'].forEach(e => dropZone.addEventListener(e, evt => {
+  evt.preventDefault(); dropZone.classList.remove('over');
+}));
+dropZone.addEventListener('drop', evt => {
+  evt.preventDefault();
+  const file = evt.dataTransfer.files?.[0];
+  if (file) uploadCsv(file);
+});
+
+function handleFileChosen(ev) {
+  const file = ev.target.files?.[0];
+  if (file) uploadCsv(file);
+  ev.target.value = '';
+}
+
+async function uploadCsv(file) {
+  const progress = document.getElementById('uploadProgress');
+  progress.classList.remove('hidden');
+  progress.textContent = `Uploading ${file.name}…`;
+  const form = new FormData();
+  form.append('file', file);
+  try {
+    const res = await fetch('/upload', { method: 'POST', body: form });
+    const j = await res.json();
+    if (!res.ok) throw new Error(j.error || `HTTP ${res.status}`);
+    banner(`Uploaded ${file.name} · ${fmtNumber(j.rowCount)} rows`, 'success');
+    await refreshAll();
+  } catch (err) {
+    banner(`Upload failed: ${err.message}`, 'error', 6000);
+  } finally {
+    progress.classList.add('hidden');
+  }
+}
+
+async function renameDataset(id, label) {
+  try {
+    await api(`/api/datasets/${id}`, { method: 'PATCH', body: JSON.stringify({ label }) });
+    await loadDatasets(); renderDatasets(); renderStats();
+  } catch (err) {
+    banner(`Rename failed: ${err.message}`, 'error');
+  }
+}
+
+async function deleteDataset(id) {
+  if (!confirm('Delete this dataset?')) return;
+  try {
+    await api(`/api/datasets/${id}`, { method: 'DELETE' });
+    banner('Dataset deleted', 'success');
+    await refreshAll();
+  } catch (err) {
+    banner(`Delete failed: ${err.message}`, 'error');
+  }
+}
+
+function gotoView(id) {
+  switchTab('view');
+  setTimeout(() => {
+    const sel = document.getElementById('viewDataset');
+    sel.value = id;
+  }, 0);
+}
+
+// ── Rule Sets ───────────────────────────────────────────────────────────────
+function renderRuleSets() {
+  const sidebar = document.getElementById('rulesetSidebar');
+  const sets = settings.ruleSets || [];
+
+  if (!sets.find(rs => rs.id === activeRuleSetId)) {
+    activeRuleSetId = sets[0]?.id || null;
+  }
+
+  sidebar.innerHTML = sets.map(rs => `
+    <div class="ruleset-item ${rs.id === activeRuleSetId ? 'active' : ''}"
+         onclick="selectRuleSet('${esc(rs.id)}')">
+      <span class="ruleset-item-name">${esc(rs.name)}</span>
+      <span class="ruleset-item-count">${(rs.rules || []).length}</span>
+    </div>
+  `).join('') + `
+    <div class="ruleset-new-btn">
+      <button class="btn btn-primary btn-small" onclick="createRuleSet()" style="width:100%">+ New rule set</button>
+    </div>
+  `;
+
+  const editor = document.getElementById('rulesetEditor');
+  const empty = document.getElementById('rulesetEmpty');
+  const active = sets.find(rs => rs.id === activeRuleSetId);
+
+  if (!active) {
+    editor.classList.add('hidden');
+    empty.classList.remove('hidden');
+    return;
+  }
+  empty.classList.add('hidden');
+  editor.classList.remove('hidden');
+  renderRuleSetEditor(active);
+
+  // If this rule set has an aggregate rule, fetch preview values in the
+  // background so the picker can show "= value" next to each checkbox.
+  if ((active.rules || []).some(r => r.type === 'aggregate-metrics')) {
+    refreshRulePreview(active.id);
+  }
+}
+
+function selectRuleSet(id) {
+  activeRuleSetId = id;
+  renderRuleSets();
+}
+
+async function createRuleSet() {
+  const name = prompt('Name for the new rule set:', 'New rule set');
+  if (!name) return;
+  try {
+    const r = await api('/api/rule-sets', {
+      method: 'POST',
+      body: JSON.stringify({ name, rules: [] }),
+    });
+    await loadSettings();
+    activeRuleSetId = r.ruleSet.id;
+    renderRuleSets();
+    renderStats();
+    banner(`Rule set "${r.ruleSet.name}" created`, 'success');
+  } catch (err) {
+    banner(`Create failed: ${err.message}`, 'error');
+  }
+}
+
+async function deleteRuleSet(id) {
+  if (!confirm('Delete this rule set?')) return;
+  try {
+    await api(`/api/rule-sets/${id}`, { method: 'DELETE' });
+    await loadSettings();
+    activeRuleSetId = null;
+    renderRuleSets(); renderStats();
+    banner('Rule set deleted', 'success');
+  } catch (err) {
+    banner(`Delete failed: ${err.message}`, 'error');
+  }
+}
+
+async function saveRuleSet(ruleSet) {
+  try {
+    await api(`/api/rule-sets/${ruleSet.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        name: ruleSet.name,
+        description: ruleSet.description,
+        rules: ruleSet.rules,
+      }),
+    });
+    await loadSettings();
+    renderStats();
+  } catch (err) {
+    banner(`Save failed: ${err.message}`, 'error');
+  }
+}
+
+function renderRuleSetEditor(ruleSet) {
+  const editor = document.getElementById('rulesetEditor');
+  const headerSuggestions = datasets[0]?.headers || [];
+
+  editor.innerHTML = `
+    <div class="ruleset-editor-header">
+      <div class="names">
+        <input type="text" value="${esc(ruleSet.name)}"
+               oninput="onRuleSetFieldInput('${esc(ruleSet.id)}', this, 'name')"
+               onblur="commitRuleSetMeta('${esc(ruleSet.id)}')"
+               style="font-size:1rem;font-weight:700;">
+        <textarea rows="1" placeholder="Optional description"
+                  oninput="onRuleSetFieldInput('${esc(ruleSet.id)}', this, 'description')"
+                  onblur="commitRuleSetMeta('${esc(ruleSet.id)}')"
+                  style="font-size:0.82rem;resize:vertical">${esc(ruleSet.description || '')}</textarea>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <button class="btn btn-small" onclick="duplicateRuleSet('${esc(ruleSet.id)}')">Duplicate</button>
+        <button class="btn btn-danger btn-small" onclick="deleteRuleSet('${esc(ruleSet.id)}')">Delete</button>
+      </div>
+    </div>
+
+    ${(ruleSet.rules || []).length > 0 ? `
+      <div style="display:flex;justify-content:flex-end;margin-bottom:6px">
+        <button class="btn btn-small" onclick="toggleAllRules('${esc(ruleSet.id)}')"
+                title="Expand or collapse every rule in this set">
+          ${(ruleSet.rules || []).every(r => openRuleIds.has(r.id)) ? 'Collapse all' : 'Expand all'}
+        </button>
+      </div>
+    ` : ''}
+
+    <div class="rule-list" id="ruleList_${esc(ruleSet.id)}">
+      ${(ruleSet.rules || []).map((rule, idx) => renderRuleCard(ruleSet, rule, idx, headerSuggestions)).join('')}
+      ${(ruleSet.rules || []).length === 0 ? `
+        <div class="empty-state" style="padding:20px">
+          <span class="empty-icon">🧩</span>
+          No rules yet. Add one below.
+        </div>` : ''}
+    </div>
+
+    <div class="add-rule-row">
+      <label class="field-label" style="margin:0;padding:0">Add rule</label>
+      <select id="newRuleType_${esc(ruleSet.id)}">
+        ${RULE_TYPES.map(t => `<option value="${t.value}">${esc(t.label)}</option>`).join('')}
+      </select>
+      <button class="btn btn-primary btn-small" onclick="addRule('${esc(ruleSet.id)}')">Add</button>
+    </div>
+  `;
+}
+
+function renderRuleCard(ruleSet, rule, idx, headerSuggestions) {
+  const cat = ruleCategory(rule.type);
+  const configFields = renderRuleConfigFields(ruleSet.id, rule, idx, headerSuggestions);
+  const isOpen = openRuleIds.has(rule.id);
+  const summary = ruleSummary(rule);
+  return `
+    <div class="rule-card ${isOpen ? 'open' : ''}" data-rule-id="${esc(rule.id)}">
+      <div class="rule-card-header">
+        <button class="rule-chevron" title="${isOpen ? 'Collapse' : 'Expand'}"
+                onclick="toggleRuleOpen('${esc(rule.id)}')">›</button>
+        <span class="rule-type-badge ${cat}">${esc(ruleLabel(rule.type))}</span>
+        <input class="rule-name-input" type="text" value="${esc(rule.name || '')}"
+               placeholder="Rule name"
+               oninput="updateRuleField('${esc(ruleSet.id)}', ${idx}, 'name', this.value)"
+               onblur="saveActiveRuleSet()">
+        ${summary && !isOpen ? `<span class="rule-summary" title="${esc(summary)}">${esc(summary)}</span>` : ''}
+        <div style="display:flex;gap:4px">
+          <button class="btn btn-small" title="Move up" onclick="moveRule('${esc(ruleSet.id)}', ${idx}, -1)">↑</button>
+          <button class="btn btn-small" title="Move down" onclick="moveRule('${esc(ruleSet.id)}', ${idx}, 1)">↓</button>
+          <button class="btn btn-danger btn-small" onclick="removeRule('${esc(ruleSet.id)}', ${idx})">✕</button>
+        </div>
+      </div>
+      <div class="rule-card-config">
+        ${configFields}
+      </div>
+    </div>
+  `;
+}
+
+function ruleSummary(rule) {
+  const c = rule.config || {};
+  switch (rule.type) {
+    case 'rename':         return c.from && c.to ? `${c.from} → ${c.to}` : '—';
+    case 'sort':           return c.column ? `${c.column} · ${c.direction === 'desc' ? 'desc' : 'asc'}` : '—';
+    case 'select-columns': {
+      const cols = Array.isArray(c.columns) ? c.columns : [];
+      return cols.length ? `keep ${cols.length}: ${cols.slice(0, 3).join(', ')}${cols.length > 3 ? '…' : ''}` : '—';
+    }
+    case 'count':          return c.column && c.value ? `${c.column} ${c.matchMode === 'exact' ? '=' : '~'} "${c.value}"` : '—';
+    case 'count-times':    return c.column && c.value ? `${c.column} ${c.matchMode === 'exact' ? '=' : '~'} "${c.value}" × ${c.multiplier ?? '?'}` : '—';
+    case 'sum':
+    case 'avg':
+    case 'min':
+    case 'max':
+    case 'count-by':       return c.column || '—';
+    case 'aggregate-metrics': {
+      const op = c.op || 'sum';
+      const n = Array.isArray(c.ruleIds) ? c.ruleIds.length : 0;
+      return n > 0 ? `${op} of ${n} rule${n === 1 ? '' : 's'}` : '—';
+    }
+    default:               return '';
+  }
+}
+
+function toggleRuleOpen(ruleId) {
+  if (openRuleIds.has(ruleId)) openRuleIds.delete(ruleId);
+  else openRuleIds.add(ruleId);
+  const card = document.querySelector(`.rule-card[data-rule-id="${CSS.escape(ruleId)}"]`);
+  if (!card) { renderRuleSets(); return; }
+  // Re-render just this card in place so we don't lose focus on other inputs.
+  const rs = activeRuleSet();
+  if (!rs) { renderRuleSets(); return; }
+  const idx = rs.rules.findIndex(r => r.id === ruleId);
+  if (idx < 0) { renderRuleSets(); return; }
+  const headers = headerSuggestionsForActive();
+  const wrapper = document.createElement('div');
+  wrapper.innerHTML = renderRuleCard(rs, rs.rules[idx], idx, headers).trim();
+  card.replaceWith(wrapper.firstElementChild);
+  // Refresh the "Expand all" ↔ "Collapse all" button label without re-rendering
+  // the whole editor (which would blow away focus on name inputs).
+  const allBtn = document.querySelector(`#rulesetEditor .btn[onclick*="toggleAllRules"]`);
+  if (allBtn) {
+    const allOpen = rs.rules.every(r => openRuleIds.has(r.id));
+    allBtn.textContent = allOpen ? 'Collapse all' : 'Expand all';
+  }
+}
+
+function toggleAllRules(ruleSetId) {
+  const rs = (settings.ruleSets || []).find(r => r.id === ruleSetId);
+  if (!rs || !rs.rules.length) return;
+  const allOpen = rs.rules.every(r => openRuleIds.has(r.id));
+  if (allOpen) {
+    rs.rules.forEach(r => openRuleIds.delete(r.id));
+  } else {
+    rs.rules.forEach(r => openRuleIds.add(r.id));
+  }
+  renderRuleSets();
+}
+
+// Header suggestions for the active rule set — matches what renderRuleSets uses
+// so targeted in-place re-renders stay consistent with the full render.
+function headerSuggestionsForActive() {
+  return datasets[0]?.headers || [];
+}
+
+function columnOptions(headers, selected) {
+  const set = new Set(headers || []);
+  if (selected && !set.has(selected)) set.add(selected);
+  return [
+    `<option value="">— column —</option>`,
+    ...[...set].map(h => `<option value="${esc(h)}" ${h === selected ? 'selected' : ''}>${esc(h)}</option>`),
+  ].join('');
+}
+
+function renderRuleConfigFields(ruleSetId, rule, idx, headers) {
+  const cfg = rule.config || {};
+  switch (rule.type) {
+    case 'rename':
+      return `
+        <div class="field">
+          <label class="field-label">From</label>
+          <select onchange="updateRuleConfig('${esc(ruleSetId)}', ${idx}, 'from', this.value); saveActiveRuleSet()">
+            ${columnOptions(headers, cfg.from)}
+          </select>
+        </div>
+        <div class="field">
+          <label class="field-label">To</label>
+          <input type="text" value="${esc(cfg.to || '')}" placeholder="new column name"
+                 oninput="updateRuleConfig('${esc(ruleSetId)}', ${idx}, 'to', this.value)"
+                 onblur="saveActiveRuleSet()">
+        </div>
+      `;
+    case 'sort':
+      return `
+        <div class="field">
+          <label class="field-label">Column</label>
+          <select onchange="updateRuleConfig('${esc(ruleSetId)}', ${idx}, 'column', this.value); saveActiveRuleSet()">
+            ${columnOptions(headers, cfg.column)}
+          </select>
+        </div>
+        <div class="field">
+          <label class="field-label">Direction</label>
+          <select onchange="updateRuleConfig('${esc(ruleSetId)}', ${idx}, 'direction', this.value); saveActiveRuleSet()">
+            <option value="asc"  ${cfg.direction !== 'desc' ? 'selected' : ''}>Ascending</option>
+            <option value="desc" ${cfg.direction === 'desc' ? 'selected' : ''}>Descending</option>
+          </select>
+        </div>
+      `;
+    case 'select-columns': {
+      const selected = Array.isArray(cfg.columns) ? cfg.columns : [];
+      const selSet = new Set(selected);
+      const available = (headers || []).filter(h => !selSet.has(h));
+      return `
+        <div class="field columns-input">
+          <label class="field-label">Keep these columns (ordered)</label>
+          <div class="chip-row">
+            ${selected.length === 0
+              ? `<span style="color:var(--muted);font-size:0.82rem;padding:4px 8px">No columns selected — click below to add</span>`
+              : selected.map((c, i) => `
+                  <span class="chip selected">
+                    <span>${esc(c)}</span>
+                    <button type="button" class="chip-btn" title="Move left"  onclick="moveSelectedColumn('${esc(ruleSetId)}', ${idx}, ${i}, -1)">‹</button>
+                    <button type="button" class="chip-btn" title="Move right" onclick="moveSelectedColumn('${esc(ruleSetId)}', ${idx}, ${i},  1)">›</button>
+                    <button type="button" class="chip-btn" title="Remove" onclick="removeSelectedColumn('${esc(ruleSetId)}', ${idx}, ${i})">✕</button>
+                  </span>
+                `).join('')
+            }
+          </div>
+          <div class="chip-picker">
+            ${available.length === 0
+              ? `<span style="color:var(--muted);font-size:0.82rem">All available columns already selected.</span>`
+              : available.map(h => `
+                  <span class="chip" onclick="addSelectedColumn('${esc(ruleSetId)}', ${idx}, '${esc(h)}')">+ ${esc(h)}</span>
+                `).join('')
+            }
+          </div>
+        </div>
+      `;
+    }
+    case 'count':
+      return `
+        <div class="field">
+          <label class="field-label">Column</label>
+          <select onchange="updateRuleConfig('${esc(ruleSetId)}', ${idx}, 'column', this.value); saveActiveRuleSet()">
+            ${columnOptions(headers, cfg.column)}
+          </select>
+        </div>
+        <div class="field">
+          <label class="field-label">Match value</label>
+          <input type="text" value="${esc(cfg.value || '')}" placeholder="e.g. Free Flight"
+                 oninput="updateRuleConfig('${esc(ruleSetId)}', ${idx}, 'value', this.value)"
+                 onblur="saveActiveRuleSet()">
+        </div>
+        <div class="field">
+          <label class="field-label">Mode</label>
+          <select onchange="updateRuleConfig('${esc(ruleSetId)}', ${idx}, 'matchMode', this.value); saveActiveRuleSet()">
+            <option value="contains" ${cfg.matchMode !== 'exact' ? 'selected' : ''}>Contains</option>
+            <option value="exact"    ${cfg.matchMode === 'exact' ? 'selected' : ''}>Exact</option>
+          </select>
+        </div>
+      `;
+    case 'count-times':
+      return `
+        <div class="field">
+          <label class="field-label">Column</label>
+          <select onchange="updateRuleConfig('${esc(ruleSetId)}', ${idx}, 'column', this.value); saveActiveRuleSet()">
+            ${columnOptions(headers, cfg.column)}
+          </select>
+        </div>
+        <div class="field">
+          <label class="field-label">Match value</label>
+          <input type="text" value="${esc(cfg.value || '')}" placeholder="e.g. Free Flight 10MT"
+                 oninput="updateRuleConfig('${esc(ruleSetId)}', ${idx}, 'value', this.value)"
+                 onblur="saveActiveRuleSet()">
+        </div>
+        <div class="field">
+          <label class="field-label">Mode</label>
+          <select onchange="updateRuleConfig('${esc(ruleSetId)}', ${idx}, 'matchMode', this.value); saveActiveRuleSet()">
+            <option value="contains" ${cfg.matchMode !== 'exact' ? 'selected' : ''}>Contains</option>
+            <option value="exact"    ${cfg.matchMode === 'exact' ? 'selected' : ''}>Exact</option>
+          </select>
+        </div>
+        <div class="field">
+          <label class="field-label">Multiply by</label>
+          <input type="number" step="any" value="${esc(cfg.multiplier ?? '')}" placeholder="e.g. 10"
+                 oninput="updateRuleConfig('${esc(ruleSetId)}', ${idx}, 'multiplier', this.value === '' ? '' : Number(this.value))"
+                 onblur="saveActiveRuleSet()">
+        </div>
+      `;
+    case 'sum':
+    case 'avg':
+    case 'min':
+    case 'max':
+    case 'count-by':
+      return `
+        <div class="field">
+          <label class="field-label">Column</label>
+          <select onchange="updateRuleConfig('${esc(ruleSetId)}', ${idx}, 'column', this.value); saveActiveRuleSet()">
+            ${columnOptions(headers, cfg.column)}
+          </select>
+        </div>
+      `;
+    case 'aggregate-metrics': {
+      const rs = (settings.ruleSets || []).find(r => r.id === ruleSetId);
+      const allRules = rs ? rs.rules : [];
+      // Only rules that appear BEFORE this one, and that produce a numeric metric
+      // (count, count-times, sum/avg/min/max, or another aggregate-metrics).
+      const numericTypes = new Set(['count', 'count-times', 'sum', 'avg', 'min', 'max', 'aggregate-metrics']);
+      const prior = allRules
+        .slice(0, idx)
+        .filter(r => numericTypes.has(r.type));
+      const selected = new Set(Array.isArray(cfg.ruleIds) ? cfg.ruleIds : []);
+      const op = cfg.op || 'sum';
+      const pickerHtml = prior.length === 0
+        ? `<div class="aggregate-rule-empty">Add numeric rules above this one first (Count, Count × value, Sum, etc.).</div>`
+        : prior.map(r => {
+            const preview = rulePreviewByRuleId[r.id];
+            const previewHtml = preview === undefined
+              ? `<span class="rule-preview-val pending" title="Computing…">…</span>`
+              : preview === null
+                ? `<span class="rule-preview-val muted" title="No numeric value yet">—</span>`
+                : `<span class="rule-preview-val" title="Current output">= ${fmtNumber(preview)}</span>`;
+            return `
+              <label class="aggregate-rule-option">
+                <input type="checkbox" ${selected.has(r.id) ? 'checked' : ''}
+                       onchange="toggleAggregateRuleId('${esc(ruleSetId)}', ${idx}, '${esc(r.id)}')">
+                <span class="rule-type-mini">${esc(ruleLabel(r.type))}</span>
+                <span class="rule-label-mini">${esc(r.name || ruleLabel(r.type))}</span>
+                ${previewHtml}
+              </label>
+            `;
+          }).join('');
+      return `
+        <div class="field">
+          <label class="field-label">Operation</label>
+          <select onchange="updateRuleConfig('${esc(ruleSetId)}', ${idx}, 'op', this.value); saveActiveRuleSet()">
+            <option value="sum" ${op === 'sum' ? 'selected' : ''}>Sum</option>
+            <option value="avg" ${op === 'avg' ? 'selected' : ''}>Average</option>
+            <option value="min" ${op === 'min' ? 'selected' : ''}>Min</option>
+            <option value="max" ${op === 'max' ? 'selected' : ''}>Max</option>
+          </select>
+        </div>
+        <div class="field">
+          <label class="field-label">Rules to combine (${selected.size} selected)</label>
+          <div class="aggregate-rule-picker">
+            ${pickerHtml}
+          </div>
+        </div>
+      `;
+    }
+    default:
+      return `<div class="field"><em style="color:var(--muted)">Unknown rule type.</em></div>`;
+  }
+}
+
+function activeRuleSet() {
+  return (settings.ruleSets || []).find(rs => rs.id === activeRuleSetId);
+}
+function updateRuleField(ruleSetId, idx, field, value) {
+  const rs = settings.ruleSets.find(r => r.id === ruleSetId);
+  if (!rs || !rs.rules[idx]) return;
+  rs.rules[idx][field] = value;
+}
+function updateRuleConfig(ruleSetId, idx, key, value) {
+  const rs = settings.ruleSets.find(r => r.id === ruleSetId);
+  if (!rs || !rs.rules[idx]) return;
+  rs.rules[idx].config = rs.rules[idx].config || {};
+  rs.rules[idx].config[key] = value;
+}
+function onRuleSetFieldInput(ruleSetId, input, field) {
+  const rs = settings.ruleSets.find(r => r.id === ruleSetId);
+  if (!rs) return;
+  rs[field] = input.value;
+}
+async function commitRuleSetMeta(ruleSetId) {
+  const rs = settings.ruleSets.find(r => r.id === ruleSetId);
+  if (!rs) return;
+  await saveRuleSet(rs);
+  renderRuleSets();
+}
+async function saveActiveRuleSet() {
+  const rs = activeRuleSet();
+  if (!rs) return;
+  await saveRuleSet(rs);
+  renderRuleSets();
+}
+
+// Fetch apply-rules for the active rule set against the newest dataset, then
+// cache each metric's numeric value by ruleId so the aggregate picker can
+// annotate each checkbox with its current output. Called fire-and-forget.
+async function refreshRulePreview(ruleSetId) {
+  const ds = datasets[0];
+  if (!ds || !ruleSetId) return;
+  // Skip if we're already fetching this one
+  if (rulePreviewInFlightFor === ruleSetId) return;
+  rulePreviewInFlightFor = ruleSetId;
+  try {
+    const r = await api(`/api/datasets/${ds.id}/apply-rules`, {
+      method: 'POST',
+      body: JSON.stringify({ ruleSetId }),
+    });
+    // Clear previous cache for this ruleSet's rules before repopulating
+    const rs = (settings.ruleSets || []).find(x => x.id === ruleSetId);
+    if (rs) for (const rule of rs.rules) delete rulePreviewByRuleId[rule.id];
+    for (const m of r.metrics || []) {
+      const n = Number(m.value);
+      rulePreviewByRuleId[m.ruleId] = Number.isFinite(n) ? n : null;
+    }
+    // Re-render only if the user is still looking at the same rule set
+    if (activeRuleSetId === ruleSetId) {
+      const active = (settings.ruleSets || []).find(x => x.id === ruleSetId);
+      if (active) renderRuleSetEditor(active);
+    }
+  } catch (err) {
+    // Silent — preview is best-effort, doesn't block editing
+    console.warn('rule preview refresh failed:', err.message);
+  } finally {
+    rulePreviewInFlightFor = null;
+  }
+}
+
+async function toggleAggregateRuleId(ruleSetId, idx, targetRuleId) {
+  const rs = (settings.ruleSets || []).find(r => r.id === ruleSetId);
+  if (!rs || !rs.rules[idx]) return;
+  const rule = rs.rules[idx];
+  rule.config = rule.config || {};
+  const current = Array.isArray(rule.config.ruleIds) ? rule.config.ruleIds : [];
+  const set = new Set(current);
+  if (set.has(targetRuleId)) set.delete(targetRuleId);
+  else set.add(targetRuleId);
+  // Preserve order of rules in the rule set so the breakdown renders top-to-bottom.
+  const ordered = rs.rules.map(r => r.id).filter(id => set.has(id));
+  rule.config.ruleIds = ordered;
+  await saveRuleSet(rs);
+  renderRuleSets();
+}
+
+async function addRule(ruleSetId) {
+  const rs = settings.ruleSets.find(r => r.id === ruleSetId);
+  if (!rs) return;
+  const typeSel = document.getElementById(`newRuleType_${ruleSetId}`);
+  const type = typeSel.value;
+  const defaults = type === 'select-columns'    ? { columns: [] }
+                 : type === 'sort'              ? { direction: 'asc' }
+                 : type === 'count'             ? { matchMode: 'contains' }
+                 : type === 'count-times'       ? { matchMode: 'contains', multiplier: 1 }
+                 : type === 'aggregate-metrics' ? { op: 'sum', ruleIds: [] }
+                 : {};
+  const newId = rid('r');
+  rs.rules.push({
+    id: newId,
+    type,
+    name: ruleLabel(type),
+    config: defaults,
+  });
+  openRuleIds.add(newId); // expand the new rule so it's immediately editable
+  await saveRuleSet(rs);
+  renderRuleSets();
+}
+
+async function removeRule(ruleSetId, idx) {
+  const rs = settings.ruleSets.find(r => r.id === ruleSetId);
+  if (!rs) return;
+  rs.rules.splice(idx, 1);
+  await saveRuleSet(rs);
+  renderRuleSets();
+}
+
+async function moveRule(ruleSetId, idx, delta) {
+  const rs = settings.ruleSets.find(r => r.id === ruleSetId);
+  if (!rs) return;
+  const next = idx + delta;
+  if (next < 0 || next >= rs.rules.length) return;
+  [rs.rules[idx], rs.rules[next]] = [rs.rules[next], rs.rules[idx]];
+  await saveRuleSet(rs);
+  renderRuleSets();
+}
+
+async function duplicateRuleSet(ruleSetId) {
+  const rs = settings.ruleSets.find(r => r.id === ruleSetId);
+  if (!rs) return;
+  try {
+    const r = await api('/api/rule-sets', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: `${rs.name} (copy)`,
+        description: rs.description,
+        rules: rs.rules.map(r => ({ ...r, id: rid('r'), config: { ...(r.config || {}) } })),
+      }),
+    });
+    await loadSettings();
+    activeRuleSetId = r.ruleSet.id;
+    renderRuleSets(); renderStats();
+    banner(`Duplicated as "${r.ruleSet.name}"`, 'success');
+  } catch (err) {
+    banner(`Duplicate failed: ${err.message}`, 'error');
+  }
+}
+
+// select-columns chip handlers
+async function addSelectedColumn(ruleSetId, idx, col) {
+  const rs = settings.ruleSets.find(r => r.id === ruleSetId);
+  if (!rs || !rs.rules[idx]) return;
+  rs.rules[idx].config = rs.rules[idx].config || {};
+  const cols = Array.isArray(rs.rules[idx].config.columns) ? [...rs.rules[idx].config.columns] : [];
+  if (!cols.includes(col)) cols.push(col);
+  rs.rules[idx].config.columns = cols;
+  await saveRuleSet(rs);
+  renderRuleSetEditor(rs);
+}
+async function removeSelectedColumn(ruleSetId, idx, colIdx) {
+  const rs = settings.ruleSets.find(r => r.id === ruleSetId);
+  if (!rs || !rs.rules[idx]) return;
+  const cols = [...(rs.rules[idx].config?.columns || [])];
+  cols.splice(colIdx, 1);
+  rs.rules[idx].config.columns = cols;
+  await saveRuleSet(rs);
+  renderRuleSetEditor(rs);
+}
+async function moveSelectedColumn(ruleSetId, idx, colIdx, delta) {
+  const rs = settings.ruleSets.find(r => r.id === ruleSetId);
+  if (!rs || !rs.rules[idx]) return;
+  const cols = [...(rs.rules[idx].config?.columns || [])];
+  const next = colIdx + delta;
+  if (next < 0 || next >= cols.length) return;
+  [cols[colIdx], cols[next]] = [cols[next], cols[colIdx]];
+  rs.rules[idx].config.columns = cols;
+  await saveRuleSet(rs);
+  renderRuleSetEditor(rs);
+}
+
+// ── View tab ────────────────────────────────────────────────────────────────
+function refreshViewSelectors() {
+  const dSel = document.getElementById('viewDataset');
+  const rSel = document.getElementById('viewRuleSet');
+  const currentD = dSel.value;
+  const currentR = rSel.value;
+
+  dSel.innerHTML = datasets.length
+    ? datasets.map(d => `<option value="${esc(d.id)}">${esc(d.label || d.filename)} · ${fmtNumber(d.rowCount)} rows</option>`).join('')
+    : '<option value="">— No datasets —</option>';
+  if (currentD && datasets.some(d => d.id === currentD)) dSel.value = currentD;
+
+  const sets = settings.ruleSets || [];
+  rSel.innerHTML = `<option value="">— None (raw data) —</option>` +
+    sets.map(rs => `<option value="${esc(rs.id)}">${esc(rs.name)} · ${(rs.rules || []).length} rules</option>`).join('');
+  if (currentR) rSel.value = currentR;
+}
+
+async function applyView() {
+  const datasetId = document.getElementById('viewDataset').value;
+  const ruleSetId = document.getElementById('viewRuleSet').value;
+  if (!datasetId) {
+    banner('Pick a dataset first', 'error');
+    return;
+  }
+  try {
+    const body = ruleSetId ? { ruleSetId } : { rules: [] };
+    const r = await api(`/api/datasets/${datasetId}/apply-rules`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+    renderViewResult(r);
+  } catch (err) {
+    banner(`Apply failed: ${err.message}`, 'error');
+  }
+}
+
+function renderViewResult(result) {
+  document.getElementById('viewEmpty').classList.add('hidden');
+  document.getElementById('viewResult').classList.remove('hidden');
+
+  const metricsHost = document.getElementById('viewMetrics');
+  if (!result.metrics?.length) {
+    metricsHost.innerHTML = `<div class="panel" style="margin:0;text-align:center;color:var(--muted);font-size:0.9rem;padding:16px">No metrics — this rule set has only transforms (or no rules).</div>`;
+  } else {
+    metricsHost.innerHTML = result.metrics.map(m => renderMetricCard(m)).join('');
+  }
+
+  document.getElementById('viewRowCount').textContent = `${fmtNumber(result.rows.length)} rows`;
+
+  const rows = result.rows.slice(0, 200);
+  const headers = result.headers || (rows[0] ? Object.keys(rows[0]) : []);
+  const wrap = document.getElementById('viewTableWrap');
+  if (!rows.length) {
+    wrap.innerHTML = `<div class="empty-state"><span class="empty-icon">📊</span>No rows.</div>`;
+  } else {
+    wrap.innerHTML = `
+      <table>
+        <thead><tr>${headers.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead>
+        <tbody>
+          ${rows.map(r => `<tr>${headers.map(h => `<td>${esc(r[h] ?? '')}</td>`).join('')}</tr>`).join('')}
+        </tbody>
+      </table>
+    `;
+  }
+}
+
+function renderMetricCard(m) {
+  if (m.type === 'count-by') {
+    const entries = Object.entries(m.value || {}).sort((a, b) => b[1] - a[1]);
+    return `
+      <div class="metric-card count-by">
+        <div class="metric-name">${esc(m.ruleName || 'Count by')} <span style="color:var(--muted)">· ${esc(m.column)}</span></div>
+        <div class="metric-breakdown">
+          ${entries.length === 0
+            ? '<div style="color:var(--muted);font-size:0.82rem">No values.</div>'
+            : entries.slice(0, 8).map(([k, v]) => `
+                <div class="metric-breakdown-row">
+                  <span class="metric-breakdown-key">${esc(k || '(empty)')}</span>
+                  <span class="metric-breakdown-val">${fmtNumber(v)}</span>
+                </div>
+              `).join('')
+          }
+          ${entries.length > 8 ? `<div style="color:var(--muted);font-size:0.75rem;margin-top:4px">+ ${entries.length - 8} more</div>` : ''}
+        </div>
+      </div>
+    `;
+  }
+  if (m.type === 'count-times') {
+    return `
+      <div class="metric-card count-times">
+        <div class="metric-name">${esc(m.ruleName || 'Count × value')}</div>
+        <div class="metric-value gold">${fmtNumber(m.value)}</div>
+        <div class="metric-sub">
+          ${fmtNumber(m.count)} × ${fmtNumber(m.multiplier)}
+          <span style="color:var(--muted)"> · ${esc(m.matchMode)} "${esc(m.matchValue)}" in ${esc(m.column)}</span>
+        </div>
+      </div>
+    `;
+  }
+  if (m.type === 'aggregate-metrics') {
+    const sources = Array.isArray(m.sources) ? m.sources : [];
+    const opLabel = { sum: 'Sum', avg: 'Average', min: 'Min', max: 'Max' }[m.op] || m.op || 'Sum';
+    const rowsHtml = sources.length === 0
+      ? `<div class="aggregate-source-row"><span class="aggregate-source-name">No rules selected.</span></div>`
+      : sources.map(s => {
+          const typeLabel = s.sourceType ? ruleLabel(s.sourceType) : (s.missing ? 'missing' : '');
+          return `
+            <div class="aggregate-source-row ${s.missing ? 'missing' : ''}">
+              ${typeLabel ? `<span class="aggregate-source-type">${esc(typeLabel)}</span>` : ''}
+              <span class="aggregate-source-name">${esc(s.name || (s.missing ? '(missing rule)' : s.id))}</span>
+              <span class="aggregate-source-val">${s.missing ? '—' : (Number.isFinite(s.value) ? fmtNumber(s.value) : '—')}</span>
+            </div>
+          `;
+        }).join('');
+    return `
+      <div class="metric-card aggregate-metrics">
+        <div class="metric-name">${esc(m.ruleName || 'Combine rules')} <span style="color:var(--muted)">· ${esc(opLabel)}</span></div>
+        <div class="metric-value gold">${m.value === null || m.value === undefined ? '—' : fmtNumber(m.value)}</div>
+        <div class="aggregate-sources">
+          ${rowsHtml}
+        </div>
+      </div>
+    `;
+  }
+  const sub = m.type === 'count'
+    ? `${esc(m.matchMode)} · "${esc(m.matchValue)}" in ${esc(m.column)}`
+    : `${esc(m.column)}${m.sampleCount !== undefined ? ` · ${fmtNumber(m.sampleCount)} samples` : ''}`;
+  return `
+    <div class="metric-card ${m.type}">
+      <div class="metric-name">${esc(m.ruleName || m.type)}</div>
+      <div class="metric-value gold">${fmtNumber(m.value)}</div>
+      <div class="metric-sub">${sub}</div>
+    </div>
+  `;
+}
+
+// ── Settings ────────────────────────────────────────────────────────────────
+function renderMappings() {
+  const host = document.getElementById('mappingList');
+  const entries = Object.entries(settings.columnMappings || {});
+  if (!entries.length) {
+    host.innerHTML = `<div style="color:var(--muted);font-size:0.86rem;padding:6px 0">No mappings yet.</div>`;
+    return;
+  }
+  host.innerHTML = entries.map(([from, to]) => `
+    <div class="mapping-row">
+      <input type="text" value="${esc(from)}" data-from="${esc(from)}" onchange="renameMappingKey(this)">
+      <div class="mapping-arrow">→</div>
+      <input type="text" value="${esc(to)}" onchange="settings.columnMappings['${esc(from).replace(/'/g, "\\'")}'] = this.value">
+      <button class="btn btn-danger btn-small" onclick="removeMapping('${esc(from).replace(/'/g, "\\'")}')">✕</button>
+    </div>
+  `).join('');
+}
+function addMapping() {
+  const from = document.getElementById('newMapFrom').value.trim();
+  const to   = document.getElementById('newMapTo').value.trim();
+  if (!from || !to) return banner('Both fields are required', 'error');
+  settings.columnMappings[from] = to;
+  document.getElementById('newMapFrom').value = '';
+  document.getElementById('newMapTo').value = '';
+  renderMappings();
+}
+function removeMapping(key) {
+  delete settings.columnMappings[key];
+  renderMappings();
+}
+function renameMappingKey(input) {
+  const oldKey = input.dataset.from;
+  const newKey = input.value.trim();
+  if (!newKey || oldKey === newKey) return;
+  const v = settings.columnMappings[oldKey];
+  delete settings.columnMappings[oldKey];
+  settings.columnMappings[newKey] = v;
+  renderMappings();
+}
+async function saveMappings() {
+  try {
+    const res = await api('/api/settings', {
+      method: 'POST',
+      body: JSON.stringify({
+        columnMappings: settings.columnMappings,
+        ruleSets: settings.ruleSets,
+      }),
+    });
+    // Server may have rewritten column references in rule sets to track the
+    // new mapping. Pull the swept settings back into memory so the UI reflects it.
+    if (res && res.settings) {
+      settings = res.settings;
+      renderMappings();
+      if (!document.getElementById('tab-rulesets').classList.contains('hidden')) {
+        renderRuleSets();
+      }
+    }
+    const rewriteCount = res && res.rewrites ? Object.keys(res.rewrites).length : 0;
+    if (rewriteCount > 0) {
+      const pairs = Object.entries(res.rewrites).map(([a, b]) => `${a} → ${b}`).join(', ');
+      banner(`Mappings saved · swept ${rewriteCount} column ref${rewriteCount === 1 ? '' : 's'} in rule sets (${pairs})`, 'success');
+    } else {
+      banner('Mappings saved', 'success');
+    }
+  } catch (err) {
+    banner(`Save failed: ${err.message}`, 'error');
+  }
+}
+
+// ── Profile API settings ────────────────────────────────────────────────────
+// Ensure a profileApi object always exists in memory even if an older
+// settings.json is loaded; normalise missing sub-objects so the UI doesn't
+// crash when we read .endpoints etc.
+function ensureProfileApi() {
+  const p = settings.profileApi = settings.profileApi || {};
+  p.brandMap       = p.brandMap       || {};
+  p.endpoints      = p.endpoints      || {};
+  p.defaultAvatars = p.defaultAvatars || {};
+  p.pidColumn      = p.pidColumn      || 'PID';
+  p.batchSize      = p.batchSize      || 1000;
+  return p;
+}
+
+function renderProfileApi() {
+  const p = ensureProfileApi();
+  document.getElementById('profilePidCol').value = p.pidColumn;
+
+  // Brand keys are the union of endpoints + defaultAvatars keys so adding
+  // either side surfaces a row for the other.
+  const brandKeys = Array.from(new Set([
+    ...Object.keys(p.endpoints || {}),
+    ...Object.keys(p.defaultAvatars || {}),
+  ])).sort();
+
+  document.getElementById('profileApiBrands').innerHTML = brandKeys.map(key => `
+    <div class="profile-brand-row" data-key="${esc(key)}">
+      <div class="profile-brand-head">
+        <input type="text" value="${esc(key)}"
+               onchange="renameProfileBrand('${esc(key).replace(/'/g, "\\'")}', this.value)"
+               placeholder="Brand key (e.g. 888bets Mozambique)" class="profile-brand-key">
+        <button class="btn btn-danger btn-small" onclick="removeProfileBrand('${esc(key).replace(/'/g, "\\'")}')">✕</button>
+      </div>
+      <label class="field-label" style="margin-top:8px">Endpoint URL</label>
+      <input type="text" value="${esc(p.endpoints[key] || '')}"
+             onchange="settings.profileApi.endpoints['${esc(key).replace(/'/g, "\\'")}'] = this.value"
+             placeholder="https://example.com/wp-json/.../profile-names-by-pids">
+      <label class="field-label" style="margin-top:8px">Default avatar URL</label>
+      <input type="text" value="${esc(p.defaultAvatars[key] || '')}"
+             onchange="settings.profileApi.defaultAvatars['${esc(key).replace(/'/g, "\\'")}'] = this.value"
+             placeholder="https://.../default-avatar.png">
+    </div>
+  `).join('') || '<div class="hint" style="padding:8px 0">No brands configured yet.</div>';
+
+  // Aliases map crm_brand_name (left) → brand key (right)
+  const aliases = Object.entries(p.brandMap || {});
+  document.getElementById('profileApiAliases').innerHTML = aliases.map(([from, to]) => `
+    <div class="mapping-row">
+      <input type="text" value="${esc(from)}"
+             onchange="renameProfileAlias('${esc(from).replace(/'/g, "\\'")}', this.value)"
+             placeholder="crm_brand_name value">
+      <div class="mapping-arrow">→</div>
+      <input type="text" value="${esc(to)}"
+             onchange="settings.profileApi.brandMap['${esc(from).replace(/'/g, "\\'")}'] = this.value"
+             placeholder="brand key">
+      <button class="btn btn-danger btn-small" onclick="removeProfileAlias('${esc(from).replace(/'/g, "\\'")}')">✕</button>
+    </div>
+  `).join('') || '<div class="hint" style="padding:4px 0">No aliases — crm_brand_name must exactly match a brand key.</div>';
+}
+
+function addProfileBrand() {
+  const p = ensureProfileApi();
+  const name = prompt('Brand key (e.g. "888bets Mozambique")');
+  if (!name) return;
+  if (!p.endpoints[name])      p.endpoints[name] = '';
+  if (!p.defaultAvatars[name]) p.defaultAvatars[name] = '';
+  renderProfileApi();
+}
+function removeProfileBrand(key) {
+  const p = ensureProfileApi();
+  if (!confirm(`Remove brand "${key}" from profile API config?`)) return;
+  delete p.endpoints[key];
+  delete p.defaultAvatars[key];
+  // Also drop any aliases that point at it so state stays consistent.
+  for (const [alias, target] of Object.entries(p.brandMap)) {
+    if (target === key) delete p.brandMap[alias];
+  }
+  renderProfileApi();
+}
+function renameProfileBrand(oldKey, newKey) {
+  newKey = (newKey || '').trim();
+  if (!newKey || oldKey === newKey) return renderProfileApi();
+  const p = ensureProfileApi();
+  p.endpoints[newKey]      = p.endpoints[oldKey]      || '';
+  p.defaultAvatars[newKey] = p.defaultAvatars[oldKey] || '';
+  delete p.endpoints[oldKey];
+  delete p.defaultAvatars[oldKey];
+  for (const [alias, target] of Object.entries(p.brandMap)) {
+    if (target === oldKey) p.brandMap[alias] = newKey;
+  }
+  renderProfileApi();
+}
+
+function addProfileAlias() {
+  const p = ensureProfileApi();
+  const from = prompt('crm_brand_name value (e.g. "888-Mozambique")');
+  if (!from) return;
+  const to = prompt('Brand key it should map to');
+  if (!to) return;
+  p.brandMap[from] = to;
+  renderProfileApi();
+}
+function removeProfileAlias(key) {
+  delete ensureProfileApi().brandMap[key];
+  renderProfileApi();
+}
+function renameProfileAlias(oldKey, newKey) {
+  newKey = (newKey || '').trim();
+  if (!newKey || oldKey === newKey) return renderProfileApi();
+  const p = ensureProfileApi();
+  p.brandMap[newKey] = p.brandMap[oldKey];
+  delete p.brandMap[oldKey];
+  renderProfileApi();
+}
+
+async function saveProfileApi() {
+  try {
+    const res = await api('/api/settings', {
+      method: 'POST',
+      body: JSON.stringify({
+        columnMappings: settings.columnMappings,
+        ruleSets: settings.ruleSets,
+        profileApi: settings.profileApi,
+      }),
+    });
+    if (res && res.settings) settings = res.settings;
+    renderProfileApi();
+    banner('Profile API settings saved', 'success');
+  } catch (err) {
+    banner(`Save failed: ${err.message}`, 'error');
+  }
+}
+
+// ── Boot ────────────────────────────────────────────────────────────────────
+async function refreshAll() {
+  try {
+    await Promise.all([loadSettings(), loadDatasets(), loadHealth()]);
+    renderDatasets();
+    renderStats();
+    renderMappings();
+    renderProfileApi();
+    refreshViewSelectors();
+    if (!document.getElementById('tab-rulesets').classList.contains('hidden')) {
+      renderRuleSets();
+    }
+  } catch (err) {
+    banner(`Refresh failed: ${err.message}`, 'error');
+  }
+}
+
+refreshAll();
+setInterval(tickUptime, 1000);
+setInterval(loadHealth, 15000);
+</script>
+
+</body>
+</html>

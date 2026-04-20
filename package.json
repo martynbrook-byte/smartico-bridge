@@ -1,0 +1,20 @@
+{
+  "name": "smartico-bridge",
+  "version": "0.1.0",
+  "description": "Bridge that ingests Smartico winners data (CSV today, API later) into a dashboard and downstream Figma plugin",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "test": "node test-bridge.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "csv-parser": "^3.0.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.18.2",
+    "multer": "^1.4.5-lts.1"
+  }
+}

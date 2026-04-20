@@ -1,0 +1,710 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Smartico Bridge</title>
+<style>
+  :root {
+    --bg: #1a1a2e;
+    --surface: #16213e;
+    --surface2: #0f3460;
+    --gold: #f5a623;
+    --teal: #14b8a6;
+    --red: #ef4444;
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+    --border: #334155;
+    --radius: 6px;
+    --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 12px;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ── Header ── */
+  .header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 10px 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+  .header-logo { font-size: 16px; }
+  .header-title { font-weight: 700; font-size: 13px; color: var(--gold); flex: 1; }
+  .header-status {
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 10px;
+    background: #14b8a615;
+    border: 1px solid #14b8a633;
+    color: var(--teal);
+  }
+  .header-status.offline {
+    background: #ef444415;
+    border-color: #ef444433;
+    color: var(--red);
+  }
+
+  /* ── Scrollable body ── */
+  .body { flex: 1; overflow-y: auto; padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; }
+  .body::-webkit-scrollbar { width: 4px; }
+  .body::-webkit-scrollbar-track { background: transparent; }
+  .body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  /* ── Sections ── */
+  .section { display: flex; flex-direction: column; gap: 6px; }
+  .section-title {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+  }
+
+  /* ── Form controls ── */
+  label { font-size: 11px; color: var(--muted); display: block; margin-bottom: 2px; }
+  input[type="text"], input[type="number"], select {
+    width: 100%;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text);
+    padding: 5px 8px;
+    font-size: 11px;
+    font-family: var(--font);
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  input:focus, select:focus { border-color: var(--gold); }
+  select option { background: var(--surface2); }
+
+  /* ── Buttons ── */
+  .btn {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+    color: var(--text);
+    padding: 5px 10px;
+    font-size: 11px;
+    font-family: var(--font);
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+  }
+  .btn:hover:not(:disabled) { border-color: var(--gold); color: var(--gold); }
+  .btn:disabled { opacity: 0.5; cursor: default; }
+  .btn-primary { background: var(--gold); border-color: var(--gold); color: #0f0f1a; font-weight: 700; }
+  .btn-primary:hover:not(:disabled) { background: #f7b84b; border-color: #f7b84b; color: #0f0f1a; }
+  .btn-ghost { background: transparent; }
+  .btn-sm { padding: 3px 8px; font-size: 10px; }
+  .btn-row { display: flex; gap: 6px; align-items: center; }
+
+  /* ── Mode toggle ── */
+  .mode-toggle { display: flex; gap: 0; border-radius: var(--radius); overflow: hidden; border: 1px solid var(--border); }
+  .mode-toggle button {
+    flex: 1; border: none; border-radius: 0; background: var(--surface);
+    color: var(--muted); padding: 5px 8px; font-size: 11px; cursor: pointer;
+    font-family: var(--font); transition: all 0.15s;
+  }
+  .mode-toggle button.active { background: var(--surface2); color: var(--gold); font-weight: 600; }
+  .mode-toggle button:hover:not(.active) { color: var(--text); }
+
+  /* ── Dataset card ── */
+  .dataset-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 8px 10px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .dataset-card:hover { border-color: var(--gold); }
+  .dataset-card.selected { border-color: var(--gold); background: #f5a62310; }
+  .ds-name { font-weight: 600; font-size: 11px; color: var(--text); }
+  .ds-meta { font-size: 10px; color: var(--muted); margin-top: 2px; display: flex; gap: 8px; flex-wrap: wrap; }
+  .ds-chip {
+    background: var(--surface2); border-radius: 4px; padding: 1px 5px;
+    font-size: 10px;
+  }
+  .ds-chip.enriched { background: #14b8a615; color: var(--teal); border: 1px solid #14b8a633; }
+
+  /* ── Preview table ── */
+  .preview-wrap {
+    overflow-x: auto;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    max-height: 160px;
+    overflow-y: auto;
+  }
+  .preview-wrap::-webkit-scrollbar { height: 4px; width: 4px; }
+  .preview-wrap::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+  table { width: 100%; border-collapse: collapse; font-size: 10px; }
+  th {
+    background: var(--surface2); color: var(--muted); font-weight: 600;
+    padding: 4px 7px; text-align: left; position: sticky; top: 0;
+    white-space: nowrap; border-bottom: 1px solid var(--border);
+  }
+  td {
+    padding: 3px 7px; border-bottom: 1px solid #1e293b;
+    max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    vertical-align: middle;
+  }
+  tr.selected-row td { background: #f5a62310; }
+  tr:hover td { background: #ffffff08; cursor: pointer; }
+  .avatar-thumb {
+    width: 20px; height: 20px; border-radius: 50%; object-fit: cover;
+    vertical-align: middle;
+  }
+
+  /* ── Row controls ── */
+  .row-controls { display: flex; align-items: center; gap: 6px; }
+  .row-controls input[type="number"] { width: 54px; text-align: center; }
+  .row-counter { color: var(--muted); font-size: 10px; }
+
+  /* ── Selection info ── */
+  .selection-box {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 7px 10px;
+    font-size: 10px;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .selection-box .sel-name { color: var(--text); font-weight: 600; font-size: 11px; }
+  .selection-box.none { border-style: dashed; }
+
+  /* ── Inject button bar ── */
+  .inject-bar {
+    position: sticky;
+    bottom: 0;
+    background: var(--bg);
+    border-top: 1px solid var(--border);
+    padding: 8px 12px;
+    flex-shrink: 0;
+  }
+  .inject-bar .btn-primary { width: 100%; padding: 8px; font-size: 12px; }
+
+  /* ── Banner ── */
+  .banner {
+    font-size: 10px;
+    padding: 5px 8px;
+    border-radius: var(--radius);
+    display: none;
+    margin-top: 4px;
+  }
+  .banner.ok { background: #14b8a615; border: 1px solid #14b8a633; color: var(--teal); display: block; }
+  .banner.err { background: #ef444415; border: 1px solid #ef444433; color: var(--red); display: block; }
+  .banner.info { background: #f5a62315; border: 1px solid #f5a62333; color: var(--gold); display: block; }
+
+  /* ── Settings drawer ── */
+  .settings-drawer { display: none; flex-direction: column; gap: 6px; }
+  .settings-drawer.open { display: flex; }
+  .settings-toggle {
+    font-size: 10px; color: var(--muted); background: none; border: none;
+    cursor: pointer; padding: 0; text-decoration: underline; font-family: var(--font);
+    align-self: flex-start;
+  }
+  .settings-toggle:hover { color: var(--text); }
+
+  /* ── Loading / empty states ── */
+  .empty { color: var(--muted); font-size: 11px; padding: 12px 0; text-align: center; }
+  .spinner { display: inline-block; width: 10px; height: 10px; border: 2px solid var(--border); border-top-color: var(--gold); border-radius: 50%; animation: spin 0.7s linear infinite; margin-right: 4px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Divider ── */
+  hr { border: none; border-top: 1px solid var(--border); }
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<div class="header">
+  <span class="header-logo">🎰</span>
+  <span class="header-title">Smartico Bridge</span>
+  <span class="header-status offline" id="connStatus">Offline</span>
+</div>
+
+<!-- Scrollable body -->
+<div class="body" id="mainBody">
+
+  <!-- Server URL + settings toggle -->
+  <div class="section">
+    <button class="settings-toggle" onclick="toggleSettings()">⚙ Server settings</button>
+    <div class="settings-drawer" id="settingsDrawer">
+      <label for="serverUrl">Bridge server URL</label>
+      <input type="text" id="serverUrl" value="http://localhost:3001"
+             placeholder="http://localhost:3001"
+             onchange="onServerUrlChange()">
+      <div class="btn-row">
+        <button class="btn btn-sm" onclick="connect()">Reconnect</button>
+      </div>
+    </div>
+  </div>
+
+  <hr>
+
+  <!-- Dataset list -->
+  <div class="section">
+    <div style="display:flex;align-items:center;justify-content:space-between">
+      <span class="section-title">Dataset</span>
+      <button class="btn btn-ghost btn-sm" onclick="loadDatasets()">↻ Refresh</button>
+    </div>
+    <div id="datasetList"><div class="empty">Connecting…</div></div>
+  </div>
+
+  <!-- Rule set (shown once dataset is picked) -->
+  <div class="section" id="rulesetSection" style="display:none">
+    <label for="rulesetSelect">Apply rule set (optional)</label>
+    <select id="rulesetSelect" onchange="onRuleSetChange()">
+      <option value="">— None (raw data) —</option>
+    </select>
+  </div>
+
+  <!-- Mode toggle -->
+  <div class="section" id="modeSection" style="display:none">
+    <span class="section-title">Inject mode</span>
+    <div class="mode-toggle">
+      <button id="modeSingle" class="active" onclick="setMode('single')">Single row</button>
+      <button id="modeBatch" onclick="setMode('batch')">Batch (all rows)</button>
+    </div>
+    <div id="modeHint" class="banner info" style="display:block">
+      Single: inject one row into the selected frame/component.<br>
+      Batch: inject N rows into N child frames in order (e.g. a leaderboard).
+    </div>
+  </div>
+
+  <!-- Row picker (single mode) -->
+  <div class="section" id="rowPickerSection" style="display:none">
+    <span class="section-title">Row</span>
+    <div class="row-controls">
+      <button class="btn btn-sm" onclick="stepRow(-1)">◀</button>
+      <input type="number" id="rowIndex" value="0" min="0" onchange="onRowIndexChange()">
+      <button class="btn btn-sm" onclick="stepRow(1)">▶</button>
+      <span class="row-counter" id="rowCounter">of 0</span>
+    </div>
+  </div>
+
+  <!-- Preview table -->
+  <div class="section" id="previewSection" style="display:none">
+    <span class="section-title">Preview</span>
+    <div class="preview-wrap" id="previewWrap">
+      <div class="empty">No data</div>
+    </div>
+  </div>
+
+  <!-- Figma selection info -->
+  <div class="section" id="selectionSection" style="display:none">
+    <span class="section-title">Figma selection</span>
+    <div class="selection-box none" id="selectionBox">
+      <span id="selectionLabel">Nothing selected</span>
+      <button class="btn btn-sm btn-ghost" onclick="refreshSelection()">↻</button>
+    </div>
+    <div id="batchInfo" style="display:none;font-size:10px;color:var(--muted);margin-top:2px"></div>
+  </div>
+
+  <!-- Status banner -->
+  <div class="banner" id="injectBanner"></div>
+
+</div><!-- /body -->
+
+<!-- Inject bar -->
+<div class="inject-bar" id="injectBar" style="display:none">
+  <button class="btn btn-primary" id="injectBtn" onclick="inject()">
+    Inject into Figma
+  </button>
+</div>
+
+<script>
+// ── State ─────────────────────────────────────────────────────────────────────
+let serverUrl   = 'http://localhost:3001';
+let datasets    = [];
+let ruleSets    = [];
+let activeRows  = [];          // current rows (after optional rule set apply)
+let activeHeaders = [];
+let selectedDatasetId = null;
+let selectedRuleSetId = null;
+let mode        = 'single';    // 'single' | 'batch'
+let rowIndex    = 0;
+let figmaSelection = [];
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+connect();
+refreshSelection();
+
+// ── Connection ────────────────────────────────────────────────────────────────
+async function connect() {
+  serverUrl = document.getElementById('serverUrl').value.trim().replace(/\/$/, '');
+  setStatus('…', false);
+  try {
+    const r = await api('/api/health');
+    setStatus('Online', true);
+    loadDatasets();
+    loadRuleSets();
+  } catch (err) {
+    setStatus('Offline', false);
+    document.getElementById('datasetList').innerHTML =
+      `<div class="empty">Cannot reach ${serverUrl}.<br>Is the bridge server running?</div>`;
+  }
+}
+
+function onServerUrlChange() {
+  serverUrl = document.getElementById('serverUrl').value.trim().replace(/\/$/, '');
+}
+
+function setStatus(label, ok) {
+  const el = document.getElementById('connStatus');
+  el.textContent = label;
+  el.className = 'header-status' + (ok ? '' : ' offline');
+}
+
+// ── API helper ────────────────────────────────────────────────────────────────
+async function api(path, opts = {}) {
+  const res = await fetch(serverUrl + path, {
+    headers: { 'Content-Type': 'application/json' },
+    ...opts,
+  });
+  if (!res.ok) {
+    const t = await res.text().catch(() => '');
+    throw new Error(`HTTP ${res.status}: ${t.slice(0, 120)}`);
+  }
+  return res.json();
+}
+
+// ── Datasets ──────────────────────────────────────────────────────────────────
+async function loadDatasets() {
+  document.getElementById('datasetList').innerHTML =
+    '<div class="empty"><span class="spinner"></span>Loading…</div>';
+  try {
+    const j = await api('/api/datasets');
+    datasets = j.datasets || [];
+    renderDatasetList();
+  } catch (err) {
+    document.getElementById('datasetList').innerHTML =
+      `<div class="empty" style="color:var(--red)">${esc(err.message)}</div>`;
+  }
+}
+
+function renderDatasetList() {
+  const el = document.getElementById('datasetList');
+  if (!datasets.length) {
+    el.innerHTML = '<div class="empty">No datasets yet. Upload a CSV in the Bridge dashboard.</div>';
+    return;
+  }
+  el.innerHTML = datasets.map(d => {
+    const name = esc(d.label || d.filename);
+    const rows = fmtNum(d.rowCount);
+    const date = d.uploadedAt ? new Date(d.uploadedAt).toLocaleDateString() : '';
+    const brand = d.summary?.brandName || '';
+    const enriched = !!d.enrichment;
+    const sel = d.id === selectedDatasetId ? ' selected' : '';
+    return `
+      <div class="dataset-card${sel}" onclick="selectDataset('${d.id}')">
+        <div class="ds-name">${name}</div>
+        <div class="ds-meta">
+          <span>${rows} rows</span>
+          ${brand ? `<span class="ds-chip">${esc(brand)}</span>` : ''}
+          ${enriched ? `<span class="ds-chip enriched">✓ enriched</span>` : ''}
+          ${date ? `<span>${date}</span>` : ''}
+        </div>
+      </div>`;
+  }).join('');
+}
+
+async function selectDataset(id) {
+  selectedDatasetId = id;
+  selectedRuleSetId = null;
+  document.getElementById('rulesetSelect').value = '';
+  renderDatasetList();
+
+  // Show dependent sections
+  show('rulesetSection');
+  show('modeSection');
+  show('selectionSection');
+  show('injectBar');
+
+  await refreshRows();
+}
+
+// ── Rule sets ─────────────────────────────────────────────────────────────────
+async function loadRuleSets() {
+  try {
+    const s = await api('/api/settings');
+    ruleSets = s.ruleSets || [];
+    const sel = document.getElementById('rulesetSelect');
+    // Rebuild options
+    while (sel.options.length > 1) sel.remove(1);
+    for (const rs of ruleSets) {
+      const opt = document.createElement('option');
+      opt.value = rs.id;
+      opt.textContent = rs.name + (rs.description ? ` — ${rs.description}` : '');
+      sel.appendChild(opt);
+    }
+  } catch (_) {}
+}
+
+async function onRuleSetChange() {
+  selectedRuleSetId = document.getElementById('rulesetSelect').value || null;
+  await refreshRows();
+}
+
+// ── Rows / preview ────────────────────────────────────────────────────────────
+async function refreshRows() {
+  if (!selectedDatasetId) return;
+  try {
+    let rows, headers;
+    if (selectedRuleSetId) {
+      const j = await api(`/api/datasets/${selectedDatasetId}/apply-rules`, {
+        method: 'POST',
+        body: JSON.stringify({ ruleSetId: selectedRuleSetId }),
+      });
+      rows = j.rows || [];
+      headers = j.headers || [];
+    } else {
+      const j = await api(`/api/datasets/${selectedDatasetId}`);
+      rows = j.rows || [];
+      headers = j.headers || Object.keys(rows[0] || {});
+    }
+    activeRows = rows;
+    activeHeaders = headers;
+    rowIndex = 0;
+    updateRowPicker();
+    renderPreview();
+    show('previewSection');
+    show('rowPickerSection', mode === 'single');
+    updateBatchInfo();
+    hideBanner();
+  } catch (err) {
+    showBanner('Failed to load rows: ' + err.message, 'err');
+  }
+}
+
+// ── Mode ──────────────────────────────────────────────────────────────────────
+function setMode(m) {
+  mode = m;
+  document.getElementById('modeSingle').className = m === 'single' ? 'active' : '';
+  document.getElementById('modeBatch').className  = m === 'batch'  ? 'active' : '';
+  show('rowPickerSection', m === 'single');
+  updateBatchInfo();
+}
+
+// ── Row picker ────────────────────────────────────────────────────────────────
+function stepRow(delta) {
+  rowIndex = Math.max(0, Math.min(activeRows.length - 1, rowIndex + delta));
+  document.getElementById('rowIndex').value = rowIndex;
+  document.getElementById('rowCounter').textContent = `of ${activeRows.length}`;
+  renderPreview();
+}
+
+function onRowIndexChange() {
+  const v = parseInt(document.getElementById('rowIndex').value, 10);
+  if (!isNaN(v)) rowIndex = Math.max(0, Math.min(activeRows.length - 1, v));
+  document.getElementById('rowIndex').value = rowIndex;
+  renderPreview();
+}
+
+function updateRowPicker() {
+  document.getElementById('rowIndex').value = 0;
+  document.getElementById('rowIndex').max = Math.max(0, activeRows.length - 1);
+  document.getElementById('rowCounter').textContent = `of ${activeRows.length}`;
+}
+
+// ── Preview table ─────────────────────────────────────────────────────────────
+function renderPreview() {
+  const wrap = document.getElementById('previewWrap');
+  if (!activeRows.length) { wrap.innerHTML = '<div class="empty">No rows</div>'; return; }
+
+  // Show up to 6 rows, highlight selected in single mode
+  const visibleRows = activeRows.slice(0, 50);
+  const cols = activeHeaders.slice(0, 10); // cap at 10 columns for readability
+
+  const thead = `<tr>${cols.map(c => `<th title="${esc(c)}">${esc(trunc(c, 14))}</th>`).join('')}</tr>`;
+  const tbody = visibleRows.map((row, i) => {
+    const sel = (mode === 'single' && i === rowIndex) ? ' class="selected-row"' : '';
+    const cells = cols.map(c => {
+      const v = row[c] ?? '';
+      // Show avatar as thumbnail
+      if ((c === 'avatar' || c === 'avatar_image') && String(v).startsWith('http')) {
+        return `<td><img class="avatar-thumb" src="${esc(v)}" onerror="this.style.display='none'" loading="lazy"></td>`;
+      }
+      return `<td title="${esc(String(v))}" onclick="selectRow(${i})">${esc(trunc(String(v), 18))}</td>`;
+    }).join('');
+    return `<tr${sel}>${cells}</tr>`;
+  }).join('');
+
+  wrap.innerHTML = `<table><thead>${thead}</thead><tbody>${tbody}</tbody></table>`;
+}
+
+function selectRow(i) {
+  if (mode !== 'single') return;
+  rowIndex = i;
+  document.getElementById('rowIndex').value = i;
+  renderPreview();
+}
+
+// ── Figma selection ───────────────────────────────────────────────────────────
+function refreshSelection() {
+  parent.postMessage({ pluginMessage: { type: 'get-selection' } }, '*');
+}
+
+function updateSelectionBox() {
+  const box = document.getElementById('selectionBox');
+  const lbl = document.getElementById('selectionLabel');
+  if (!figmaSelection.length) {
+    box.className = 'selection-box none';
+    lbl.innerHTML = '<span style="color:var(--muted)">Nothing selected in Figma</span>';
+  } else if (figmaSelection.length === 1) {
+    const n = figmaSelection[0];
+    box.className = 'selection-box';
+    lbl.innerHTML = `<span class="sel-name">${esc(n.name)}</span> <span style="color:var(--muted)">${n.type}${n.childCount ? ` · ${n.childCount} children` : ''}</span>`;
+  } else {
+    box.className = 'selection-box';
+    lbl.innerHTML = `<span class="sel-name">${figmaSelection.length} nodes selected</span>`;
+  }
+  updateBatchInfo();
+}
+
+function updateBatchInfo() {
+  const el = document.getElementById('batchInfo');
+  if (mode !== 'batch' || !figmaSelection.length || !activeRows.length) {
+    el.style.display = 'none';
+    return;
+  }
+  const slots = figmaSelection[0]?.childCount || 0;
+  const rows  = activeRows.length;
+  const fill  = Math.min(rows, slots);
+  el.style.display = 'block';
+  el.textContent = `Will fill ${fill} of ${slots} child frames using ${rows} rows.`;
+}
+
+// ── Inject ────────────────────────────────────────────────────────────────────
+async function inject() {
+  if (!activeRows.length) { showBanner('No rows loaded.', 'err'); return; }
+  const btn = document.getElementById('injectBtn');
+  btn.disabled = true;
+  btn.textContent = '⏳ Injecting…';
+  hideBanner();
+
+  try {
+    if (mode === 'single') {
+      const row = activeRows[rowIndex];
+      const imageMap = await fetchImagesForRow(row);
+      parent.postMessage({
+        pluginMessage: { type: 'inject-single', row, imageMap },
+      }, '*');
+    } else {
+      // Batch — fetch images for all rows (up to the child count of the selected frame)
+      const slots = figmaSelection[0]?.childCount || activeRows.length;
+      const rows = activeRows.slice(0, slots);
+      const imageMap = {};
+      for (let i = 0; i < rows.length; i++) {
+        imageMap[i] = await fetchImagesForRow(rows[i]);
+      }
+      parent.postMessage({
+        pluginMessage: { type: 'inject-batch', rows, imageMap },
+      }, '*');
+    }
+    // Result comes back via onmessage — re-enable button there
+  } catch (err) {
+    showBanner('Inject error: ' + err.message, 'err');
+    btn.disabled = false;
+    btn.textContent = 'Inject into Figma';
+  }
+}
+
+// Fetch image bytes for avatar-type columns in a row.
+// Returns { [columnName]: Array<number> } (plain array so it serialises over postMessage).
+async function fetchImagesForRow(row) {
+  const imageMap = {};
+  const imageCols = ['avatar', 'avatar_image'];
+  for (const col of imageCols) {
+    const url = row[col];
+    if (!url || !String(url).startsWith('http')) continue;
+    try {
+      const res = await fetch(url);
+      if (!res.ok) continue;
+      const buf = await res.arrayBuffer();
+      imageMap[col] = Array.from(new Uint8Array(buf));
+    } catch (_) {
+      // Skip — code.js will leave the fill unchanged
+    }
+  }
+  return imageMap;
+}
+
+// ── Plugin message handler (from code.js) ────────────────────────────────────
+window.onmessage = (event) => {
+  const msg = event.data?.pluginMessage;
+  if (!msg) return;
+  const btn = document.getElementById('injectBtn');
+  btn.disabled = false;
+  btn.textContent = 'Inject into Figma';
+
+  if (msg.type === 'selection') {
+    figmaSelection = msg.nodes || [];
+    updateSelectionBox();
+    return;
+  }
+
+  if (msg.type === 'inject-result') {
+    if (!msg.ok) {
+      showBanner('✕ ' + msg.error, 'err');
+      return;
+    }
+    const errs = (msg.errors || []).length;
+    let text = '';
+    if (msg.injectedCount !== undefined) {
+      text = `✓ Injected ${msg.injectedCount} rows into ${msg.totalSlots} slots.`;
+      if (msg.totalRows > msg.totalSlots) text += ` (${msg.totalRows - msg.totalSlots} rows unused — add more child frames to show them all)`;
+    } else {
+      text = `✓ Injected into: ${(msg.injectedTo || []).join(', ')}`;
+    }
+    if (errs) text += `  ⚠ ${errs} warning${errs > 1 ? 's' : ''}.`;
+    showBanner(text, errs ? 'info' : 'ok');
+    return;
+  }
+};
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function show(id, condition = true) {
+  document.getElementById(id).style.display = condition ? '' : 'none';
+}
+
+function toggleSettings() {
+  const d = document.getElementById('settingsDrawer');
+  d.classList.toggle('open');
+}
+
+function showBanner(msg, type) {
+  const el = document.getElementById('injectBanner');
+  el.textContent = msg;
+  el.className = `banner ${type}`;
+}
+function hideBanner() {
+  document.getElementById('injectBanner').className = 'banner';
+}
+
+function esc(s) {
+  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function trunc(s, n) { return s.length > n ? s.slice(0, n) + '…' : s; }
+function fmtNum(n) { return (n || 0).toLocaleString(); }
+</script>
+</body>
+</html>

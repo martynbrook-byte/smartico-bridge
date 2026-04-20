@@ -1153,6 +1153,10 @@ function renderDatasets() {
                   title="Fetch profile name, avatar and phone for each PID from the brand's profile API">
             ${d.enrichment ? '↻ Re-enrich' : '✨ Enrich'}
           </button>
+          <button class="btn btn-small btn-ghost" onclick="remapDataset('${esc(d.id)}', this)"
+                  title="Re-apply current column mappings to this dataset (use after changing mappings)">
+            ↻ Re-map
+          </button>
           <button class="btn btn-danger btn-small" onclick="deleteDataset('${esc(d.id)}')">Delete</button>
         </div>
       </div>
@@ -1176,6 +1180,21 @@ function renderEnrichmentReport(e) {
   }
   const when = e.lastRunAt ? fmtDate(e.lastRunAt) : '';
   return `<div class="enrich-report">Enriched ${when ? '· ' + esc(when) : ''} ${bits.join(' ')}</div>`;
+}
+
+async function remapDataset(id, btn) {
+  const original = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '⏳ Re-mapping…';
+  try {
+    const j = await api(`/api/datasets/${id}/remap`, { method: 'POST' });
+    banner(`✓ Column mappings applied — ${j.renamedCount} column(s) renamed`, 'success');
+    await loadDatasets(); renderDatasets(); renderStats();
+  } catch (err) {
+    banner(`Re-map failed: ${err.message}`, 'error', 6000);
+    btn.innerHTML = original;
+    btn.disabled = false;
+  }
 }
 
 async function enrichDataset(id, btn) {

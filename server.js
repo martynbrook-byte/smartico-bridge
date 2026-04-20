@@ -807,6 +807,52 @@ app.post('/api/datasets/:id/enrich', async (req, res) => {
   }
 });
 
+// Re-apply current column mappings to a stored dataset.
+// Useful when mappings were added/changed after the CSV was originally uploaded.
+// Idempotent — running twice is safe (already-mapped columns pass through unchanged).
+app.post('/api/datasets/:id/remap', async (req, res) => {
+  try {
+    const settings = await readSettings();
+    const record   = await getDataset(req.params.id);
+    const mappings = settings.columnMappings || {};
+
+    if (!Object.keys(mappings).length) {
+      return res.json({ ok: true, renamedCount: 0, message: 'No column mappings configured.' });
+    }
+
+    const before = record.rows.length ? Object.keys(record.rows[0]) : [];
+    record.rows    = applyColumnMappings(record.rows, mappings);
+    record.headers = record.rows.length
+      ? Object.keys(record.rows[0])
+      : record.headers.map(h => mappings[h] || h);
+
+    // Count how many headers actually changed
+    const after        = record.rows.length ? Object.keys(record.rows[0]) : [];
+    const renamedCount = before.filter((h, i) => h !== after[i]).length;
+
+    record.summary = computeSummary(record);
+    await saveDataset(record);
+
+    res.json({
+      ok: true,
+      renamedCount,
+      headers: record.headers,
+      dataset: {
+        id: record.id,
+        filename: record.filename,
+        label: record.label || null,
+        uploadedAt: record.uploadedAt,
+        rowCount: record.rowCount,
+        headers: record.headers,
+        summary: record.summary || null,
+      },
+    });
+  } catch (err) {
+    const status = err.code === 'ENOENT' ? 404 : 500;
+    res.status(status).json({ error: err.message });
+  }
+});
+
 // Settings (column mappings + rule sets)
 app.get('/api/settings', async (_req, res) => {
   res.json(await readSettings());
@@ -924,7 +970,15 @@ app.post('/api/datasets/:id/apply-rules', async (req, res) => {
       rules = req.body.rules;
     }
 
-    const result = applyRules(record.rows, record.headers, rules);
+    // Apply column mappings before running rules so that rules referencing
+    // mapped column names work even if the dataset was uploaded before the
+    // mappings were configured (or if mappings changed since upload).
+    const mappedRows    = applyColumnMappings(record.rows, settings.columnMappings);
+    const mappedHeaders = mappedRows.length
+      ? Object.keys(mappedRows[0])
+      : record.headers.map(h => settings.columnMappings[h] || h);
+
+    const result = applyRules(mappedRows, mappedHeaders, rules);
     res.json({
       dataset: {
         id: record.id,

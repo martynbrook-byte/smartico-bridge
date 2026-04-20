@@ -975,6 +975,21 @@
     </div>
 
     <div class="panel">
+      <div class="panel-title">Export / Import settings
+        <span class="hint">Migrate rule sets and column mappings between environments</span>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <button class="btn btn-ghost" onclick="exportSettings()">⬇ Export settings.json</button>
+        <label class="btn btn-ghost" style="cursor:pointer;margin:0">
+          ⬆ Import settings.json
+          <input type="file" accept=".json,application/json" style="display:none"
+                 onchange="importSettings(this)">
+        </label>
+      </div>
+      <div id="importExportBanner" style="margin-top:8px"></div>
+    </div>
+
+    <div class="panel">
       <div class="panel-title">Endpoints</div>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;font-size:0.85rem">
         <div><strong style="color:var(--gold)">GET</strong> /api/health</div>
@@ -2264,6 +2279,41 @@ async function saveProfileApi() {
     banner('Profile API settings saved', 'success');
   } catch (err) {
     banner(`Save failed: ${err.message}`, 'error');
+  }
+}
+
+// ── Export / Import settings ─────────────────────────────────────────────────
+function exportSettings() {
+  const blob = new Blob([JSON.stringify(settings, null, 2)], { type: 'application/json' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = 'settings.json';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+async function importSettings(input) {
+  const file = input.files[0];
+  input.value = '';  // reset so the same file can be picked again
+  if (!file) return;
+  const banner = document.getElementById('importExportBanner');
+  try {
+    const text = await file.text();
+    const parsed = JSON.parse(text);
+    const res = await api('/api/settings', {
+      method: 'POST',
+      body: JSON.stringify(parsed),
+    });
+    if (res && res.settings) settings = res.settings;
+    renderMappings();
+    renderProfileApi();
+    banner.className = 'banner success';
+    banner.textContent = `✓ Settings imported — ${(settings.ruleSets || []).length} rule set(s), ${Object.keys(settings.columnMappings || {}).length} column mapping(s)`;
+    setTimeout(() => { banner.className = ''; banner.textContent = ''; }, 5000);
+  } catch (err) {
+    banner.className = 'banner error';
+    banner.textContent = `Import failed: ${err.message}`;
   }
 }
 

@@ -929,13 +929,22 @@
           <label for="viewDataset">Dataset</label>
           <select id="viewDataset"></select>
         </div>
-        <div class="vc-field">
+        <div class="vc-field" id="viewRuleSetField">
           <label for="viewRuleSet">Rule set</label>
           <select id="viewRuleSet">
             <option value="">— None (raw data) —</option>
           </select>
         </div>
-        <button class="btn btn-primary" onclick="applyView()">Apply</button>
+        <button class="btn btn-primary" id="viewApplyBtn" onclick="applyView()">Apply</button>
+      </div>
+      <!-- Banner shown when a processed dataset is selected (read-only view) -->
+      <div id="viewProcessedBanner" class="hidden"
+           style="margin-top:10px;padding:10px 14px;background:rgba(34,197,94,0.08);
+                  border:1px solid rgba(34,197,94,0.35);border-radius:8px;
+                  display:flex;align-items:center;gap:10px;font-size:0.85rem;color:#bbf7d0">
+        <span style="font-weight:700;letter-spacing:0.5px">✓ PROCESSED</span>
+        <span id="viewProcessedBannerText" style="color:var(--text)"></span>
+        <span style="margin-left:auto;color:var(--muted);font-size:0.78rem">Read-only · already Figma-ready</span>
       </div>
     </div>
 
@@ -944,7 +953,7 @@
       <div id="viewRuleTableWrap"></div>
       <div class="panel" style="padding:0;overflow:hidden">
         <!-- Column toggles -->
-        <div style="padding:10px 16px;border-bottom:1px solid var(--border);background:var(--surface2)">
+        <div id="viewColumnTogglesRow" style="padding:10px 16px;border-bottom:1px solid var(--border);background:var(--surface2)">
           <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
             <strong style="font-size:0.88rem">Columns</strong>
             <button class="btn btn-ghost btn-small" onclick="setAllColumns(true)">All</button>
@@ -954,10 +963,10 @@
           <div id="viewColumnToggles" style="display:flex;flex-wrap:wrap;gap:6px"></div>
         </div>
         <!-- Row count + save bar -->
-        <div style="padding:10px 16px;display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--border);flex-wrap:wrap">
+        <div id="viewSaveBar" style="padding:10px 16px;display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--border);flex-wrap:wrap">
           <strong style="font-size:0.88rem">Rows</strong>
           <span id="viewRowCount" style="color:var(--muted);font-size:0.82rem"></span>
-          <span style="color:var(--muted);font-size:0.78rem">Showing first 200</span>
+          <span id="viewRowLimitHint" style="color:var(--muted);font-size:0.78rem">Showing first 200</span>
           <div style="flex:1"></div>
           <div style="display:flex;align-items:center;gap:6px">
             <label for="processedName" style="font-size:0.78rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600">Name</label>
@@ -968,6 +977,7 @@
             <label for="processedMaxRows" style="font-size:0.78rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600"
                    title="Figma plugin will only use the first N rows (leave blank for all)">Max rows (Figma)</label>
             <input id="processedMaxRows" type="number" min="1" step="1" placeholder="all"
+                   oninput="onMaxRowsInput()"
                    style="background:var(--surface);border:1px solid var(--border);color:var(--text);padding:5px 8px;border-radius:4px;font-size:0.85rem;width:90px">
           </div>
           <button class="btn btn-primary btn-small" onclick="saveProcessed()"
@@ -2048,13 +2058,34 @@ async function applyView() {
     banner('Pick a dataset first', 'error');
     return;
   }
+  // If the selected dataset is already processed, skip the rules pipeline
+  // entirely — load its saved rows + ruleTable and render in read-only mode.
+  // Re-running rules on a processed dataset would double-apply them and strip
+  // the hidden columns the rules relied on.
+  const meta = datasets.find(d => d.id === datasetId);
+  if (meta && meta.isProcessed) {
+    try {
+      const record = await api(`/api/datasets/${datasetId}`);
+      renderViewResult({
+        dataset:   { id: record.id, label: record.label, filename: record.filename, rowCount: record.rowCount, uploadedAt: record.uploadedAt },
+        headers:   record.headers || [],
+        rows:      record.rows || [],
+        metrics:   record.metrics || [],
+        ruleTable: Array.isArray(record.ruleTable) ? record.ruleTable : [],
+      }, { readOnly: true, processed: record });
+    } catch (err) {
+      banner(`Load failed: ${err.message}`, 'error');
+    }
+    return;
+  }
+
   try {
     const body = ruleSetId ? { ruleSetId } : { rules: [] };
     const r = await api(`/api/datasets/${datasetId}/apply-rules`, {
       method: 'POST',
       body: JSON.stringify(body),
     });
-    renderViewResult(r);
+    renderViewResult(r, { readOnly: false });
   } catch (err) {
     banner(`Apply failed: ${err.message}`, 'error');
   }
@@ -2066,6 +2097,29 @@ let _viewVisibleCols = new Set();
 // { column, direction: 'asc' | 'desc' } or null — persists within a view
 // session but resets when a new rule set is applied.
 let _viewSort = null;
+// Read-only flag: true when viewing an already-processed dataset so Save +
+// column toggles + rule-set picker are hidden.
+let _viewReadOnly = false;
+
+// Re-render the preview table whenever the Max rows (Figma) input changes so
+// designers see exactly what the saved processed dataset will contain. The
+// cap is also enforced server-side at save time — this is purely the live
+// preview mirror of that logic.
+function onMaxRowsInput() {
+  if (!_viewResult) return;
+  renderViewTable(_viewResult.rows, _viewResult.headers || []);
+}
+
+// Parse the max-rows input. Returns a positive integer cap, or Infinity when
+// blank/invalid (i.e. "no cap"). Keeps the parse logic in one place.
+function getMaxRowsCap() {
+  const el = document.getElementById('processedMaxRows');
+  if (!el) return Infinity;
+  const raw = (el.value || '').trim();
+  if (!raw) return Infinity;
+  const n = Math.floor(Number(raw));
+  return Number.isFinite(n) && n > 0 ? n : Infinity;
+}
 
 // Columns that should render as avatar thumbnails rather than URL text.
 // Deliberately narrow: AVATAR is the URL column (shown as text so designers
@@ -2076,17 +2130,50 @@ function isImageColumn(col) {
   return c === 'avatar_image' || c === 'image' || c.endsWith('_image');
 }
 
-function renderViewResult(result) {
+function renderViewResult(result, opts) {
+  opts = opts || {};
   _viewResult = result;
+  _viewReadOnly = !!opts.readOnly;
   // Reset sort so it doesn't linger across different rule sets or datasets
   // — the sorted column from the previous view might not even exist here.
   _viewSort = null;
   document.getElementById('viewEmpty').classList.add('hidden');
   document.getElementById('viewResult').classList.remove('hidden');
 
+  // Read-only mode (viewing an already-processed dataset): hide the editing
+  // chrome because the data is locked in. The save bar, column toggles, rule
+  // set picker and the "no metrics" empty-state note all make no sense here.
+  const toggleHide = (id, hide) => {
+    const el = document.getElementById(id);
+    if (el) el.classList.toggle('hidden', !!hide);
+  };
+  toggleHide('viewColumnTogglesRow', _viewReadOnly);
+  toggleHide('viewSaveBar',          _viewReadOnly);
+  toggleHide('viewRuleSetField',     _viewReadOnly);
+  toggleHide('viewApplyBtn',         _viewReadOnly);
+  const banner = document.getElementById('viewProcessedBanner');
+  const bannerText = document.getElementById('viewProcessedBannerText');
+  if (_viewReadOnly && opts.processed) {
+    const p = opts.processed;
+    const bits = [
+      p.label || p.filename,
+      `${fmtNumber(p.rowCount || (result.rows || []).length)} rows`,
+    ];
+    if (p.maxRows) bits.push(`Figma cap ${fmtNumber(p.maxRows)}`);
+    if (p.ruleSetName) bits.push(`rules: ${p.ruleSetName}`);
+    bannerText.textContent = bits.join(' · ');
+    banner.classList.remove('hidden');
+  } else {
+    banner.classList.add('hidden');
+  }
+
   const metricsHost = document.getElementById('viewMetrics');
   if (!result.metrics || !result.metrics.length) {
-    metricsHost.innerHTML = `<div class="panel" style="margin:0;text-align:center;color:var(--muted);font-size:0.9rem;padding:16px">No metrics — this rule set has only transforms (or no rules).</div>`;
+    // In read-only mode, datasets with no metrics just render the ruleTable
+    // preview (possibly empty) without the "no metrics" caveat.
+    metricsHost.innerHTML = _viewReadOnly
+      ? ''
+      : `<div class="panel" style="margin:0;text-align:center;color:var(--muted);font-size:0.9rem;padding:16px">No metrics — this rule set has only transforms (or no rules).</div>`;
   } else {
     metricsHost.innerHTML = result.metrics.map(m => renderMetricCard(m)).join('');
   }
@@ -2098,7 +2185,7 @@ function renderViewResult(result) {
   const allHeaders = result.headers || (result.rows[0] ? Object.keys(result.rows[0]) : []);
   _viewVisibleCols = new Set(allHeaders);
 
-  renderColumnToggles(allHeaders);
+  if (!_viewReadOnly) renderColumnToggles(allHeaders);
   renderViewTable(result.rows, allHeaders);
   document.getElementById('viewRowCount').textContent = `${fmtNumber(result.rows.length)} rows`;
 }
@@ -2162,7 +2249,17 @@ function renderViewTable(rows, allHeaders) {
     });
   }
 
-  const visible = sorted.slice(0, 200);
+  // Cap preview to the Max rows (Figma) input if set — matches server cap on
+  // save. Otherwise use the historical 200-row safety slice.
+  const maxCap = _viewReadOnly ? Infinity : getMaxRowsCap();
+  const previewCap = Math.min(maxCap === Infinity ? 200 : maxCap, 200);
+  const visible = sorted.slice(0, previewCap);
+  const hintEl = document.getElementById('viewRowLimitHint');
+  if (hintEl && !_viewReadOnly) {
+    hintEl.textContent = maxCap !== Infinity
+      ? `Showing ${fmtNumber(visible.length)} of ${fmtNumber(sorted.length)} (Figma cap ${fmtNumber(maxCap)})`
+      : `Showing first ${fmtNumber(Math.min(sorted.length, 200))}`;
+  }
 
   const th = headers.map(h => {
     const isSorted = _viewSort && _viewSort.column === h;

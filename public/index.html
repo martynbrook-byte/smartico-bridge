@@ -758,6 +758,31 @@
       position: sticky;
       top: 0;
       z-index: 1;
+      user-select: none;
+    }
+    thead th.sortable { cursor: pointer; }
+    thead th.sortable:hover { background: var(--surface3); }
+    thead th.sorted { color: #fbbf24; }
+    thead th .sort-arrow { font-size: 0.7rem; opacity: 0.9; }
+    thead th .sort-arrow.muted { opacity: 0.25; }
+
+    /* Avatar thumbnails — shown in columns named avatar / *_image etc. */
+    .avatar-thumb {
+      width: 32px; height: 32px;
+      border-radius: 50%;
+      object-fit: cover;
+      border: 1px solid var(--border);
+      background: var(--surface3);
+      vertical-align: middle;
+    }
+    .avatar-thumb.missing {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 32px; height: 32px;
+      border-radius: 50%;
+      border: 1px dashed var(--border);
+      color: var(--muted);
+      font-size: 0.8rem;
+      background: var(--surface3);
     }
     tbody td {
       padding: 7px 12px;
@@ -916,11 +941,39 @@
 
     <div id="viewResult" class="hidden">
       <div class="metrics-grid" id="viewMetrics"></div>
+      <div id="viewRuleTableWrap"></div>
       <div class="panel" style="padding:0;overflow:hidden">
-        <div style="padding:12px 16px;display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--border);background:var(--surface2)">
+        <!-- Column toggles -->
+        <div style="padding:10px 16px;border-bottom:1px solid var(--border);background:var(--surface2)">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+            <strong style="font-size:0.88rem">Columns</strong>
+            <button class="btn btn-ghost btn-small" onclick="setAllColumns(true)">All</button>
+            <button class="btn btn-ghost btn-small" onclick="setAllColumns(false)">None</button>
+            <span style="margin-left:auto;color:var(--muted);font-size:0.78rem">Toggle to show/hide in processed dataset</span>
+          </div>
+          <div id="viewColumnToggles" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+        </div>
+        <!-- Row count + save bar -->
+        <div style="padding:10px 16px;display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--border);flex-wrap:wrap">
           <strong style="font-size:0.88rem">Rows</strong>
           <span id="viewRowCount" style="color:var(--muted);font-size:0.82rem"></span>
-          <span style="margin-left:auto;color:var(--muted);font-size:0.78rem">Showing first 200</span>
+          <span style="color:var(--muted);font-size:0.78rem">Showing first 200</span>
+          <div style="flex:1"></div>
+          <div style="display:flex;align-items:center;gap:6px">
+            <label for="processedName" style="font-size:0.78rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600">Name</label>
+            <input id="processedName" type="text" placeholder="e.g. Mozambique top 10"
+                   style="background:var(--surface);border:1px solid var(--border);color:var(--text);padding:5px 8px;border-radius:4px;font-size:0.85rem;min-width:200px">
+          </div>
+          <div style="display:flex;align-items:center;gap:6px">
+            <label for="processedMaxRows" style="font-size:0.78rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600"
+                   title="Figma plugin will only use the first N rows (leave blank for all)">Max rows (Figma)</label>
+            <input id="processedMaxRows" type="number" min="1" step="1" placeholder="all"
+                   style="background:var(--surface);border:1px solid var(--border);color:var(--text);padding:5px 8px;border-radius:4px;font-size:0.85rem;width:90px">
+          </div>
+          <button class="btn btn-primary btn-small" onclick="saveProcessed()"
+                  title="Save visible columns as a processed dataset for the Figma plugin">
+            💾 Save processed dataset
+          </button>
         </div>
         <div class="table-wrap" id="viewTableWrap"></div>
       </div>
@@ -1148,20 +1201,28 @@ function renderDatasets() {
           <span>${fmtDate(d.uploadedAt)}</span>
         </div>
         <div class="dataset-actions">
-          <button class="btn btn-small" onclick="gotoView('${esc(d.id)}')">View</button>
-          <button class="btn btn-small btn-enrich" onclick="enrichDataset('${esc(d.id)}', this)"
-                  title="Fetch profile name, avatar and phone for each PID from the brand's profile API">
-            ${d.enrichment ? '↻ Re-enrich' : '✨ Enrich'}
-          </button>
-          <button class="btn btn-small btn-ghost" onclick="remapDataset('${esc(d.id)}', this)"
-                  title="Re-apply current column mappings to this dataset (use after changing mappings)">
-            ↻ Re-map
-          </button>
+          ${d.isProcessed
+            ? `<span style="font-size:0.75rem;color:var(--teal);border:1px solid #14b8a644;border-radius:4px;padding:2px 7px">✓ processed</span>`
+            : `<button class="btn btn-small" onclick="gotoView('${esc(d.id)}')">View</button>
+               <button class="btn btn-small btn-enrich" onclick="enrichDataset('${esc(d.id)}', this)"
+                       title="Fetch profile name, avatar and phone for each PID from the brand's profile API">
+                 ${d.enrichment ? '↻ Re-enrich' : '✨ Enrich'}
+               </button>
+               <button class="btn btn-small btn-ghost" onclick="remapDataset('${esc(d.id)}', this)"
+                       title="Re-apply current column mappings to this dataset">
+                 ↻ Re-map
+               </button>`
+          }
           <button class="btn btn-danger btn-small" onclick="deleteDataset('${esc(d.id)}')">Delete</button>
         </div>
       </div>
-      ${renderDatasetSummary(d.summary)}
-      ${renderEnrichmentReport(d.enrichment)}
+      ${d.isProcessed
+        ? `<div style="font-size:0.78rem;color:var(--muted);padding:2px 0">
+             Source: ${esc(d.ruleSetName || '—')} · ${(d.headers||[]).length} columns
+           </div>`
+        : renderDatasetSummary(d.summary)
+      }
+      ${d.isProcessed ? '' : renderEnrichmentReport(d.enrichment)}
     </div>
   `).join('');
 }
@@ -1999,34 +2060,226 @@ async function applyView() {
   }
 }
 
+// Track current view result for save-processed
+let _viewResult = null;
+let _viewVisibleCols = new Set();
+// { column, direction: 'asc' | 'desc' } or null — persists within a view
+// session but resets when a new rule set is applied.
+let _viewSort = null;
+
+// Columns that should render as avatar thumbnails rather than URL text.
+// Deliberately narrow: AVATAR is the URL column (shown as text so designers
+// can grab it), AVATAR_IMAGE is the rendered image column. Any column whose
+// name explicitly ends in `_image` (or is literally `image`) also renders.
+function isImageColumn(col) {
+  const c = String(col).toLowerCase();
+  return c === 'avatar_image' || c === 'image' || c.endsWith('_image');
+}
+
 function renderViewResult(result) {
+  _viewResult = result;
+  // Reset sort so it doesn't linger across different rule sets or datasets
+  // — the sorted column from the previous view might not even exist here.
+  _viewSort = null;
   document.getElementById('viewEmpty').classList.add('hidden');
   document.getElementById('viewResult').classList.remove('hidden');
 
   const metricsHost = document.getElementById('viewMetrics');
-  if (!result.metrics?.length) {
+  if (!result.metrics || !result.metrics.length) {
     metricsHost.innerHTML = `<div class="panel" style="margin:0;text-align:center;color:var(--muted);font-size:0.9rem;padding:16px">No metrics — this rule set has only transforms (or no rules).</div>`;
   } else {
     metricsHost.innerHTML = result.metrics.map(m => renderMetricCard(m)).join('');
   }
 
-  document.getElementById('viewRowCount').textContent = `${fmtNumber(result.rows.length)} rows`;
+  // The flat RULE/TOTALS table the Figma plugin will bind to. Rendered here
+  // so designers can verify the exact shape before clicking Save processed.
+  renderRuleTablePreview(result.ruleTable);
 
-  const rows = result.rows.slice(0, 200);
-  const headers = result.headers || (rows[0] ? Object.keys(rows[0]) : []);
+  const allHeaders = result.headers || (result.rows[0] ? Object.keys(result.rows[0]) : []);
+  _viewVisibleCols = new Set(allHeaders);
+
+  renderColumnToggles(allHeaders);
+  renderViewTable(result.rows, allHeaders);
+  document.getElementById('viewRowCount').textContent = `${fmtNumber(result.rows.length)} rows`;
+}
+
+function renderColumnToggles(headers) {
+  document.getElementById('viewColumnToggles').innerHTML = headers.map(h => `
+    <label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer;
+                  background:var(--surface);border:1px solid var(--border);
+                  border-radius:4px;padding:3px 8px;font-size:0.78rem;
+                  color:${_viewVisibleCols.has(h) ? 'var(--text)' : 'var(--muted)'}">
+      <input type="checkbox" ${_viewVisibleCols.has(h) ? 'checked' : ''}
+             onchange="toggleColumn('${esc(h).replace(/'/g,"\\'")}', this.checked)"
+             style="accent-color:var(--gold)">
+      ${esc(h)}
+    </label>
+  `).join('');
+}
+
+function toggleColumn(col, visible) {
+  if (visible) _viewVisibleCols.add(col);
+  else _viewVisibleCols.delete(col);
+  if (_viewResult) renderViewTable(_viewResult.rows, _viewResult.headers || []);
+  // Re-render toggles to update text colour
+  renderColumnToggles(_viewResult ? (_viewResult.headers || []) : []);
+}
+
+function setAllColumns(show) {
+  if (!_viewResult) return;
+  const headers = _viewResult.headers || [];
+  _viewVisibleCols = show ? new Set(headers) : new Set();
+  renderColumnToggles(headers);
+  renderViewTable(_viewResult.rows, headers);
+}
+
+function renderViewTable(rows, allHeaders) {
+  const headers = allHeaders.filter(h => _viewVisibleCols.has(h));
   const wrap = document.getElementById('viewTableWrap');
-  if (!rows.length) {
-    wrap.innerHTML = `<div class="empty-state"><span class="empty-icon">📊</span>No rows.</div>`;
-  } else {
-    wrap.innerHTML = `
-      <table>
-        <thead><tr>${headers.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead>
-        <tbody>
-          ${rows.map(r => `<tr>${headers.map(h => `<td>${esc(r[h] ?? '')}</td>`).join('')}</tr>`).join('')}
-        </tbody>
-      </table>
-    `;
+  if (!rows.length || !headers.length) {
+    wrap.innerHTML = `<div class="empty-state"><span class="empty-icon">📊</span>${!headers.length ? 'No columns selected.' : 'No rows.'}</div>`;
+    return;
   }
+
+  // Sort a shallow copy so we never mutate _viewResult.rows (the save path
+  // re-sorts server-side based on _viewSort).
+  let sorted = rows;
+  if (_viewSort && _viewSort.column && headers.includes(_viewSort.column)) {
+    const col = _viewSort.column;
+    const dir = _viewSort.direction === 'desc' ? -1 : 1;
+    const allNumeric = rows.every(r => {
+      const v = r[col];
+      if (v === undefined || v === null || v === '') return true;
+      return Number.isFinite(Number(v));
+    });
+    sorted = [...rows].sort((a, b) => {
+      const av = a[col], bv = b[col];
+      if (av === bv) return 0;
+      if (av === undefined || av === null || av === '') return 1;
+      if (bv === undefined || bv === null || bv === '') return -1;
+      if (allNumeric) return (Number(av) - Number(bv)) * dir;
+      return String(av).localeCompare(String(bv), undefined, { numeric: true }) * dir;
+    });
+  }
+
+  const visible = sorted.slice(0, 200);
+
+  const th = headers.map(h => {
+    const isSorted = _viewSort && _viewSort.column === h;
+    const arrow = isSorted
+      ? (_viewSort.direction === 'desc' ? ' <span class="sort-arrow">▼</span>' : ' <span class="sort-arrow">▲</span>')
+      : ' <span class="sort-arrow muted">↕</span>';
+    return `<th class="sortable ${isSorted ? 'sorted' : ''}" onclick="toggleSort('${esc(h).replace(/'/g, "\\'")}')">${esc(h)}${arrow}</th>`;
+  }).join('');
+
+  const tbody = visible.map(r => `
+    <tr>${headers.map(h => `<td>${renderCell(h, r[h])}</td>`).join('')}</tr>
+  `).join('');
+
+  wrap.innerHTML = `
+    <table>
+      <thead><tr>${th}</tr></thead>
+      <tbody>${tbody}</tbody>
+    </table>
+  `;
+}
+
+// Render a single cell. Images get a small thumbnail; everything else is
+// escaped text. Broken image URLs swap to a neutral placeholder via onerror
+// so a bad avatar URL doesn't show a broken-image icon.
+function renderCell(col, value) {
+  if (value === undefined || value === null || value === '') return '';
+  const str = String(value);
+  if (isImageColumn(col)) {
+    // Wrap img + a tiny URL overlay so users can still see the raw value on
+    // hover without losing the thumbnail affordance.
+    return `<img class="avatar-thumb" src="${esc(str)}" alt="" loading="lazy"
+              title="${esc(str)}"
+              onerror="this.outerHTML='<span class=\\'avatar-thumb missing\\' title=\\'Failed to load\\'>?</span>'">`;
+  }
+  return esc(str);
+}
+
+// Cycle the sort: no-sort on this col → asc → desc → no-sort.
+function toggleSort(col) {
+  if (!_viewResult) return;
+  if (!_viewSort || _viewSort.column !== col) {
+    _viewSort = { column: col, direction: 'asc' };
+  } else if (_viewSort.direction === 'asc') {
+    _viewSort = { column: col, direction: 'desc' };
+  } else {
+    _viewSort = null;
+  }
+  renderViewTable(_viewResult.rows, _viewResult.headers || []);
+}
+
+async function saveProcessed() {
+  if (!_viewResult) { banner('Apply a rule set first', 'error'); return; }
+  const datasetId = document.getElementById('viewDataset').value;
+  const ruleSetId = document.getElementById('viewRuleSet').value;
+  if (!datasetId) { banner('No dataset selected', 'error'); return; }
+
+  const visibleColumns = (_viewResult.headers || []).filter(h => _viewVisibleCols.has(h));
+  if (!visibleColumns.length) { banner('Select at least one column', 'error'); return; }
+
+  // Name + max rows are optional — empty means "server picks a default
+  // label" and "no cap", which keeps the save flow one-click for casual use.
+  const label = document.getElementById('processedName').value.trim() || null;
+  const maxRowsRaw = document.getElementById('processedMaxRows').value.trim();
+  const maxRows = maxRowsRaw === '' ? null : Math.max(1, Math.floor(Number(maxRowsRaw)));
+  if (maxRowsRaw !== '' && !Number.isFinite(maxRows)) {
+    banner('Max rows must be a number', 'error'); return;
+  }
+  // Preserve the user's current column sort so the saved dataset matches the
+  // order they see on screen — otherwise the Figma plugin could show rows
+  // in a different order than the preview.
+  const sort = _viewSort && _viewSort.column ? { column: _viewSort.column, direction: _viewSort.direction } : null;
+
+  try {
+    const j = await api(`/api/datasets/${datasetId}/process`, {
+      method: 'POST',
+      body: JSON.stringify({ ruleSetId: ruleSetId || null, visibleColumns, label, maxRows, sort }),
+    });
+    const nameMsg = j.dataset.label;
+    const capMsg = j.dataset.maxRows ? ` · Figma capped at ${fmtNumber(j.dataset.maxRows)}` : '';
+    banner(`✓ Processed dataset saved — "${esc(nameMsg)}" · ${j.dataset.rowCount} rows${capMsg}`, 'success');
+    // Clear the inputs so a second save doesn't silently reuse the same label
+    document.getElementById('processedName').value = '';
+    document.getElementById('processedMaxRows').value = '';
+    await loadDatasets(); renderDatasets(); renderStats();
+  } catch (err) {
+    banner(`Save failed: ${err.message}`, 'error');
+  }
+}
+
+// Render the flat two-column RULE/TOTALS table exactly as it will be saved
+// onto the processed dataset. This is the shape the Figma plugin will see —
+// previewing it here makes the mapping obvious to the designer.
+function renderRuleTablePreview(ruleTable) {
+  const host = document.getElementById('viewRuleTableWrap');
+  if (!host) return;
+  if (!Array.isArray(ruleTable) || !ruleTable.length) {
+    host.innerHTML = '';
+    return;
+  }
+  const body = ruleTable.map(r => `
+    <tr>
+      <td>${esc(String(r.RULE ?? ''))}</td>
+      <td style="text-align:right;font-variant-numeric:tabular-nums">${r.TOTALS === null || r.TOTALS === undefined ? '' : esc(String(r.TOTALS))}</td>
+    </tr>`).join('');
+  host.innerHTML = `
+    <div class="panel" style="padding:0;margin-bottom:16px;overflow:hidden">
+      <div style="padding:10px 16px;border-bottom:1px solid var(--border);background:var(--surface2);display:flex;align-items:center;gap:10px">
+        <strong style="font-size:0.88rem">Rule totals</strong>
+        <span style="color:var(--muted);font-size:0.78rem">Saved with processed dataset as columns <code style="background:var(--surface);padding:1px 4px;border-radius:3px">RULE</code> / <code style="background:var(--surface);padding:1px 4px;border-radius:3px">TOTALS</code> — independent of column visibility</span>
+      </div>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead><tr><th>RULE</th><th style="text-align:right">TOTALS</th></tr></thead>
+          <tbody>${body}</tbody>
+        </table>
+      </div>
+    </div>`;
 }
 
 function renderMetricCard(m) {

@@ -132,8 +132,39 @@
               "r_7pm9x7ljw"
             ]
           }
+        },
+        {
+          "id": "r_9i377ngpp",
+          "type": "sort",
+          "name": "Sort prize Ascend",
+          "config": {
+            "direction": "asc",
+            "column": "prize"
+          }
         }
       ]
     }
-  ]
+  ],
+  "profileApi": {
+    "brandMap": {
+      "888-Mozambique": "888bets Mozambique",
+      "888bets Mozambique": "888bets Mozambique",
+      "888-Angola": "888bets Angola",
+      "888bets Angola": "888bets Angola",
+      "BetLion": "BetLion Zambia",
+      "BetLion Zambia": "BetLion Zambia"
+    },
+    "endpoints": {
+      "888bets Mozambique": "https://888africa.com/888bets-mozambique/wp-json/profiles/v1/profile-names-by-pids",
+      "888bets Angola": "https://888africa.com/888bets-mozambique/wp-json/profiles/v1/profile-names-by-pids",
+      "BetLion Zambia": "https://gamepage.betlion.co.zm/wp-json/betlion-zambia/profile-names-by-pids"
+    },
+    "defaultAvatars": {
+      "888bets Mozambique": "https://blaze.888bets.co.mz/wp-content/uploads/2025/02/Property-1Mystery.png",
+      "888bets Angola": "https://blaze.888bets.co.mz/wp-content/uploads/2025/02/Property-1Mystery.png",
+      "BetLion Zambia": "https://gamepage.betlion.co.zm/wp-content/themes/megamission/images/avatars/avatardefault.webp"
+    },
+    "pidColumn": "PID",
+    "batchSize": 1000
+  }
 }

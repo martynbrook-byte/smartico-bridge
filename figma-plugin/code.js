@@ -1,212 +1,148 @@
 // code.js — Smartico Bridge Figma Plugin (sandbox)
-// Runs inside Figma's JS sandbox. Has access to figma.* API but no fetch.
-// All network calls are made by ui.html, which messages data here.
+// Runs inside Figma's sandboxed JS environment — no fetch, no modern syntax (no ??, no ?.)
+//
+// Injection convention:
+//   Layer name: #columnname.rowindex   (1-based, case-insensitive column match)
+//   Examples:   #prize.1   #avatar.2   #profile_name.3   #phone.1
+//
+// Text nodes   → value written as characters
+// Any node with fills → image fill set (if imageMap has bytes for that ref)
 
-figma.showUI(__html__, { width: 440, height: 640, title: 'Smartico Bridge' });
+figma.showUI(__html__, { width: 440, height: 580, title: 'Smartico Bridge' });
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-// Normalise a layer/column name for matching:
-// "Profile Name" === "profile_name" === "PROFILE NAME"
-function normalise(s) {
-  return String(s || '').toLowerCase().replace(/[\s_-]+/g, '_').trim();
-}
+var REF_PATTERN = /^#([a-zA-Z0-9_]+)\.(\d+)$/;
 
-// Walk a node tree depth-first, calling visitor(node) on every node.
 function walk(node, visitor) {
   visitor(node);
   if ('children' in node) {
-    for (const child of node.children) walk(child, visitor);
+    for (var i = 0; i < node.children.length; i++) {
+      walk(node.children[i], visitor);
+    }
   }
 }
 
-// Load an image from bytes (Uint8Array) sent from the UI and return a
-// Figma ImageHash that can be used as an image fill.
 function createImageFill(bytes) {
-  const img = figma.createImage(bytes);
-  return {
-    type: 'IMAGE',
-    scaleMode: 'FILL',
-    imageHash: img.hash,
-  };
+  var img = figma.createImage(new Uint8Array(bytes));
+  return { type: 'IMAGE', scaleMode: 'FILL', imageHash: img.hash };
 }
 
-// ── Inject a single row into a node (and its descendants) ───────────────────
-// columnMap: { [normalisedColumnName]: value }
-// imageMap:  { [normalisedColumnName]: Uint8Array }   (pre-fetched by UI)
-async function injectRowIntoNode(node, columnMap, imageMap) {
-  const errors = [];
-
-  walk(node, (n) => {
-    const key = normalise(n.name);
-
-    // ── Text nodes ───────────────────────────────────────────────────────────
-    if (n.type === 'TEXT' && key in columnMap) {
-      const value = String(columnMap[key] !== undefined && columnMap[key] !== null ? columnMap[key] : '');
-      try {
-        // Load every font used in the node before writing.
-        const fonts = n.getRangeFontName(0, n.characters.length);
-        // getRangeFontName may return a Symbol for mixed fonts — handle both.
-        if (fonts && typeof fonts === 'object' && 'family' in fonts) {
-          figma.loadFontAsync(fonts).then(() => {
-            n.characters = value;
-          }).catch(() => {
-            // Fallback: try to load the first font style we know about
-            figma.loadFontAsync({ family: fonts.family, style: fonts.style })
-              .then(() => { n.characters = value; })
-              .catch(err => errors.push(`Font load failed for "${n.name}": ${err.message}`));
-          });
-        } else {
-          // Mixed fonts or unknown — load Arial as safe fallback
-          figma.loadFontAsync({ family: 'Inter', style: 'Regular' })
-            .then(() => { n.characters = value; })
-            .catch(() => {
-              figma.loadFontAsync({ family: 'Roboto', style: 'Regular' })
-                .then(() => { n.characters = value; });
-            });
-        }
-      } catch (err) {
-        errors.push(`Text "${n.name}": ${err.message}`);
-      }
-      return;
+async function loadNodeFont(node) {
+  try {
+    var len = node.characters ? node.characters.length : 0;
+    var font = len > 0 ? node.getRangeFontName(0, len) : null;
+    if (font && typeof font === 'object' && font.family) {
+      await figma.loadFontAsync({ family: font.family, style: font.style });
+    } else {
+      await figma.loadFontAsync({ family: 'Inter', style: 'Regular' });
     }
-
-    // ── Image fills (avatar, avatar_image, etc.) ─────────────────────────────
-    // Match any node whose name maps to a column that has image bytes.
-    if (key in imageMap && 'fills' in n) {
-      try {
-        const fill = createImageFill(imageMap[key]);
-        n.fills = [fill];
-      } catch (err) {
-        errors.push(`Image fill "${n.name}": ${err.message}`);
-      }
-      return;
-    }
-
-    // ── Component variants ───────────────────────────────────────────────────
-    // If a component instance has a variant property name matching a column,
-    // try to set that variant. Works for component sets exposed as instances.
-    if (n.type === 'INSTANCE') {
-      try {
-        const props = n.componentProperties;
-        if (props) {
-          const updates = {};
-          for (const [propName, propDef] of Object.entries(props)) {
-            const normProp = normalise(propName);
-            if (normProp in columnMap && propDef.type === 'VARIANT') {
-              updates[propName] = String(columnMap[normProp]);
-            }
-          }
-          if (Object.keys(updates).length) {
-            n.setProperties(updates);
-          }
-        }
-      } catch (_) {
-        // Variant setting is best-effort — swallow silently
-      }
-    }
-  });
-
-  return errors;
+  } catch (e) {
+    try { await figma.loadFontAsync({ family: 'Roboto', style: 'Regular' }); } catch (_) {}
+  }
 }
 
 // ── Message handler ──────────────────────────────────────────────────────────
-figma.ui.onmessage = async (msg) => {
-  // ── get-selection: tell the UI what's selected ──────────────────────────
+figma.ui.onmessage = async function(msg) {
+
+  // ── scan-refs: walk selection, collect all #name.index layer names ────────
+  if (msg.type === 'scan-refs') {
+    var sel = figma.currentPage.selection;
+    if (!sel.length) {
+      figma.ui.postMessage({ type: 'scan-result', ok: false, error: 'Nothing selected in Figma. Select a frame or group first.' });
+      return;
+    }
+    var refsFound = {};
+    for (var s = 0; s < sel.length; s++) {
+      walk(sel[s], function(n) {
+        var m = n.name.match(REF_PATTERN);
+        if (m) {
+          var key = m[1].toLowerCase() + '.' + m[2]; // "prize.1"
+          refsFound[key] = true;
+        }
+      });
+    }
+    figma.ui.postMessage({ type: 'scan-result', ok: true, refs: Object.keys(refsFound) });
+    return;
+  }
+
+  // ── inject-refs: write resolved values into matching #name.index nodes ────
+  // msg.values:   { 'prize.1': 'Free Flight 20MT', 'profile_name.1': 'João', ... }
+  // msg.imageMap: { 'avatar.1': [/* byte array */], ... }
+  if (msg.type === 'inject-refs') {
+    var values   = msg.values   || {};
+    var imageMap = msg.imageMap || {};
+    var sel2     = figma.currentPage.selection;
+
+    if (!sel2.length) {
+      figma.ui.postMessage({ type: 'inject-result', ok: false, error: 'Nothing selected in Figma.' });
+      return;
+    }
+
+    var errors  = [];
+    var count   = 0;
+    var pending = [];
+
+    // Collect all matching nodes synchronously, then process async
+    for (var s2 = 0; s2 < sel2.length; s2++) {
+      walk(sel2[s2], function(n) {
+        var m2 = n.name.match(REF_PATTERN);
+        if (!m2) return;
+        var key = m2[1].toLowerCase() + '.' + m2[2]; // normalised key
+
+        if (n.type === 'TEXT' && (key in values)) {
+          pending.push({ node: n, key: key, type: 'text' });
+          return;
+        }
+        if ('fills' in n && (key in imageMap)) {
+          pending.push({ node: n, key: key, type: 'image' });
+        }
+      });
+    }
+
+    for (var p = 0; p < pending.length; p++) {
+      var item = pending[p];
+      try {
+        if (item.type === 'text') {
+          await loadNodeFont(item.node);
+          item.node.characters = String(values[item.key] !== null && values[item.key] !== undefined ? values[item.key] : '');
+          count++;
+        } else if (item.type === 'image') {
+          item.node.fills = [createImageFill(imageMap[item.key])];
+          count++;
+        }
+      } catch (err) {
+        errors.push(item.node.name + ': ' + err.message);
+      }
+    }
+
+    figma.ui.postMessage({
+      type:   'inject-result',
+      ok:     true,
+      count:  count,
+      total:  pending.length,
+      errors: errors,
+    });
+    return;
+  }
+
+  // ── get-selection: report current selection to the UI ─────────────────────
   if (msg.type === 'get-selection') {
-    const sel = figma.currentPage.selection;
+    var sel3 = figma.currentPage.selection;
     figma.ui.postMessage({
-      type: 'selection',
-      nodes: sel.map(n => ({
-        id: n.id,
-        name: n.name,
-        type: n.type,
-        childCount: 'children' in n ? n.children.length : 0,
-      })),
+      type:  'selection',
+      nodes: sel3.map(function(n) {
+        return {
+          id:         n.id,
+          name:       n.name,
+          type:       n.type,
+          childCount: 'children' in n ? n.children.length : 0,
+        };
+      }),
     });
     return;
   }
 
-  // ── inject-single: one row → selected node(s) ──────────────────────────
-  if (msg.type === 'inject-single') {
-    const { row, imageMap } = msg;
-    const sel = figma.currentPage.selection;
-    if (!sel.length) {
-      figma.ui.postMessage({ type: 'inject-result', ok: false, error: 'Nothing selected in Figma. Please select a frame or component first.' });
-      return;
-    }
-    // Build normalised column map
-    const columnMap = {};
-    for (const [k, v] of Object.entries(row || {})) {
-      columnMap[normalise(k)] = v;
-    }
-    // Build normalised image map from bytes sent by UI
-    const normImageMap = {};
-    for (const [k, v] of Object.entries(imageMap || {})) {
-      normImageMap[normalise(k)] = new Uint8Array(v);
-    }
-
-    const allErrors = [];
-    for (const node of sel) {
-      const errs = await injectRowIntoNode(node, columnMap, normImageMap);
-      allErrors.push(...errs);
-    }
-
-    figma.ui.postMessage({
-      type: 'inject-result',
-      ok: true,
-      errors: allErrors,
-      injectedTo: sel.map(n => n.name),
-    });
-    return;
-  }
-
-  // ── inject-batch: N rows → N child nodes of the selected frame ─────────
-  // Each child of the selected frame gets one row (in order).
-  if (msg.type === 'inject-batch') {
-    const { rows, imageMap } = msg;
-    const sel = figma.currentPage.selection;
-    if (!sel.length) {
-      figma.ui.postMessage({ type: 'inject-result', ok: false, error: 'Nothing selected. Select a frame whose children are the repeating items.' });
-      return;
-    }
-    const parent = sel[0];
-    if (!('children' in parent)) {
-      figma.ui.postMessage({ type: 'inject-result', ok: false, error: `"${parent.name}" has no children. Select a frame or group that contains the repeating items.` });
-      return;
-    }
-
-    const children = parent.children;
-    const count = Math.min(rows.length, children.length);
-    const allErrors = [];
-
-    for (let i = 0; i < count; i++) {
-      const columnMap = {};
-      for (const [k, v] of Object.entries(rows[i] || {})) {
-        columnMap[normalise(k)] = v;
-      }
-      // Each row may have its own image bytes
-      const normImageMap = {};
-      const rowImages = (imageMap && imageMap[i]) || {};
-      for (const [k, v] of Object.entries(rowImages)) {
-        normImageMap[normalise(k)] = new Uint8Array(v);
-      }
-      const errs = await injectRowIntoNode(children[i], columnMap, normImageMap);
-      allErrors.push(...errs);
-    }
-
-    figma.ui.postMessage({
-      type: 'inject-result',
-      ok: true,
-      injectedCount: count,
-      totalRows: rows.length,
-      totalSlots: children.length,
-      errors: allErrors,
-    });
-    return;
-  }
-
-  // ── close ────────────────────────────────────────────────────────────────
   if (msg.type === 'close') {
     figma.closePlugin();
   }

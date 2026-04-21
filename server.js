@@ -411,14 +411,21 @@ async function listDatasets() {
         }
       }
       records.push({
-        id:         r.id,
-        filename:   r.filename,
-        label:      r.label || null,
-        uploadedAt: r.uploadedAt,
-        rowCount:   r.rowCount,
-        headers:    r.headers,
-        summary:    summary || null,
-        enrichment: r.enrichment || null,
+        id:              r.id,
+        filename:        r.filename,
+        label:           r.label || null,
+        uploadedAt:      r.uploadedAt,
+        rowCount:        r.rowCount,
+        headers:         r.headers,
+        summary:         summary || null,
+        enrichment:      r.enrichment || null,
+        isProcessed:     r.isProcessed || false,
+        sourceDatasetId: r.sourceDatasetId || null,
+        ruleSetName:     r.ruleSetName || null,
+        metrics:         r.metrics || null,
+        ruleTable:       Array.isArray(r.ruleTable) ? r.ruleTable : (r.metrics ? buildRuleTable(r.metrics) : []),
+        maxRows:         r.maxRows ?? null,
+        sort:            r.sort || null,
       });
     } catch (e) {
       console.warn(`[datasets] skipping unreadable file ${f}: ${e.message}`);
@@ -431,7 +438,13 @@ async function listDatasets() {
 async function getDataset(id) {
   const file = path.join(DATASETS_DIR, `${id}.json`);
   const raw  = await fsp.readFile(file, 'utf8');
-  return JSON.parse(raw);
+  const rec  = JSON.parse(raw);
+  // Backfill ruleTable for processed records saved before the field existed.
+  // Derived from metrics, so no new server-side work — just a format rehash.
+  if (rec.isProcessed && !Array.isArray(rec.ruleTable) && Array.isArray(rec.metrics)) {
+    rec.ruleTable = buildRuleTable(rec.metrics);
+  }
+  return rec;
 }
 
 async function deleteDataset(id) {
@@ -643,6 +656,57 @@ function applyRules(inputRows, inputHeaders, rules) {
   return { rows, headers, metrics };
 }
 
+// Collapse the metrics array into a flat two-column table — {RULE, TOTALS} —
+// that the Figma plugin can bind to directly without caring which metric type
+// produced each value. Rules that produce a single number become one row;
+// count-by (which yields a per-value histogram) expands into one row per key.
+//
+// RULE column format:
+//   - rule.name if present (user-chosen label is always preferred)
+//   - otherwise an auto label like "count(column:value)" or "sum(column)"
+//   - for count-by the key is appended: "{name} · {key}"
+// TOTALS column is the raw number — numeric-aware clients can format it.
+function buildRuleTable(metrics) {
+  if (!Array.isArray(metrics) || !metrics.length) return [];
+  const out = [];
+  for (const m of metrics) {
+    const baseName = m.ruleName && String(m.ruleName).trim()
+      ? m.ruleName
+      : autoMetricLabel(m);
+    if (m.type === 'count-by' && m.value && typeof m.value === 'object') {
+      // One row per bucket. Sort desc by count so the biggest groups land first.
+      const entries = Object.entries(m.value)
+        .map(([k, v]) => [k, Number(v) || 0])
+        .sort((a, b) => b[1] - a[1]);
+      for (const [key, count] of entries) {
+        out.push({ RULE: `${baseName} · ${key || '(empty)'}`, TOTALS: count });
+      }
+      continue;
+    }
+    const n = Number(m.value);
+    out.push({
+      RULE:   baseName,
+      TOTALS: Number.isFinite(n) ? n : (m.value ?? null),
+    });
+  }
+  return out;
+}
+
+function autoMetricLabel(m) {
+  if (!m) return 'rule';
+  const t = m.type || 'rule';
+  if (t === 'count' || t === 'count-times') {
+    const col = m.column ? `${m.column}` : '';
+    const val = m.matchValue ? `:"${m.matchValue}"` : '';
+    const mult = (t === 'count-times' && m.multiplier) ? ` × ${m.multiplier}` : '';
+    return `${t}(${col}${val})${mult}`;
+  }
+  if (t === 'count-by') return `count-by(${m.column || ''})`;
+  if (t === 'aggregate-metrics') return `${m.op || 'aggregate'}(metrics)`;
+  if (m.column) return `${t}(${m.column})`;
+  return t;
+}
+
 // Find a rule set by id inside a settings object. Returns null if not found.
 function findRuleSet(settings, ruleSetId) {
   if (!ruleSetId) return null;
@@ -724,11 +788,43 @@ app.post('/upload', upload.single('file'), async (req, res) => {
 });
 
 // List datasets (metadata only)
-app.get('/api/datasets', async (_req, res) => {
+app.get('/api/datasets', async (req, res) => {
   try {
-    res.json({ datasets: await listDatasets() });
+    // ?processed=true|1 restricts the list to processed (Figma-ready) datasets.
+    // The Figma plugin uses this to guarantee it can never pick a raw upload.
+    const onlyProcessed = /^(1|true|yes)$/i.test(String(req.query.processed || ''));
+    let datasets = await listDatasets();
+    if (onlyProcessed) datasets = datasets.filter(d => d.isProcessed);
+    res.json({ datasets });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// Dedicated endpoint the Figma plugin hits. Identical to /api/datasets?processed=true
+// but more discoverable and future-proof — we can slim the payload here without
+// risking the dashboard view.
+app.get('/api/figma/datasets', async (_req, res) => {
+  try {
+    const datasets = (await listDatasets()).filter(d => d.isProcessed);
+    res.json({ datasets });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Single-record fetch for the Figma plugin — 404s on any non-processed dataset
+// so a Bridge URL won't smuggle a raw upload in.
+app.get('/api/figma/datasets/:id', async (req, res) => {
+  try {
+    const record = await getDataset(req.params.id);
+    if (!record || !record.isProcessed) {
+      return res.status(404).json({ error: 'Only processed datasets are available to the Figma plugin.' });
+    }
+    res.json(record);
+  } catch (err) {
+    const status = err.code === 'ENOENT' ? 404 : 500;
+    res.status(status).json({ error: err.message });
   }
 });
 
@@ -802,6 +898,122 @@ app.post('/api/datasets/:id/enrich', async (req, res) => {
     });
   } catch (err) {
     console.error('[enrich] error:', err);
+    const status = err.code === 'ENOENT' ? 404 : 500;
+    res.status(status).json({ error: err.message });
+  }
+});
+
+// Generate a processed dataset: apply column mappings + a rule set + column
+// visibility filter, then save as a new standalone dataset. The Figma plugin
+// only shows processed datasets so it always works with clean, ready-to-inject
+// data rather than raw CSV rows.
+app.post('/api/datasets/:id/process', async (req, res) => {
+  try {
+    const record   = await getDataset(req.params.id);
+    const settings = await readSettings();
+    const { ruleSetId, visibleColumns, label, maxRows, sort } = req.body || {};
+
+    // 1. Apply column mappings
+    const mappedRows    = applyColumnMappings(record.rows, settings.columnMappings);
+    const mappedHeaders = mappedRows.length
+      ? Object.keys(mappedRows[0])
+      : record.headers.map(h => settings.columnMappings[h] || h);
+
+    // 2. Apply rule set (transforms + metrics)
+    let rules   = [];
+    let ruleSet = null;
+    if (ruleSetId) {
+      ruleSet = findRuleSet(settings, ruleSetId);
+      if (!ruleSet) return res.status(404).json({ error: 'Rule set not found' });
+      rules = ruleSet.rules;
+    }
+    // NOTE: rules run on the FULL mapped row set (all columns), so toggling
+    // columns off in the View tab does NOT change which fields the rules can
+    // read. The {RULE, TOTALS} table is therefore stable regardless of column
+    // visibility — exactly the behaviour Brooky asked for.
+    const { rows: ruledRows, headers: ruledHeaders, metrics } = applyRules(mappedRows, mappedHeaders, rules);
+    const ruleTable = buildRuleTable(metrics);
+
+    // 3. Filter to visible columns (default: all)
+    const cols = (Array.isArray(visibleColumns) && visibleColumns.length)
+      ? visibleColumns.filter(c => ruledHeaders.includes(c))
+      : ruledHeaders;
+
+    let finalRows = ruledRows.map(row => {
+      const out = {};
+      for (const c of cols) out[c] = row[c];
+      return out;
+    });
+
+    // Apply the preview-time sort (if any) so the saved order matches the
+    // order the user saw on screen when they hit Save.
+    if (sort && sort.column && cols.includes(sort.column)) {
+      const dir = sort.direction === 'desc' ? -1 : 1;
+      const col = sort.column;
+      // Numeric sort if every non-empty value parses as a number.
+      const allNumeric = finalRows.every(r => {
+        const v = r[col];
+        if (v === undefined || v === null || v === '') return true;
+        return Number.isFinite(Number(v));
+      });
+      finalRows = [...finalRows].sort((a, b) => {
+        const av = a[col], bv = b[col];
+        if (av === bv) return 0;
+        if (av === undefined || av === null || av === '') return 1;
+        if (bv === undefined || bv === null || bv === '') return -1;
+        if (allNumeric) return (Number(av) - Number(bv)) * dir;
+        return String(av).localeCompare(String(bv), undefined, { numeric: true }) * dir;
+      });
+    }
+
+    // Max rows cap — applied AFTER sort so the Figma plugin gets the top N
+    // of the sorted order, not a random N.
+    const cap = Number.isFinite(Number(maxRows)) && Number(maxRows) > 0 ? Math.floor(Number(maxRows)) : null;
+    if (cap !== null) finalRows = finalRows.slice(0, cap);
+
+    const sourceName = record.label || record.filename;
+    const processed  = {
+      id:             crypto.randomUUID(),
+      filename:       `${sourceName} (processed)`,
+      label:          label || `${sourceName} — processed`,
+      storedAs:       null,
+      uploadedAt:     new Date().toISOString(),
+      rowCount:       finalRows.length,
+      headers:        cols,
+      rows:           finalRows,
+      isProcessed:    true,
+      sourceDatasetId: record.id,
+      sourceFilename:  record.filename,
+      ruleSetId:       ruleSetId || null,
+      ruleSetName:     ruleSet ? ruleSet.name : null,
+      metrics,
+      ruleTable,       // [{RULE, TOTALS}, …] — Figma-friendly flat form of `metrics`
+      visibleColumns:  cols,
+      maxRows:         cap,  // persisted cap; null means no limit
+      sort:            (sort && sort.column) ? { column: sort.column, direction: sort.direction || 'asc' } : null,
+    };
+    processed.summary = computeSummary(processed);
+    await saveDataset(processed);
+
+    res.json({
+      ok: true,
+      dataset: {
+        id:              processed.id,
+        filename:        processed.filename,
+        label:           processed.label,
+        uploadedAt:      processed.uploadedAt,
+        rowCount:        processed.rowCount,
+        headers:         processed.headers,
+        isProcessed:     true,
+        sourceDatasetId: processed.sourceDatasetId,
+        ruleSetName:     processed.ruleSetName,
+        metrics:         processed.metrics,
+        ruleTable:       processed.ruleTable,
+        maxRows:         processed.maxRows,
+        sort:            processed.sort,
+      },
+    });
+  } catch (err) {
     const status = err.code === 'ENOENT' ? 404 : 500;
     res.status(status).json({ error: err.message });
   }
@@ -979,6 +1191,7 @@ app.post('/api/datasets/:id/apply-rules', async (req, res) => {
       : record.headers.map(h => settings.columnMappings[h] || h);
 
     const result = applyRules(mappedRows, mappedHeaders, rules);
+    const ruleTable = buildRuleTable(result.metrics);
     res.json({
       dataset: {
         id: record.id,
@@ -991,6 +1204,7 @@ app.post('/api/datasets/:id/apply-rules', async (req, res) => {
         ? { id: ruleSet.id, name: ruleSet.name, ruleCount: ruleSet.rules.length }
         : null,
       ...result,
+      ruleTable,
     });
   } catch (err) {
     const status = err.code === 'ENOENT' ? 404 : 500;
@@ -1013,11 +1227,14 @@ app.get('/api/health', async (_req, res) => {
         latest: latest
           ? {
               id:         latest.id,
-              filename:   latest.filename,
-              label:      latest.label || null,
-              uploadedAt: latest.uploadedAt,
-              rowCount:   latest.rowCount,
-              summary:    latest.summary || null,
+              filename:    latest.filename,
+              label:       latest.label || null,
+              uploadedAt:  latest.uploadedAt,
+              rowCount:    latest.rowCount,
+              summary:     latest.summary || null,
+              isProcessed: latest.isProcessed || false,
+              maxRows:     latest.maxRows ?? null,
+              ruleSetName: latest.ruleSetName || null,
             }
           : null,
       },

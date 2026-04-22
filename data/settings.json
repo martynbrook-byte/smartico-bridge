@@ -134,12 +134,21 @@
           }
         },
         {
-          "id": "r_9i377ngpp",
-          "type": "sort",
-          "name": "Sort prize Ascend",
+          "id": "r_g0ffmuzws",
+          "type": "extract-number",
+          "name": "Prize value",
           "config": {
-            "direction": "asc",
-            "column": "prize"
+            "sourceColumn": "prize",
+            "targetColumn": "prize_value"
+          }
+        },
+        {
+          "id": "r_zfhoqswzr",
+          "type": "sort",
+          "name": "Sort",
+          "config": {
+            "direction": "desc",
+            "column": "prize_value"
           }
         }
       ]

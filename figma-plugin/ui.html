@@ -169,7 +169,8 @@
       <button class="btn btn-ghost btn-sm" onclick="scanRefs()">↻ Scan</button>
     </div>
     <div style="font-size:10px;color:var(--muted);margin-bottom:2px">
-      Layers named <span style="font-family:monospace;color:var(--teal)">#columnname.rowindex</span> e.g. <span style="font-family:monospace;color:var(--teal)">#prize.1</span> · <span style="font-family:monospace;color:var(--teal)">#avatar.2</span>
+      Layers named <span style="font-family:monospace;color:var(--teal)">#columnname.rowindex</span> e.g. <span style="font-family:monospace;color:var(--teal)">#prize.1</span> · <span style="font-family:monospace;color:var(--teal)">#avatar.2</span><br>
+      Rule totals: <span style="font-family:monospace;color:var(--teal)">#rule.1</span> · <span style="font-family:monospace;color:var(--teal)">#totals.1</span> (1-based into the RULE/TOTALS table)
     </div>
     <div class="ref-list" id="refList"><div class="empty">Scan selection to see refs</div></div>
   </div>
@@ -357,11 +358,24 @@ function renderRefList() {
 
   var rows = activeDataset ? activeDataset.rows : [];
   var headers = activeDataset ? (activeDataset.headers || []) : [];
+  var ruleTable = activeDataset && Array.isArray(activeDataset.ruleTable) ? activeDataset.ruleTable : [];
 
   el.innerHTML = scannedRefs.map(function(ref) {
     var parts = ref.split('.');
     var colName = parts[0];
     var rowIdx  = parseInt(parts[1], 10) - 1; // convert to 0-based
+
+    // Rule/totals refs target the companion RULE/TOTALS table, not the main
+    // winner rows. Same #column.index convention, just a different lookup —
+    // keeps the designer mental model identical to winner bindings.
+    if (colName === 'rule' || colName === 'totals') {
+      var rtValid = rowIdx >= 0 && rowIdx < ruleTable.length;
+      var rtVal = rtValid ? ruleTable[rowIdx][colName === 'rule' ? 'RULE' : 'TOTALS'] : null;
+      var rtPreview = rtVal !== null && rtVal !== undefined ? ' → ' + trunc(String(rtVal), 20) : '';
+      var rtCls = rtValid ? 'ref-tag' : 'ref-tag miss';
+      var rtTitle = rtValid ? esc(String(rtVal == null ? '' : rtVal)) : 'Row ' + (rowIdx + 1) + ' not in RULE/TOTALS (' + ruleTable.length + ' row' + (ruleTable.length === 1 ? '' : 's') + ')';
+      return '<span class="' + rtCls + '" title="' + rtTitle + '">#' + esc(ref) + esc(rtPreview) + '</span>';
+    }
 
     // Find column (case-insensitive)
     var matchedCol = null;
@@ -398,6 +412,7 @@ async function inject() {
   try {
     var rows    = activeDataset.rows || [];
     var headers = activeDataset.headers || [];
+    var ruleTable = Array.isArray(activeDataset.ruleTable) ? activeDataset.ruleTable : [];
     var values  = {};
     var imageMap = {};
     var imageCols = ['avatar', 'avatar_image'];
@@ -409,6 +424,17 @@ async function inject() {
       var parts = ref.split('.');
       var colName = parts[0];
       var rowIdx  = parseInt(parts[1], 10) - 1;
+
+      // Rule totals: look up in companion table instead of main rows. Same
+      // #col.index convention, so designers can bind #rule.1 / #totals.1 to
+      // text nodes and the plugin will write the rule name / total value.
+      if (colName === 'rule' || colName === 'totals') {
+        if (rowIdx < 0 || rowIdx >= ruleTable.length) continue;
+        var rtRow = ruleTable[rowIdx] || {};
+        var rtVal = colName === 'rule' ? rtRow.RULE : rtRow.TOTALS;
+        values[ref] = rtVal !== undefined && rtVal !== null ? rtVal : '';
+        continue;
+      }
 
       var matchedCol = null;
       for (var c = 0; c < headers.length; c++) {

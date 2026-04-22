@@ -1752,31 +1752,40 @@ function columnOptions(headers, selected) {
 }
 
 // Shared output-formatting controls for any metric-producing rule. The select
-// writes config.format (plain/currency/financial/currency-rounded) and the
-// currency code field (hidden for plain) writes config.currencyCode.
-// Server buildRuleTable reads these and produces a pre-formatted TOTALS string
-// while still emitting TOTALS_raw for clients that want to reformat.
+// writes config.format (plain/financial/currency/currency-rounded); the
+// currency code + position inputs write config.currencyCode and
+// config.currencyPosition. Server buildRuleTable reads these and produces a
+// pre-formatted TOTALS string while still emitting TOTALS_raw for clients
+// that want to reformat.
 function formatFieldHtml(ruleSetId, idx, cfg) {
   const fmt  = cfg.format || 'plain';
   const code = cfg.currencyCode || 'USD';
-  const showCurrency = fmt === 'currency' || fmt === 'financial' || fmt === 'currency-rounded';
+  const pos  = cfg.currencyPosition || 'before';
+  const isCurrency = fmt === 'currency' || fmt === 'currency-rounded';
   return `
     <div class="field">
       <label class="field-label">Format output</label>
       <select onchange="updateRuleConfig('${esc(ruleSetId)}', ${idx}, 'format', this.value); saveActiveRuleSet(); renderRuleSets()">
-        <option value="plain"            ${fmt === 'plain'            ? 'selected' : ''}>Plain text · 1,234.56</option>
-        <option value="currency"         ${fmt === 'currency'         ? 'selected' : ''}>Currency · $1,234.56</option>
-        <option value="financial"        ${fmt === 'financial'        ? 'selected' : ''}>Financial · $1,234.56 / ($1,234.56)</option>
-        <option value="currency-rounded" ${fmt === 'currency-rounded' ? 'selected' : ''}>Currency rounded · $1,235</option>
+        <option value="plain"            ${fmt === 'plain'            ? 'selected' : ''}>Plain text · 1234.56 (no commas, no currency)</option>
+        <option value="financial"        ${fmt === 'financial'        ? 'selected' : ''}>Financial · 1,234.56 / (1,234.56) (commas, no currency)</option>
+        <option value="currency"         ${fmt === 'currency'         ? 'selected' : ''}>Currency · $1,234.56 or 1,234.56 MZN</option>
+        <option value="currency-rounded" ${fmt === 'currency-rounded' ? 'selected' : ''}>Currency rounded · $1,235 or 1,235 MZN</option>
       </select>
     </div>
-    <div class="field" style="${showCurrency ? '' : 'display:none'}">
+    <div class="field" style="${isCurrency ? '' : 'display:none'}">
       <label class="field-label">Currency code (ISO 4217)</label>
       <input type="text" value="${esc(code)}" placeholder="USD" maxlength="3" style="text-transform:uppercase"
              oninput="updateRuleConfig('${esc(ruleSetId)}', ${idx}, 'currencyCode', this.value.toUpperCase())"
              onblur="saveActiveRuleSet()">
+    </div>
+    <div class="field" style="${isCurrency ? '' : 'display:none'}">
+      <label class="field-label">Symbol / code position</label>
+      <select onchange="updateRuleConfig('${esc(ruleSetId)}', ${idx}, 'currencyPosition', this.value); saveActiveRuleSet()">
+        <option value="before" ${pos !== 'after' ? 'selected' : ''}>Before · uses native symbol (e.g. $1,234.56)</option>
+        <option value="after"  ${pos === 'after' ? 'selected' : ''}>After · uses ISO code with space (e.g. 1,234.56 MZN)</option>
+      </select>
       <div style="font-size:0.72rem;color:var(--muted);margin-top:3px">
-        e.g. USD, EUR, MZN, ZMW, ZAR, GBP. Applied when injecting #totals.N into Figma.
+        Use <strong>Before</strong> for Western symbols ($, €, £, ¥). Use <strong>After</strong> for African / local codes (MZN, ZMW, ZAR) that read better after the amount.
       </div>
     </div>
   `;

@@ -609,6 +609,7 @@ function applyRules(inputRows, inputHeaders, rules) {
           ruleId: rule.id, ruleName: rule.name, type: 'count',
           column, matchValue: value, matchMode, value: count,
           format: cfg.format || null, currencyCode: cfg.currencyCode || null,
+          currencyPosition: cfg.currencyPosition || null,
         });
         break;
       }
@@ -629,6 +630,7 @@ function applyRules(inputRows, inputHeaders, rules) {
           column, matchValue: value, matchMode, multiplier: mult,
           count, value: count * mult,
           format: cfg.format || null, currencyCode: cfg.currencyCode || null,
+          currencyPosition: cfg.currencyPosition || null,
         });
         break;
       }
@@ -653,6 +655,7 @@ function applyRules(inputRows, inputHeaders, rules) {
           ruleId: rule.id, ruleName: rule.name, type: rule.type,
           column, sampleCount: nums.length, value: val,
           format: cfg.format || null, currencyCode: cfg.currencyCode || null,
+          currencyPosition: cfg.currencyPosition || null,
         });
         break;
       }
@@ -669,6 +672,7 @@ function applyRules(inputRows, inputHeaders, rules) {
           ruleId: rule.id, ruleName: rule.name, type: 'count-by',
           column, value: map,
           format: cfg.format || null, currencyCode: cfg.currencyCode || null,
+          currencyPosition: cfg.currencyPosition || null,
         });
         break;
       }
@@ -703,6 +707,7 @@ function applyRules(inputRows, inputHeaders, rules) {
           ruleId: rule.id, ruleName: rule.name, type: 'aggregate-metrics',
           op, sources, value: val,
           format: cfg.format || null, currencyCode: cfg.currencyCode || null,
+          currencyPosition: cfg.currencyPosition || null,
         });
         break;
       }
@@ -718,42 +723,57 @@ function applyRules(inputRows, inputHeaders, rules) {
 // Format a number for the TOTALS column. The raw numeric value is always kept
 // under `TOTALS_raw` so downstream consumers (the Figma plugin, future API
 // clients) can re-format independently — the `TOTALS` string is the display
-// form Designers typically want to bind directly to text.
+// form designers typically want to bind directly to text.
 //
 // Supported formats:
-//   - plain              → locale number (thousand separators, default fractions)
-//   - currency           → locale currency with cents (e.g. $1,234.56)
-//   - financial          → accounting-style: negatives in parens, 2 fraction digits
-//   - currency-rounded   → locale currency, no fraction digits (e.g. $1,235)
-function formatTotal(value, fmt, currencyCode) {
+//   - plain              → raw number, no commas, no currency          → 1234.56
+//   - financial          → commas, negatives in parens, no currency     → 1,234.56 / (1,234.56)
+//   - currency           → commas + currency symbol/code (position-aware)
+//                          position=before → native locale symbol     → $1,234.56
+//                          position=after  → ISO code with a space    → 1,234.56 MZN
+//   - currency-rounded   → same as currency but 0 fraction digits     → $1,235 / 1,235 MZN
+//
+// `currencyPosition` defaults to 'before'. It's ignored for plain/financial.
+function formatTotal(value, fmt, currencyCode, currencyPosition) {
   const n = Number(value);
   if (!Number.isFinite(n)) {
     return value === undefined || value === null ? '' : String(value);
   }
   const code = currencyCode || 'USD';
+  const pos  = currencyPosition === 'after' ? 'after' : 'before';
   try {
     switch (fmt) {
-      case 'currency':
-        return new Intl.NumberFormat('en-US', {
-          style: 'currency', currency: code,
-          minimumFractionDigits: 2, maximumFractionDigits: 2,
-        }).format(n);
-      case 'currency-rounded':
-        return new Intl.NumberFormat('en-US', {
-          style: 'currency', currency: code,
-          minimumFractionDigits: 0, maximumFractionDigits: 0,
-        }).format(Math.round(n));
+      case 'plain':
+        // No commas. Strip any trailing .0 introduced by Number() for whole values.
+        return String(n);
       case 'financial': {
-        const abs = Math.abs(n);
         const body = new Intl.NumberFormat('en-US', {
-          style: 'currency', currency: code,
           minimumFractionDigits: 2, maximumFractionDigits: 2,
-        }).format(abs);
+        }).format(Math.abs(n));
         return n < 0 ? `(${body})` : body;
       }
-      case 'plain':
+      case 'currency':
+      case 'currency-rounded': {
+        const rounded = fmt === 'currency-rounded' ? Math.round(n) : n;
+        const frac    = fmt === 'currency-rounded' ? 0 : 2;
+        if (pos === 'after') {
+          // Number with commas + space + ISO code (e.g. "1,234.56 MZN").
+          // Kept explicit so it works for any code regardless of whether Intl
+          // has a locale-native symbol for it.
+          const body = new Intl.NumberFormat('en-US', {
+            minimumFractionDigits: frac, maximumFractionDigits: frac,
+          }).format(rounded);
+          return body + ' ' + code;
+        }
+        // Position: before → use locale currency style (produces native symbol
+        // when one is known, falls back to the code otherwise).
+        return new Intl.NumberFormat('en-US', {
+          style: 'currency', currency: code,
+          minimumFractionDigits: frac, maximumFractionDigits: frac,
+        }).format(rounded);
+      }
       default:
-        return new Intl.NumberFormat('en-US').format(n);
+        return String(n);
     }
   } catch (_) {
     // Unknown currency code or Intl failure — fall back to a readable number.
@@ -778,6 +798,7 @@ function buildRuleTable(metrics) {
       : autoMetricLabel(m);
     const fmt  = m.format || 'plain';
     const code = m.currencyCode || 'USD';
+    const pos  = m.currencyPosition || 'before';
 
     if (m.type === 'count-by' && m.value && typeof m.value === 'object') {
       const entries = Object.entries(m.value)
@@ -785,11 +806,12 @@ function buildRuleTable(metrics) {
         .sort((a, b) => b[1] - a[1]);
       for (const [key, count] of entries) {
         out.push({
-          RULE:          `${baseName} · ${key || '(empty)'}`,
-          TOTALS:        formatTotal(count, fmt, code),
-          TOTALS_raw:    count,
-          TOTALS_format: fmt,
-          TOTALS_currency: code,
+          RULE:              `${baseName} · ${key || '(empty)'}`,
+          TOTALS:            formatTotal(count, fmt, code, pos),
+          TOTALS_raw:        count,
+          TOTALS_format:     fmt,
+          TOTALS_currency:   code,
+          TOTALS_position:   pos,
         });
       }
       continue;
@@ -798,11 +820,12 @@ function buildRuleTable(metrics) {
     const n = Number(m.value);
     const raw = Number.isFinite(n) ? n : (m.value ?? null);
     out.push({
-      RULE:            baseName,
-      TOTALS:          formatTotal(raw, fmt, code),
-      TOTALS_raw:      raw,
-      TOTALS_format:   fmt,
-      TOTALS_currency: code,
+      RULE:              baseName,
+      TOTALS:            formatTotal(raw, fmt, code, pos),
+      TOTALS_raw:        raw,
+      TOTALS_format:     fmt,
+      TOTALS_currency:   code,
+      TOTALS_position:   pos,
     });
   }
   return out;

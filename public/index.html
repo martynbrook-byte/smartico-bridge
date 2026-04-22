@@ -1085,6 +1085,7 @@ const RULE_TYPES = [
   { value: 'select-columns', label: 'Keep columns',         category: 'transform' },
   { value: 'rename',         label: 'Rename column',        category: 'transform' },
   { value: 'sort',           label: 'Sort',                 category: 'transform' },
+  { value: 'extract-number', label: 'Extract number → new column', category: 'transform' },
   { value: 'count',          label: 'Count (match value)',  category: 'metric' },
   { value: 'count-times',    label: 'Count × value',        category: 'metric' },
   { value: 'sum',            label: 'Sum',                  category: 'metric' },
@@ -1556,9 +1557,42 @@ async function saveRuleSet(ruleSet) {
   }
 }
 
+// Walk a rule set and return, for each rule index, the headers that exist at
+// that point in the pipeline. Lets downstream rule editors (e.g. a `sort` rule
+// placed after an `extract-number` rule) see virtual columns that only come
+// into existence as the pipeline runs. Mirrors applyRules() on the server.
+function headersByRuleIndex(baseHeaders, rules) {
+  let cur = Array.isArray(baseHeaders) ? [...baseHeaders] : [];
+  const out = [];
+  for (const rule of (rules || [])) {
+    out.push([...cur]);
+    const c = rule.config || {};
+    switch (rule.type) {
+      case 'rename':
+        if (c.from && c.to) cur = cur.map(h => (h === c.from ? c.to : h));
+        break;
+      case 'extract-number':
+        if (c.targetColumn && !cur.includes(c.targetColumn)) cur = [...cur, c.targetColumn];
+        break;
+      case 'select-columns':
+        if (Array.isArray(c.columns) && c.columns.length) {
+          const avail = new Set(cur);
+          cur = c.columns.filter(col => avail.has(col));
+        }
+        break;
+      // count/sum/avg/min/max/count-by/count-times/aggregate-metrics/sort: no header change
+    }
+  }
+  return out;
+}
+
 function renderRuleSetEditor(ruleSet) {
   const editor = document.getElementById('rulesetEditor');
-  const headerSuggestions = datasets[0]?.headers || [];
+  const baseHeaders = datasets[0]?.headers || [];
+  const perRuleHeaders = headersByRuleIndex(baseHeaders, ruleSet.rules || []);
+  // Union of all columns that will exist at any point in the pipeline — used
+  // as a fallback if a card is rendered outside the normal renderRuleSets path.
+  const headerSuggestions = [...new Set([...(baseHeaders || []), ...perRuleHeaders.flat()])];
 
   editor.innerHTML = `
     <div class="ruleset-editor-header">
@@ -1588,7 +1622,7 @@ function renderRuleSetEditor(ruleSet) {
     ` : ''}
 
     <div class="rule-list" id="ruleList_${esc(ruleSet.id)}">
-      ${(ruleSet.rules || []).map((rule, idx) => renderRuleCard(ruleSet, rule, idx, headerSuggestions)).join('')}
+      ${(ruleSet.rules || []).map((rule, idx) => renderRuleCard(ruleSet, rule, idx, perRuleHeaders[idx] || headerSuggestions)).join('')}
       ${(ruleSet.rules || []).length === 0 ? `
         <div class="empty-state" style="padding:20px">
           <span class="empty-icon">🧩</span>
@@ -1644,6 +1678,8 @@ function ruleSummary(rule) {
       const cols = Array.isArray(c.columns) ? c.columns : [];
       return cols.length ? `keep ${cols.length}: ${cols.slice(0, 3).join(', ')}${cols.length > 3 ? '…' : ''}` : '—';
     }
+    case 'extract-number':
+      return c.sourceColumn && c.targetColumn ? `${c.sourceColumn} → ${c.targetColumn} (number)` : '—';
     case 'count':          return c.column && c.value ? `${c.column} ${c.matchMode === 'exact' ? '=' : '~'} "${c.value}"` : '—';
     case 'count-times':    return c.column && c.value ? `${c.column} ${c.matchMode === 'exact' ? '=' : '~'} "${c.value}" × ${c.multiplier ?? '?'}` : '—';
     case 'sum':
@@ -1742,6 +1778,24 @@ function renderRuleConfigFields(ruleSetId, rule, idx, headers) {
             <option value="asc"  ${cfg.direction !== 'desc' ? 'selected' : ''}>Ascending</option>
             <option value="desc" ${cfg.direction === 'desc' ? 'selected' : ''}>Descending</option>
           </select>
+        </div>
+      `;
+    case 'extract-number':
+      return `
+        <div class="field">
+          <label class="field-label">From column (text with a number in it)</label>
+          <select onchange="updateRuleConfig('${esc(ruleSetId)}', ${idx}, 'sourceColumn', this.value); saveActiveRuleSet()">
+            ${columnOptions(headers, cfg.sourceColumn)}
+          </select>
+        </div>
+        <div class="field">
+          <label class="field-label">New column name</label>
+          <input type="text" value="${esc(cfg.targetColumn || '')}" placeholder="e.g. prize_value"
+                 oninput="updateRuleConfig('${esc(ruleSetId)}', ${idx}, 'targetColumn', this.value)"
+                 onblur="saveActiveRuleSet()">
+          <div style="font-size:0.72rem;color:var(--muted);margin-top:3px">
+            Pulls the first number (handles commas + decimals). "50,000 Cash" → 50000 · "Free Flight 20MT" → 20 · "$1,234.56 prize" → 1234.56. Add a <strong>Sort</strong> rule on this new column below to rank rows.
+          </div>
         </div>
       `;
     case 'select-columns': {
@@ -1980,6 +2034,7 @@ async function addRule(ruleSetId) {
   const type = typeSel.value;
   const defaults = type === 'select-columns'    ? { columns: [] }
                  : type === 'sort'              ? { direction: 'asc' }
+                 : type === 'extract-number'    ? { sourceColumn: '', targetColumn: '' }
                  : type === 'count'             ? { matchMode: 'contains' }
                  : type === 'count-times'       ? { matchMode: 'contains', multiplier: 1 }
                  : type === 'aggregate-metrics' ? { op: 'sum', ruleIds: [] }

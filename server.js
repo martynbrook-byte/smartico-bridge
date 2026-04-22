@@ -506,11 +506,27 @@ function applyColumnMappings(rows, mappings) {
 //   rename             → config: { from, to }
 //   sort               → config: { column, direction: 'asc'|'desc' }
 //   select-columns     → config: { columns: [string] }                              (keeps only those columns, in order)
+//   extract-number     → config: { sourceColumn, targetColumn }                     (parses first number out of sourceColumn into a new numeric targetColumn)
 //   count              → config: { column, value, matchMode: 'exact'|'contains' }   (metric)
 //   count-times        → config: { column, value, matchMode, multiplier: number }   (metric: count × multiplier)
 //   sum/avg/min/max    → config: { column }                                         (metric)
 //   count-by           → config: { column }                                         (metric: {val: count})
 //   aggregate-metrics  → config: { op: 'sum'|'avg'|'min'|'max', ruleIds: [string] } (metric: op over earlier metrics)
+
+// Pull the first numeric token out of a string, honoring commas and decimals.
+// "50,000 Cash"     → 50000
+// "Free Flight 20MT" → 20
+// "$1,234.56 prize" → 1234.56
+// "no number here"  → null
+function extractFirstNumber(input) {
+  if (input === undefined || input === null) return null;
+  const s = String(input);
+  // Match: optional minus, then digits with optional comma groups, optional decimal.
+  const m = s.match(/-?\d[\d,]*(?:\.\d+)?/);
+  if (!m) return null;
+  const n = Number(m[0].replace(/,/g, ''));
+  return Number.isFinite(n) ? n : null;
+}
 
 function applyRules(inputRows, inputHeaders, rules) {
   let rows    = Array.isArray(inputRows) ? inputRows.map(r => ({ ...r })) : [];
@@ -562,6 +578,21 @@ function applyRules(inputRows, inputHeaders, rules) {
           for (const c of nextHeaders) out[c] = row[c];
           return out;
         });
+        break;
+      }
+
+      case 'extract-number': {
+        // Reads sourceColumn, pulls the first numeric token, writes a real
+        // Number into targetColumn (so downstream `sort` and sum/avg/min/max
+        // rules work natively without comma-aware hacks).
+        const { sourceColumn, targetColumn } = cfg;
+        if (!sourceColumn || !targetColumn) break;
+        rows = rows.map(row => {
+          const out = { ...row };
+          out[targetColumn] = extractFirstNumber(row[sourceColumn]);
+          return out;
+        });
+        if (!headers.includes(targetColumn)) headers = [...headers, targetColumn];
         break;
       }
 

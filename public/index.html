@@ -1479,8 +1479,13 @@ function renderRuleSets() {
       <span class="ruleset-item-count">${(rs.rules || []).length}</span>
     </div>
   `).join('') + `
-    <div class="ruleset-new-btn">
+    <div class="ruleset-new-btn" style="display:flex;flex-direction:column;gap:6px">
       <button class="btn btn-primary btn-small" onclick="createRuleSet()" style="width:100%">+ New rule set</button>
+      <div style="display:flex;gap:6px">
+        <button class="btn btn-small" onclick="exportRuleSets()" style="flex:1" title="Download all rule sets as JSON">↓ Export rules</button>
+        <button class="btn btn-small" onclick="document.getElementById('importRuleSetsInput').click()" style="flex:1" title="Merge rule sets from a JSON file">↑ Import rules</button>
+      </div>
+      <input type="file" id="importRuleSetsInput" accept=".json,application/json" class="hidden" onchange="importRuleSets(event)">
     </div>
   `;
 
@@ -1746,6 +1751,37 @@ function columnOptions(headers, selected) {
   ].join('');
 }
 
+// Shared output-formatting controls for any metric-producing rule. The select
+// writes config.format (plain/currency/financial/currency-rounded) and the
+// currency code field (hidden for plain) writes config.currencyCode.
+// Server buildRuleTable reads these and produces a pre-formatted TOTALS string
+// while still emitting TOTALS_raw for clients that want to reformat.
+function formatFieldHtml(ruleSetId, idx, cfg) {
+  const fmt  = cfg.format || 'plain';
+  const code = cfg.currencyCode || 'USD';
+  const showCurrency = fmt === 'currency' || fmt === 'financial' || fmt === 'currency-rounded';
+  return `
+    <div class="field">
+      <label class="field-label">Format output</label>
+      <select onchange="updateRuleConfig('${esc(ruleSetId)}', ${idx}, 'format', this.value); saveActiveRuleSet(); renderRuleSets()">
+        <option value="plain"            ${fmt === 'plain'            ? 'selected' : ''}>Plain text · 1,234.56</option>
+        <option value="currency"         ${fmt === 'currency'         ? 'selected' : ''}>Currency · $1,234.56</option>
+        <option value="financial"        ${fmt === 'financial'        ? 'selected' : ''}>Financial · $1,234.56 / ($1,234.56)</option>
+        <option value="currency-rounded" ${fmt === 'currency-rounded' ? 'selected' : ''}>Currency rounded · $1,235</option>
+      </select>
+    </div>
+    <div class="field" style="${showCurrency ? '' : 'display:none'}">
+      <label class="field-label">Currency code (ISO 4217)</label>
+      <input type="text" value="${esc(code)}" placeholder="USD" maxlength="3" style="text-transform:uppercase"
+             oninput="updateRuleConfig('${esc(ruleSetId)}', ${idx}, 'currencyCode', this.value.toUpperCase())"
+             onblur="saveActiveRuleSet()">
+      <div style="font-size:0.72rem;color:var(--muted);margin-top:3px">
+        e.g. USD, EUR, MZN, ZMW, ZAR, GBP. Applied when injecting #totals.N into Figma.
+      </div>
+    </div>
+  `;
+}
+
 function renderRuleConfigFields(ruleSetId, rule, idx, headers) {
   const cfg = rule.config || {};
   switch (rule.type) {
@@ -1850,6 +1886,7 @@ function renderRuleConfigFields(ruleSetId, rule, idx, headers) {
             <option value="exact"    ${cfg.matchMode === 'exact' ? 'selected' : ''}>Exact</option>
           </select>
         </div>
+        ${formatFieldHtml(ruleSetId, idx, cfg)}
       `;
     case 'count-times':
       return `
@@ -1878,6 +1915,7 @@ function renderRuleConfigFields(ruleSetId, rule, idx, headers) {
                  oninput="updateRuleConfig('${esc(ruleSetId)}', ${idx}, 'multiplier', this.value === '' ? '' : Number(this.value))"
                  onblur="saveActiveRuleSet()">
         </div>
+        ${formatFieldHtml(ruleSetId, idx, cfg)}
       `;
     case 'sum':
     case 'avg':
@@ -1891,6 +1929,7 @@ function renderRuleConfigFields(ruleSetId, rule, idx, headers) {
             ${columnOptions(headers, cfg.column)}
           </select>
         </div>
+        ${formatFieldHtml(ruleSetId, idx, cfg)}
       `;
     case 'aggregate-metrics': {
       const rs = (settings.ruleSets || []).find(r => r.id === ruleSetId);
@@ -1938,6 +1977,7 @@ function renderRuleConfigFields(ruleSetId, rule, idx, headers) {
             ${pickerHtml}
           </div>
         </div>
+        ${formatFieldHtml(ruleSetId, idx, cfg)}
       `;
     }
     default:
@@ -2777,6 +2817,87 @@ function exportSettings() {
   a.download = 'settings.json';
   a.click();
   URL.revokeObjectURL(url);
+}
+
+// ── Rule sets only export/import (scoped — leaves column mappings + profileApi alone)
+function exportRuleSets() {
+  const payload = {
+    __type: 'smartico-bridge.ruleSets',
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    ruleSets: settings.ruleSets || [],
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  a.download = `smartico-rulesets-${stamp}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  banner(`Exported ${(settings.ruleSets || []).length} rule set(s)`, 'success');
+}
+
+async function importRuleSets(event) {
+  const input = event.target;
+  const file = input.files[0];
+  input.value = '';
+  if (!file) return;
+  try {
+    const text = await file.text();
+    const parsed = JSON.parse(text);
+
+    // Accept three shapes: { ruleSets: [...] }, a raw array of rule sets,
+    // or a full settings blob (fall back to its ruleSets). Be defensive —
+    // designers shouldn't have to hand-edit JSON to make imports work.
+    let incoming = null;
+    if (Array.isArray(parsed)) incoming = parsed;
+    else if (Array.isArray(parsed.ruleSets)) incoming = parsed.ruleSets;
+    else throw new Error('JSON does not contain a ruleSets array');
+
+    if (!incoming.length) throw new Error('No rule sets found in file');
+
+    // Merge strategy: ask user to choose replace vs. append. Keep it cheap —
+    // a confirm() avoids building a whole modal for a dev-tool feature.
+    const existingCount = (settings.ruleSets || []).length;
+    let merged;
+    if (existingCount === 0) {
+      merged = incoming;
+    } else {
+      const replace = confirm(
+        `Import ${incoming.length} rule set(s).\n\n` +
+        `OK = Replace existing ${existingCount} rule set(s)\n` +
+        `Cancel = Append (keeps existing, may create duplicates)`
+      );
+      if (replace) {
+        merged = incoming;
+      } else {
+        // Append with fresh IDs to dodge collisions with existing sets
+        merged = (settings.ruleSets || []).concat(
+          incoming.map(rs => Object.assign({}, rs, {
+            id: (rs.id || 'rs') + '-' + Math.random().toString(36).slice(2, 8),
+          }))
+        );
+      }
+    }
+
+    const res = await api('/api/settings', {
+      method: 'POST',
+      body: JSON.stringify({
+        columnMappings: settings.columnMappings,
+        ruleSets: merged,
+        profileApi: settings.profileApi,
+      }),
+    });
+    if (res && res.settings) settings = res.settings;
+    activeRuleSetId = (settings.ruleSets || [])[0]?.id || null;
+    renderRuleSets();
+    renderStats();
+    refreshViewSelectors();
+    banner(`✓ Imported ${incoming.length} rule set(s)`, 'success');
+  } catch (err) {
+    banner(`Rule import failed: ${err.message}`, 'error');
+  }
 }
 
 async function importSettings(input) {

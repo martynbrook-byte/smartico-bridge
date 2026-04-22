@@ -80,10 +80,26 @@
   .sel-name { color: var(--text); font-weight: 600; font-size: 11px; }
 
   /* Ref list */
-  .ref-list { display: flex; flex-wrap: wrap; gap: 4px; }
+  .ref-list { display: flex; flex-direction: column; gap: 6px; }
   .ref-tag { background: var(--surface2); border: 1px solid var(--border); border-radius: 4px;
              padding: 2px 7px; font-size: 10px; font-family: monospace; color: var(--teal); }
   .ref-tag.miss { color: var(--red); border-color: #ef444433; }
+
+  /* Ref groups (per containing frame) */
+  .ref-group { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+  .ref-group-head { display: flex; align-items: center; gap: 6px; padding: 5px 8px;
+                    cursor: pointer; user-select: none; border-radius: var(--radius); }
+  .ref-group-head:hover { background: #0f346030; }
+  .ref-group-caret { display: inline-block; width: 10px; font-size: 10px; color: var(--muted);
+                     transition: transform .15s; }
+  .ref-group.open > .ref-group-head .ref-group-caret { transform: rotate(90deg); }
+  .ref-group-name { flex: 1; font-size: 11px; font-weight: 600; color: var(--text);
+                    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ref-group-type { font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+  .ref-group-count { background: var(--surface2); border-radius: 10px; padding: 1px 7px;
+                     font-size: 10px; color: var(--muted); border: 1px solid var(--border); }
+  .ref-group-body { padding: 0 8px 8px 22px; display: none; flex-wrap: wrap; gap: 4px; }
+  .ref-group.open > .ref-group-body { display: flex; }
 
   /* Inject bar */
   .inject-bar { position: sticky; bottom: 0; background: var(--bg);
@@ -120,8 +136,8 @@
 
 <div class="body">
 
-  <!-- Server settings -->
-  <div class="section">
+  <!-- Server settings (hidden for now — hardcoded Railway URL) -->
+  <div class="section" style="display:none">
     <button class="stg-toggle" onclick="toggleSettings()">⚙ Server settings</button>
     <div class="settings-drawer" id="settingsDrawer">
       <label>Bridge server URL</label>
@@ -131,8 +147,6 @@
       </div>
     </div>
   </div>
-
-  <hr>
 
   <!-- Processed dataset list -->
   <div class="section">
@@ -169,8 +183,11 @@
       <button class="btn btn-ghost btn-sm" onclick="scanRefs()">↻ Scan</button>
     </div>
     <div style="font-size:10px;color:var(--muted);margin-bottom:2px">
-      Layers named <span style="font-family:monospace;color:var(--teal)">#columnname.rowindex</span> e.g. <span style="font-family:monospace;color:var(--teal)">#prize.1</span> · <span style="font-family:monospace;color:var(--teal)">#avatar.2</span><br>
-      Rule totals: <span style="font-family:monospace;color:var(--teal)">#rule.1</span> · <span style="font-family:monospace;color:var(--teal)">#totals.1</span> (1-based into the RULE/TOTALS table)
+      Text / image: <span style="font-family:monospace;color:var(--teal)">#columnname.rowindex</span> e.g. <span style="font-family:monospace;color:var(--teal)">#prize.1</span> · <span style="font-family:monospace;color:var(--teal)">#avatar.2</span><br>
+      Rule totals: <span style="font-family:monospace;color:var(--teal)">#rule.1</span> · <span style="font-family:monospace;color:var(--teal)">#totals.1</span> (1-based)<br>
+      Variant: same <span style="font-family:monospace;color:var(--teal)">#col.idx</span> on an Instance where the column matches a variant property<br>
+      Component swap: <span style="font-family:monospace;color:var(--teal)">##col.idx</span> on an Instance — value must match a local component name<br>
+      Grouped by containing frame — click ▸ to expand.
     </div>
     <div class="ref-list" id="refList"><div class="empty">Scan selection to see refs</div></div>
   </div>
@@ -187,7 +204,9 @@
 var serverUrl = 'https://smartico-bridge-production.up.railway.app';
 var allDatasets = [];
 var activeDataset = null;   // full dataset record (with rows)
-var scannedRefs  = [];      // ['prize.1', 'avatar.2', ...]
+var scannedRefs  = [];      // flat ['prize.1', 'avatar.2', ...] — used by inject()
+var scannedGroups = [];     // [{ frameId, frameName, frameType, refs: [...] }]
+var openGroups   = {};      // frameId → true; tracks expanded groups
 var figmaSel     = [];
 
 connect();
@@ -195,7 +214,12 @@ refreshSel();
 
 // ── Connection ────────────────────────────────────────────────────────────────
 async function connect() {
-  serverUrl = document.getElementById('serverUrl').value.trim().replace(/\/$/, '');
+  // Server URL hardcoded for now; the drawer is hidden. If the drawer is
+  // shown again we'll re-read the input — keep the lookup defensive.
+  var urlInput = document.getElementById('serverUrl');
+  if (urlInput && urlInput.value) {
+    serverUrl = urlInput.value.trim().replace(/\/$/, '');
+  }
   setStatus('…', false);
   try {
     await api('/api/health');
@@ -349,6 +373,43 @@ function scanRefs() {
   parent.postMessage({ pluginMessage: { type: 'scan-refs' } }, '*');
 }
 
+function renderRefTag(ref, rows, headers, ruleTable) {
+  var parts = ref.split('.');
+  var colName = parts[0];
+  var rowIdx  = parseInt(parts[1], 10) - 1;
+
+  // Rule/totals refs target the companion RULE/TOTALS table, not the main
+  // winner rows. Same #column.index convention, just a different lookup.
+  if (colName === 'rule' || colName === 'totals') {
+    var rtValid = rowIdx >= 0 && rowIdx < ruleTable.length;
+    var rtVal = rtValid ? ruleTable[rowIdx][colName === 'rule' ? 'RULE' : 'TOTALS'] : null;
+    var rtPreview = rtVal !== null && rtVal !== undefined ? ' → ' + trunc(String(rtVal), 20) : '';
+    var rtCls = rtValid ? 'ref-tag' : 'ref-tag miss';
+    var rtTitle = rtValid ? esc(String(rtVal == null ? '' : rtVal)) : 'Row ' + (rowIdx + 1) + ' not in RULE/TOTALS (' + ruleTable.length + ' row' + (ruleTable.length === 1 ? '' : 's') + ')';
+    return '<span class="' + rtCls + '" title="' + rtTitle + '">#' + esc(ref) + esc(rtPreview) + '</span>';
+  }
+
+  var matchedCol = null;
+  for (var i = 0; i < headers.length; i++) {
+    if (headers[i].toLowerCase() === colName) { matchedCol = headers[i]; break; }
+  }
+  var valid = matchedCol !== null && rowIdx >= 0 && rowIdx < rows.length;
+  var preview = '';
+  if (valid) {
+    var val = rows[rowIdx][matchedCol];
+    preview = val ? (' → ' + trunc(String(val), 20)) : '';
+  }
+  var cls = valid ? 'ref-tag' : 'ref-tag miss';
+  return '<span class="' + cls + '" title="' + (valid ? esc(String(rows[rowIdx][matchedCol]||'')) : 'Column or row not found in dataset') + '">#' + esc(ref) + esc(preview) + '</span>';
+}
+
+function toggleRefGroup(frameId) {
+  if (openGroups[frameId]) delete openGroups[frameId];
+  else openGroups[frameId] = true;
+  var el = document.querySelector('.ref-group[data-fid="' + cssEsc(frameId) + '"]');
+  if (el) el.classList.toggle('open', !!openGroups[frameId]);
+}
+
 function renderRefList() {
   var el = document.getElementById('refList');
   if (!scannedRefs.length) {
@@ -356,41 +417,34 @@ function renderRefList() {
     return;
   }
 
-  var rows = activeDataset ? activeDataset.rows : [];
-  var headers = activeDataset ? (activeDataset.headers || []) : [];
+  var rows      = activeDataset ? activeDataset.rows : [];
+  var headers   = activeDataset ? (activeDataset.headers || []) : [];
   var ruleTable = activeDataset && Array.isArray(activeDataset.ruleTable) ? activeDataset.ruleTable : [];
 
-  el.innerHTML = scannedRefs.map(function(ref) {
-    var parts = ref.split('.');
-    var colName = parts[0];
-    var rowIdx  = parseInt(parts[1], 10) - 1; // convert to 0-based
+  // Fall back to a single synthetic group if code.js didn't provide grouping
+  // (older plugin builds, or the dev-serve fallback during manifest reload).
+  var groups = (scannedGroups && scannedGroups.length)
+    ? scannedGroups
+    : [{ frameId: '__all__', frameName: 'Selection', frameType: '', refs: scannedRefs.slice() }];
 
-    // Rule/totals refs target the companion RULE/TOTALS table, not the main
-    // winner rows. Same #column.index convention, just a different lookup —
-    // keeps the designer mental model identical to winner bindings.
-    if (colName === 'rule' || colName === 'totals') {
-      var rtValid = rowIdx >= 0 && rowIdx < ruleTable.length;
-      var rtVal = rtValid ? ruleTable[rowIdx][colName === 'rule' ? 'RULE' : 'TOTALS'] : null;
-      var rtPreview = rtVal !== null && rtVal !== undefined ? ' → ' + trunc(String(rtVal), 20) : '';
-      var rtCls = rtValid ? 'ref-tag' : 'ref-tag miss';
-      var rtTitle = rtValid ? esc(String(rtVal == null ? '' : rtVal)) : 'Row ' + (rowIdx + 1) + ' not in RULE/TOTALS (' + ruleTable.length + ' row' + (ruleTable.length === 1 ? '' : 's') + ')';
-      return '<span class="' + rtCls + '" title="' + rtTitle + '">#' + esc(ref) + esc(rtPreview) + '</span>';
-    }
+  // Auto-open the first group if nothing is currently open so the user doesn't
+  // have to click to see anything on first scan.
+  var anyOpen = false;
+  for (var g0 = 0; g0 < groups.length; g0++) if (openGroups[groups[g0].frameId]) { anyOpen = true; break; }
+  if (!anyOpen && groups.length) openGroups[groups[0].frameId] = true;
 
-    // Find column (case-insensitive)
-    var matchedCol = null;
-    for (var i = 0; i < headers.length; i++) {
-      if (headers[i].toLowerCase() === colName) { matchedCol = headers[i]; break; }
-    }
-
-    var valid = matchedCol !== null && rowIdx >= 0 && rowIdx < rows.length;
-    var preview = '';
-    if (valid) {
-      var val = rows[rowIdx][matchedCol];
-      preview = val ? (' → ' + trunc(String(val), 20)) : '';
-    }
-    var cls = valid ? 'ref-tag' : 'ref-tag miss';
-    return '<span class="' + cls + '" title="' + (valid ? esc(String(rows[rowIdx][matchedCol]||'')) : 'Column or row not found in dataset') + '">#' + esc(ref) + esc(preview) + '</span>';
+  el.innerHTML = groups.map(function(grp) {
+    var openCls = openGroups[grp.frameId] ? ' open' : '';
+    var tagsHtml = grp.refs.map(function(ref) { return renderRefTag(ref, rows, headers, ruleTable); }).join('');
+    return '<div class="ref-group' + openCls + '" data-fid="' + esc(grp.frameId) + '">' +
+             '<div class="ref-group-head" onclick="toggleRefGroup(\'' + jsEsc(grp.frameId) + '\')">' +
+               '<span class="ref-group-caret">▸</span>' +
+               '<span class="ref-group-name" title="' + esc(grp.frameName) + '">' + esc(grp.frameName || '(unnamed)') + '</span>' +
+               (grp.frameType ? '<span class="ref-group-type">' + esc(grp.frameType) + '</span>' : '') +
+               '<span class="ref-group-count">' + grp.refs.length + '</span>' +
+             '</div>' +
+             '<div class="ref-group-body">' + tagsHtml + '</div>' +
+           '</div>';
   }).join('');
 }
 
@@ -488,12 +542,15 @@ window.onmessage = function(event) {
 
   if (msg.type === 'scan-result') {
     if (!msg.ok) { showBanner(msg.error, 'err'); return; }
-    scannedRefs = msg.refs || [];
+    scannedRefs   = msg.refs || [];
+    scannedGroups = Array.isArray(msg.groups) ? msg.groups : [];
+    openGroups    = {}; // fresh scan → collapse everything, renderRefList opens the first
     renderRefList();
     if (scannedRefs.length === 0) {
       showBanner('No #name.index layers found. Name your Figma layers like #prize.1 or #avatar.2', 'info');
     } else {
-      showBanner('Found ' + scannedRefs.length + ' ref(s). Click Inject to fill them.', 'ok');
+      var nF = scannedGroups.length || 1;
+      showBanner('Found ' + scannedRefs.length + ' ref(s) in ' + nF + ' frame' + (nF === 1 ? '' : 's') + '. Click Inject to fill them.', 'ok');
     }
     return;
   }
@@ -516,6 +573,10 @@ function show(id, cond) { document.getElementById(id).style.display = (cond === 
 function showBanner(msg, type) { var el = document.getElementById('mainBanner'); el.textContent = msg; el.className = 'banner ' + type; }
 function hideBanner() { document.getElementById('mainBanner').className = 'banner'; }
 function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+// Escape a value for interpolation into a JS string literal inside onclick='…'
+function jsEsc(s) { return String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'\\"'); }
+// Escape for use in CSS selector brackets (strip any stray quotes)
+function cssEsc(s) { return String(s||'').replace(/"/g,'\\"'); }
 function trunc(s, n) { return s.length > n ? s.slice(0,n) + '…' : s; }
 function fmtNum(n) { return (n||0).toLocaleString(); }
 </script>

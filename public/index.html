@@ -1752,25 +1752,41 @@ function columnOptions(headers, selected) {
 }
 
 // Shared output-formatting controls for any metric-producing rule. The select
-// writes config.format (plain/financial/currency/currency-rounded); the
-// currency code + position inputs write config.currencyCode and
-// config.currencyPosition. Server buildRuleTable reads these and produces a
-// pre-formatted TOTALS string while still emitting TOTALS_raw for clients
-// that want to reformat.
+// writes config.format (plain/financial/currency); the currency code +
+// position inputs write config.currencyCode / config.currencyPosition; the
+// Round checkbox writes config.rounded. Server buildRuleTable reads these
+// and produces a pre-formatted TOTALS string while still emitting TOTALS_raw
+// for clients that want to reformat.
 function formatFieldHtml(ruleSetId, idx, cfg) {
-  const fmt  = cfg.format || 'plain';
+  // Migrate legacy 'currency-rounded' format on the fly: surface it as
+  // currency + rounded so the UI is consistent with the new shape.
+  let fmt = cfg.format || 'plain';
+  let roundedFlag = !!cfg.rounded;
+  if (fmt === 'currency-rounded') { fmt = 'currency'; roundedFlag = true; }
+
   const code = cfg.currencyCode || 'USD';
   const pos  = cfg.currencyPosition || 'before';
-  const isCurrency = fmt === 'currency' || fmt === 'currency-rounded';
+  const isCurrency = fmt === 'currency';
+  const showRound  = fmt === 'currency' || fmt === 'financial';
+
   return `
     <div class="field">
       <label class="field-label">Format output</label>
       <select onchange="updateRuleConfig('${esc(ruleSetId)}', ${idx}, 'format', this.value); saveActiveRuleSet(); renderRuleSets()">
-        <option value="plain"            ${fmt === 'plain'            ? 'selected' : ''}>Plain text · 1234.56 (no commas, no currency)</option>
-        <option value="financial"        ${fmt === 'financial'        ? 'selected' : ''}>Financial · 1,234.56 / (1,234.56) (commas, no currency)</option>
-        <option value="currency"         ${fmt === 'currency'         ? 'selected' : ''}>Currency · $1,234.56 or 1,234.56 MZN</option>
-        <option value="currency-rounded" ${fmt === 'currency-rounded' ? 'selected' : ''}>Currency rounded · $1,235 or 1,235 MZN</option>
+        <option value="plain"     ${fmt === 'plain'     ? 'selected' : ''}>Plain text · 1234.56 (no commas, no currency)</option>
+        <option value="financial" ${fmt === 'financial' ? 'selected' : ''}>Financial · 1,234.56 / (1,234.56) (commas, no currency)</option>
+        <option value="currency"  ${fmt === 'currency'  ? 'selected' : ''}>Currency · $1,234.56 or 1,234.56 MZN</option>
       </select>
+    </div>
+    <div class="field" style="${showRound ? '' : 'display:none'}">
+      <label class="field-label" style="display:flex;align-items:center;gap:8px;cursor:pointer">
+        <input type="checkbox" ${roundedFlag ? 'checked' : ''}
+               onchange="updateRuleConfig('${esc(ruleSetId)}', ${idx}, 'rounded', this.checked); saveActiveRuleSet()">
+        <span>Round to whole number</span>
+      </label>
+      <div style="font-size:0.72rem;color:var(--muted);margin-top:3px">
+        Drops the decimals — e.g. $1,234.56 → $1,235 · 1,234.56 MZN → 1,235 MZN
+      </div>
     </div>
     <div class="field" style="${isCurrency ? '' : 'display:none'}">
       <label class="field-label">Currency code (ISO 4217)</label>

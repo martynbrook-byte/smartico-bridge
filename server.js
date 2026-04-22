@@ -609,7 +609,7 @@ function applyRules(inputRows, inputHeaders, rules) {
           ruleId: rule.id, ruleName: rule.name, type: 'count',
           column, matchValue: value, matchMode, value: count,
           format: cfg.format || null, currencyCode: cfg.currencyCode || null,
-          currencyPosition: cfg.currencyPosition || null,
+          currencyPosition: cfg.currencyPosition || null, rounded: !!cfg.rounded,
         });
         break;
       }
@@ -630,7 +630,7 @@ function applyRules(inputRows, inputHeaders, rules) {
           column, matchValue: value, matchMode, multiplier: mult,
           count, value: count * mult,
           format: cfg.format || null, currencyCode: cfg.currencyCode || null,
-          currencyPosition: cfg.currencyPosition || null,
+          currencyPosition: cfg.currencyPosition || null, rounded: !!cfg.rounded,
         });
         break;
       }
@@ -655,7 +655,7 @@ function applyRules(inputRows, inputHeaders, rules) {
           ruleId: rule.id, ruleName: rule.name, type: rule.type,
           column, sampleCount: nums.length, value: val,
           format: cfg.format || null, currencyCode: cfg.currencyCode || null,
-          currencyPosition: cfg.currencyPosition || null,
+          currencyPosition: cfg.currencyPosition || null, rounded: !!cfg.rounded,
         });
         break;
       }
@@ -672,7 +672,7 @@ function applyRules(inputRows, inputHeaders, rules) {
           ruleId: rule.id, ruleName: rule.name, type: 'count-by',
           column, value: map,
           format: cfg.format || null, currencyCode: cfg.currencyCode || null,
-          currencyPosition: cfg.currencyPosition || null,
+          currencyPosition: cfg.currencyPosition || null, rounded: !!cfg.rounded,
         });
         break;
       }
@@ -707,7 +707,7 @@ function applyRules(inputRows, inputHeaders, rules) {
           ruleId: rule.id, ruleName: rule.name, type: 'aggregate-metrics',
           op, sources, value: val,
           format: cfg.format || null, currencyCode: cfg.currencyCode || null,
-          currencyPosition: cfg.currencyPosition || null,
+          currencyPosition: cfg.currencyPosition || null, rounded: !!cfg.rounded,
         });
         break;
       }
@@ -726,43 +726,52 @@ function applyRules(inputRows, inputHeaders, rules) {
 // form designers typically want to bind directly to text.
 //
 // Supported formats:
-//   - plain              → raw number, no commas, no currency          → 1234.56
-//   - financial          → commas, negatives in parens, no currency     → 1,234.56 / (1,234.56)
-//   - currency           → commas + currency symbol/code (position-aware)
-//                          position=before → native locale symbol     → $1,234.56
-//                          position=after  → ISO code with a space    → 1,234.56 MZN
-//   - currency-rounded   → same as currency but 0 fraction digits     → $1,235 / 1,235 MZN
+//   - plain      → raw number, no commas, no currency          → 1234.56
+//   - financial  → commas, negatives in parens, no currency    → 1,234.56 / (1,234.56)
+//   - currency   → commas + currency symbol/code (position-aware)
+//                  position=before → native locale symbol      → $1,234.56
+//                  position=after  → ISO code with a space     → 1,234.56 MZN
 //
-// `currencyPosition` defaults to 'before'. It's ignored for plain/financial.
-function formatTotal(value, fmt, currencyCode, currencyPosition) {
+// `rounded=true` strips the fraction digits (applies to financial and currency).
+// `currencyPosition` defaults to 'before'. Ignored for plain/financial.
+//
+// Backward compat: the old 'currency-rounded' value is treated as currency
+// with rounded=true so existing saved rules still format the same way.
+function formatTotal(value, fmt, currencyCode, currencyPosition, rounded) {
   const n = Number(value);
   if (!Number.isFinite(n)) {
     return value === undefined || value === null ? '' : String(value);
   }
   const code = currencyCode || 'USD';
   const pos  = currencyPosition === 'after' ? 'after' : 'before';
+
+  // Legacy format key → new shape
+  let effFmt = fmt;
+  let effRounded = !!rounded;
+  if (effFmt === 'currency-rounded') { effFmt = 'currency'; effRounded = true; }
+
+  const frac = effRounded ? 0 : 2;
+  const val  = effRounded ? Math.round(n) : n;
+
   try {
-    switch (fmt) {
+    switch (effFmt) {
       case 'plain':
-        // No commas. Strip any trailing .0 introduced by Number() for whole values.
-        return String(n);
+        // No commas. Honour rounded even here (rare, but consistent).
+        return String(effRounded ? Math.round(n) : n);
       case 'financial': {
         const body = new Intl.NumberFormat('en-US', {
-          minimumFractionDigits: 2, maximumFractionDigits: 2,
-        }).format(Math.abs(n));
+          minimumFractionDigits: frac, maximumFractionDigits: frac,
+        }).format(Math.abs(val));
         return n < 0 ? `(${body})` : body;
       }
-      case 'currency':
-      case 'currency-rounded': {
-        const rounded = fmt === 'currency-rounded' ? Math.round(n) : n;
-        const frac    = fmt === 'currency-rounded' ? 0 : 2;
+      case 'currency': {
         if (pos === 'after') {
           // Number with commas + space + ISO code (e.g. "1,234.56 MZN").
           // Kept explicit so it works for any code regardless of whether Intl
           // has a locale-native symbol for it.
           const body = new Intl.NumberFormat('en-US', {
             minimumFractionDigits: frac, maximumFractionDigits: frac,
-          }).format(rounded);
+          }).format(val);
           return body + ' ' + code;
         }
         // Position: before → use locale currency style (produces native symbol
@@ -770,7 +779,7 @@ function formatTotal(value, fmt, currencyCode, currencyPosition) {
         return new Intl.NumberFormat('en-US', {
           style: 'currency', currency: code,
           minimumFractionDigits: frac, maximumFractionDigits: frac,
-        }).format(rounded);
+        }).format(val);
       }
       default:
         return String(n);
@@ -796,9 +805,11 @@ function buildRuleTable(metrics) {
     const baseName = m.ruleName && String(m.ruleName).trim()
       ? m.ruleName
       : autoMetricLabel(m);
-    const fmt  = m.format || 'plain';
-    const code = m.currencyCode || 'USD';
-    const pos  = m.currencyPosition || 'before';
+    const fmt     = m.format || 'plain';
+    const code    = m.currencyCode || 'USD';
+    const pos     = m.currencyPosition || 'before';
+    // Legacy 'currency-rounded' implies rounded=true regardless of the flag.
+    const rounded = !!m.rounded || fmt === 'currency-rounded';
 
     if (m.type === 'count-by' && m.value && typeof m.value === 'object') {
       const entries = Object.entries(m.value)
@@ -807,11 +818,12 @@ function buildRuleTable(metrics) {
       for (const [key, count] of entries) {
         out.push({
           RULE:              `${baseName} · ${key || '(empty)'}`,
-          TOTALS:            formatTotal(count, fmt, code, pos),
+          TOTALS:            formatTotal(count, fmt, code, pos, rounded),
           TOTALS_raw:        count,
           TOTALS_format:     fmt,
           TOTALS_currency:   code,
           TOTALS_position:   pos,
+          TOTALS_rounded:    rounded,
         });
       }
       continue;
@@ -821,11 +833,12 @@ function buildRuleTable(metrics) {
     const raw = Number.isFinite(n) ? n : (m.value ?? null);
     out.push({
       RULE:              baseName,
-      TOTALS:            formatTotal(raw, fmt, code, pos),
+      TOTALS:            formatTotal(raw, fmt, code, pos, rounded),
       TOTALS_raw:        raw,
       TOTALS_format:     fmt,
       TOTALS_currency:   code,
       TOTALS_position:   pos,
+      TOTALS_rounded:    rounded,
     });
   }
   return out;

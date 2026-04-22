@@ -1275,9 +1275,43 @@ async function enrichDataset(id, btn) {
   try {
     const j = await api(`/api/datasets/${id}/enrich`, { method: 'POST' });
     const r = j.enrichment || {};
-    const msg = `Enriched ${fmtNumber(r.enriched || 0)} · ${fmtNumber(r.missing || 0)} default avatars · ${r.skippedRows || 0} skipped`;
-    banner(msg, (r.errors || []).length ? 'error' : 'success');
+    // Surface the full report so the user can tell WHY enrichment produced
+    // empty columns (e.g. brandMap keys don't match the CSV's crm_brand_name
+    // values, or remap renamed the PID column out from under us).
+    const bits = [
+      `${fmtNumber(r.enriched || 0)} matched`,
+      `${fmtNumber(r.missing || 0)} default avatars`,
+      `${fmtNumber(r.skippedRows || 0)} skipped`,
+    ];
+    if (r.skippedNoBrand) bits.push(`${fmtNumber(r.skippedNoBrand)} unmapped brand`);
+    if (r.skippedNoPid)   bits.push(`${fmtNumber(r.skippedNoPid)} missing ${r.pidColumn || 'PID'}`);
+    if (r.brandColumnSeen === false) bits.push(`⚠ no "crm_brand_name" column — remap may have renamed it`);
+    if (r.pidColumnSeen === false)   bits.push(`⚠ no "${r.pidColumn || 'PID'}" column — check profileApi.pidColumn setting`);
+    const byBrand = r.byBrand || {};
+    const brandSummary = Object.entries(byBrand)
+      .map(([k, v]) => `${k}: ${v.matched}/${v.pids}`)
+      .join(' · ');
+    if (brandSummary) bits.push(brandSummary);
+    const unmapped = r.unmappedBrands || [];
+    if (unmapped.length) {
+      const top = unmapped.slice(0, 3).map(u => `"${u.value}"×${u.count}`).join(', ');
+      bits.push(`unmapped brand values: ${top}${unmapped.length > 3 ? ` + ${unmapped.length - 3} more` : ''} — add to Settings › Profile API brandMap`);
+    }
+    const errs = (r.errors || []);
+    if (errs.length) {
+      bits.push(`errors: ${errs.map(e => `${e.brandKey || '?'}: ${e.error}`).join(' | ')}`);
+    }
+    const isProblem = errs.length || r.brandColumnSeen === false || r.pidColumnSeen === false || (!r.enriched && r.skippedRows);
+    banner(`Enrich — ${bits.join(' · ')}`, isProblem ? 'error' : 'success', isProblem ? 15000 : 6000);
     await loadDatasets(); renderDatasets(); renderStats();
+    // If the user is currently viewing this dataset, re-apply so the newly
+    // added profile_name/avatar/avatar_image/phone columns show up immediately
+    // instead of requiring a manual click on Apply.
+    const viewing = document.getElementById('viewDataset');
+    const viewResultEl = document.getElementById('viewResult');
+    if (viewing && viewing.value === id && viewResultEl && !viewResultEl.classList.contains('hidden')) {
+      try { await applyView(); } catch (e) { /* non-fatal */ }
+    }
   } catch (err) {
     banner(`Enrich failed: ${err.message}`, 'error', 6000);
     btn.innerHTML = original;
@@ -2339,11 +2373,39 @@ async function saveProcessed() {
     });
     const nameMsg = j.dataset.label;
     const capMsg = j.dataset.maxRows ? ` · Figma capped at ${fmtNumber(j.dataset.maxRows)}` : '';
-    banner(`✓ Processed dataset saved — "${esc(nameMsg)}" · ${j.dataset.rowCount} rows${capMsg}`, 'success');
+    const ruleCount = Array.isArray(j.dataset.ruleTable) ? j.dataset.ruleTable.length : 0;
+    const ruleMsg = ruleCount ? ` · ${ruleCount} rule totals` : ' · no rule totals (add metric rules)';
+    banner(`✓ Processed dataset saved — "${esc(nameMsg)}" · ${j.dataset.rowCount} rows${capMsg}${ruleMsg}`, 'success');
     // Clear the inputs so a second save doesn't silently reuse the same label
     document.getElementById('processedName').value = '';
     document.getElementById('processedMaxRows').value = '';
     await loadDatasets(); renderDatasets(); renderStats();
+
+    // Auto-switch the view to the newly-created processed dataset and show
+    // the read-only view so the RULE/TOTALS companion table is immediately
+    // visible — otherwise the user stays on the pre-save preview and has to
+    // hunt for their saved processed record.
+    const newId = j.dataset.id;
+    if (newId) {
+      try {
+        const dSel = document.getElementById('viewDataset');
+        if (dSel && Array.from(dSel.options).some(o => o.value === newId)) {
+          dSel.value = newId;
+          await applyView();
+        } else {
+          // Dataset list hasn't picked up the new record yet — fall back to a
+          // direct fetch + render so the user still sees the save confirmed.
+          const record = await api(`/api/datasets/${newId}`);
+          renderViewResult({
+            dataset:   { id: record.id, label: record.label, filename: record.filename, rowCount: record.rowCount, uploadedAt: record.uploadedAt },
+            headers:   record.headers || [],
+            rows:      record.rows || [],
+            metrics:   record.metrics || [],
+            ruleTable: Array.isArray(record.ruleTable) ? record.ruleTable : [],
+          }, { readOnly: true, processed: record });
+        }
+      } catch (_) { /* non-fatal */ }
+    }
   } catch (err) {
     banner(`Save failed: ${err.message}`, 'error');
   }

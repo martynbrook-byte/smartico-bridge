@@ -306,13 +306,26 @@ async function enrichDataset(record, settings) {
   // Bucket rows by brand key, deduping PIDs per brand.
   const byBrand = new Map(); // brandKey -> { rowIdx: Set<int>, pids: Set<string> }
   let skippedRows = 0;
+  let skippedNoBrand = 0;   // brand column missing or not in brandMap
+  let skippedNoPid   = 0;   // pidCol missing/empty on this row
+  const unmappedBrands = new Map(); // rawBrand -> count (for user-visible debug)
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
     const rawBrand = String(row?.crm_brand_name || '').trim();
     const brandKey = cfg.brandMap[rawBrand] || null;
     const pid = row?.[pidCol];
-    if (!brandKey || pid === undefined || pid === null || pid === '') {
+    if (!brandKey) {
       skippedRows++;
+      skippedNoBrand++;
+      // Track what raw values we saw so the UI can tell the user exactly
+      // which brandMap keys they're missing — the #1 cause of empty enrich.
+      const k = rawBrand || '(empty)';
+      unmappedBrands.set(k, (unmappedBrands.get(k) || 0) + 1);
+      continue;
+    }
+    if (pid === undefined || pid === null || pid === '') {
+      skippedRows++;
+      skippedNoPid++;
       continue;
     }
     if (!byBrand.has(brandKey)) byBrand.set(brandKey, { rowIdx: [], pids: new Set() });
@@ -381,6 +394,16 @@ async function enrichDataset(record, settings) {
     enriched,
     missing,
     skippedRows,
+    skippedNoBrand,
+    skippedNoPid,
+    // Show the most common raw brand values we couldn't map — designer can
+    // then add the missing key to settings.profileApi.brandMap and re-enrich.
+    unmappedBrands: [...unmappedBrands.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([value, count]) => ({ value, count })),
+    pidColumnSeen: rows[0] ? Object.prototype.hasOwnProperty.call(rows[0], pidCol) : false,
+    brandColumnSeen: rows[0] ? Object.prototype.hasOwnProperty.call(rows[0], 'crm_brand_name') : false,
     byBrand: byBrandReport,
     errors,
     pidColumn: pidCol,

@@ -150,9 +150,58 @@ function normalizeProfileApi(raw) {
   };
 }
 
+// Build a normalised mappingSets array + activeMappingSetId from raw settings.
+// Migration rules:
+//   1. If raw.mappingSets is an array, trust it. Coerce each entry's shape.
+//   2. Otherwise, if raw.columnMappings has keys, wrap them into a single
+//      "Default" set (id=ms_default) so previously-saved mappings survive.
+//   3. Otherwise return an empty list.
+// columnMappings (the legacy flat object) is then *derived* from the active
+// set so any code path that still reads settings.columnMappings keeps working.
+function normalizeMappingSets(raw) {
+  const incomingSets = Array.isArray(raw && raw.mappingSets) ? raw.mappingSets : null;
+  const incomingCM   = (raw && typeof raw.columnMappings === 'object' && raw.columnMappings) || null;
+  let sets = [];
+
+  if (incomingSets) {
+    sets = incomingSets.map(s => ({
+      id:       s.id || `ms_${crypto.randomBytes(4).toString('hex')}`,
+      name:     s.name || 'Untitled mappings',
+      mappings: (s.mappings && typeof s.mappings === 'object') ? { ...s.mappings } : {},
+    }));
+  } else if (incomingCM && Object.keys(incomingCM).length) {
+    sets = [{ id: 'ms_default', name: 'Default', mappings: { ...incomingCM } }];
+  }
+
+  // Pick active id: prefer raw.activeMappingSetId if it points at a real set,
+  // otherwise fall back to the first set, otherwise null.
+  let activeId = (raw && typeof raw.activeMappingSetId === 'string' && raw.activeMappingSetId) || null;
+  if (activeId && !sets.find(s => s.id === activeId)) activeId = null;
+  if (!activeId && sets.length) activeId = sets[0].id;
+
+  // Derive flat columnMappings from the active set so legacy code keeps working
+  const active = sets.find(s => s.id === activeId);
+  const columnMappings = active ? { ...active.mappings } : {};
+
+  return { mappingSets: sets, activeMappingSetId: activeId, columnMappings };
+}
+
+// Coerce column-visibility presets. Each preset stores the columns to *hide*
+// (rather than the columns to show) so a saved preset still works after new
+// columns are added — newly appearing columns default to visible.
+function normalizeColumnPresets(raw) {
+  const list = Array.isArray(raw && raw.columnPresets) ? raw.columnPresets : [];
+  return list.map(p => ({
+    id:     p.id || `cp_${crypto.randomBytes(4).toString('hex')}`,
+    name:   p.name || 'Untitled preset',
+    hidden: Array.isArray(p.hidden) ? p.hidden.map(String) : [],
+  }));
+}
+
 function normalizeSettings(raw) {
-  const columnMappings = (raw && typeof raw.columnMappings === 'object' && raw.columnMappings) || {};
   const profileApi     = normalizeProfileApi(raw && raw.profileApi);
+  const mappingBlock   = normalizeMappingSets(raw);
+  const columnPresets  = normalizeColumnPresets(raw);
 
   // 1) If ruleSets already exists, trust it (coerce shape)
   if (Array.isArray(raw && raw.ruleSets)) {
@@ -162,13 +211,13 @@ function normalizeSettings(raw) {
       description: rs.description || '',
       rules:       Array.isArray(rs.rules) ? rs.rules : [],
     }));
-    return { columnMappings, ruleSets, profileApi };
+    return { ...mappingBlock, ruleSets, profileApi, columnPresets };
   }
 
   // 2) Legacy schema: flat rules[] → wrap as "Default" rule set
   if (Array.isArray(raw && raw.rules)) {
     return {
-      columnMappings,
+      ...mappingBlock,
       ruleSets: [{
         id:          `rs_default`,
         name:        'Default',
@@ -176,11 +225,12 @@ function normalizeSettings(raw) {
         rules:       raw.rules,
       }],
       profileApi,
+      columnPresets,
     };
   }
 
   // 3) Empty
-  return { columnMappings, ruleSets: [], profileApi };
+  return { ...mappingBlock, ruleSets: [], profileApi, columnPresets };
 }
 
 async function readSettings() {
@@ -1406,7 +1456,9 @@ app.post('/api/settings', async (req, res) => {
     // Start from what the client sent, then sweep its rule sets so any
     // references to now-renamed columns follow the mapping change.
     const next = {
-      columnMappings: incoming.columnMappings,
+      mappingSets:        incoming.mappingSets,
+      activeMappingSetId: incoming.activeMappingSetId,
+      columnPresets:      incoming.columnPresets,
       ruleSets: sweepRuleSets(incoming.ruleSets, rewrites),
       // Persist profileApi alongside the other settings so the enrich
       // pipeline and UI share a single source of truth.
@@ -1419,6 +1471,178 @@ app.post('/api/settings', async (req, res) => {
       settings: saved,
       rewrites,            // let the UI show what was rewritten (empty if no drift)
     });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Mapping sets CRUD ───────────────────────────────────────────────────────
+// Each set is a named bundle of {from: to} column mappings. The active set's
+// mappings get applied at upload time. Switching the active set sweeps rule
+// sets so any column references follow the rename — same logic the legacy
+// settings POST used.
+app.get('/api/mapping-sets', async (_req, res) => {
+  const settings = await readSettings();
+  res.json({
+    mappingSets: settings.mappingSets || [],
+    activeMappingSetId: settings.activeMappingSetId || null,
+  });
+});
+
+app.post('/api/mapping-sets', async (req, res) => {
+  try {
+    const settings = await readSettings();
+    const body = req.body || {};
+    const newSet = {
+      id:       `ms_${crypto.randomBytes(4).toString('hex')}`,
+      name:     (body.name && String(body.name).trim()) || 'New mapping set',
+      mappings: (body.mappings && typeof body.mappings === 'object') ? { ...body.mappings } : {},
+    };
+    const next = {
+      ...settings,
+      mappingSets: [...(settings.mappingSets || []), newSet],
+      activeMappingSetId: settings.activeMappingSetId || newSet.id,
+    };
+    const saved = await writeSettings(next);
+    res.status(201).json({ mappingSet: newSet, settings: saved });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.patch('/api/mapping-sets/:id', async (req, res) => {
+  try {
+    const settings = await readSettings();
+    const body = req.body || {};
+    const sets = (settings.mappingSets || []).slice();
+    const idx = sets.findIndex(s => s.id === req.params.id);
+    if (idx === -1) return res.status(404).json({ error: 'Mapping set not found' });
+
+    const before = sets[idx];
+    const after  = {
+      ...before,
+      name:     body.name != null ? String(body.name).trim() || before.name : before.name,
+      mappings: (body.mappings && typeof body.mappings === 'object') ? { ...body.mappings } : before.mappings,
+    };
+    sets[idx] = after;
+
+    // If we're editing the active set, sweep rule-set column refs to follow
+    // any renames the user just made.
+    let rewrites = {};
+    if (settings.activeMappingSetId === after.id) {
+      rewrites = buildMappingRewrites(before.mappings, after.mappings);
+    }
+
+    const next = {
+      ...settings,
+      mappingSets: sets,
+      ruleSets: sweepRuleSets(settings.ruleSets, rewrites),
+    };
+    const saved = await writeSettings(next);
+    res.json({ mappingSet: after, settings: saved, rewrites });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/mapping-sets/:id', async (req, res) => {
+  try {
+    const settings = await readSettings();
+    const sets = (settings.mappingSets || []).filter(s => s.id !== req.params.id);
+    if (sets.length === (settings.mappingSets || []).length) {
+      return res.status(404).json({ error: 'Mapping set not found' });
+    }
+    let activeId = settings.activeMappingSetId;
+    if (activeId === req.params.id) activeId = sets[0]?.id || null;
+    const next = { ...settings, mappingSets: sets, activeMappingSetId: activeId };
+    const saved = await writeSettings(next);
+    res.json({ ok: true, settings: saved });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Switch the active mapping set. Triggers a rule-set sweep so column refs
+// follow the rename diff between the old and new active set.
+app.post('/api/mapping-sets/:id/activate', async (req, res) => {
+  try {
+    const settings = await readSettings();
+    const sets = settings.mappingSets || [];
+    const next = sets.find(s => s.id === req.params.id);
+    if (!next) return res.status(404).json({ error: 'Mapping set not found' });
+    if (req.params.id === settings.activeMappingSetId) {
+      return res.json({ ok: true, settings, rewrites: {} });
+    }
+    const before = sets.find(s => s.id === settings.activeMappingSetId);
+    const rewrites = buildMappingRewrites(before ? before.mappings : {}, next.mappings);
+    const updated = {
+      ...settings,
+      activeMappingSetId: req.params.id,
+      ruleSets: sweepRuleSets(settings.ruleSets, rewrites),
+    };
+    const saved = await writeSettings(updated);
+    res.json({ ok: true, settings: saved, rewrites });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Column visibility presets CRUD ──────────────────────────────────────────
+// Each preset stores the columns to *hide*. Applied client-side on the View
+// tab — server just persists the named list.
+app.get('/api/column-presets', async (_req, res) => {
+  const settings = await readSettings();
+  res.json({ columnPresets: settings.columnPresets || [] });
+});
+
+app.post('/api/column-presets', async (req, res) => {
+  try {
+    const settings = await readSettings();
+    const body = req.body || {};
+    const newPreset = {
+      id:     `cp_${crypto.randomBytes(4).toString('hex')}`,
+      name:   (body.name && String(body.name).trim()) || 'New preset',
+      hidden: Array.isArray(body.hidden) ? body.hidden.map(String) : [],
+    };
+    const next = { ...settings, columnPresets: [...(settings.columnPresets || []), newPreset] };
+    const saved = await writeSettings(next);
+    res.status(201).json({ columnPreset: newPreset, settings: saved });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.patch('/api/column-presets/:id', async (req, res) => {
+  try {
+    const settings = await readSettings();
+    const body = req.body || {};
+    const list = (settings.columnPresets || []).slice();
+    const idx = list.findIndex(p => p.id === req.params.id);
+    if (idx === -1) return res.status(404).json({ error: 'Column preset not found' });
+    const before = list[idx];
+    list[idx] = {
+      ...before,
+      name:   body.name != null ? String(body.name).trim() || before.name : before.name,
+      hidden: Array.isArray(body.hidden) ? body.hidden.map(String) : before.hidden,
+    };
+    const next = { ...settings, columnPresets: list };
+    const saved = await writeSettings(next);
+    res.json({ columnPreset: list[idx], settings: saved });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/column-presets/:id', async (req, res) => {
+  try {
+    const settings = await readSettings();
+    const list = (settings.columnPresets || []).filter(p => p.id !== req.params.id);
+    if (list.length === (settings.columnPresets || []).length) {
+      return res.status(404).json({ error: 'Column preset not found' });
+    }
+    const next = { ...settings, columnPresets: list };
+    const saved = await writeSettings(next);
+    res.json({ ok: true, settings: saved });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

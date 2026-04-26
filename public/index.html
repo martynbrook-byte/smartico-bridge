@@ -823,7 +823,85 @@
     @media (max-width: 900px) {
       .rulesets-layout { grid-template-columns: 1fr; }
       .pipelines-layout { grid-template-columns: 1fr; }
+      .mapping-sets-layout { grid-template-columns: 1fr; }
       .container { padding: 16px; }
+    }
+
+    /* ── Mapping sets sidebar (Settings tab) ── */
+    .mapping-sets-layout {
+      display: grid;
+      grid-template-columns: 220px minmax(0, 1fr);
+      gap: 14px;
+      align-items: start;
+    }
+    .mapping-sets-sidebar {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .mapping-set-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 8px;
+      border-radius: 5px;
+      border: 1px solid transparent;
+      cursor: pointer;
+      transition: all 0.12s;
+      font-size: 0.85rem;
+    }
+    .mapping-set-item:hover { background: var(--surface); border-color: var(--border); }
+    .mapping-set-item.active { background: var(--surface); border-color: var(--gold); }
+    .mapping-set-item-name {
+      flex: 1;
+      font-weight: 600;
+      color: var(--text);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .mapping-set-item.active .mapping-set-item-name { color: var(--gold); }
+    .mapping-set-item-active-badge {
+      font-size: 0.65rem;
+      color: var(--bg);
+      background: var(--gold);
+      padding: 1px 6px;
+      border-radius: 999px;
+      font-weight: 700;
+    }
+    /* ── Column visibility preset rows ── */
+    .col-preset-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      margin-bottom: 6px;
+      background: var(--surface2);
+    }
+    .col-preset-row input[type="text"] {
+      flex: 1;
+      background: transparent;
+      border: 1px solid transparent;
+      color: var(--text);
+      font-weight: 600;
+      padding: 4px 6px;
+      border-radius: 4px;
+    }
+    .col-preset-row input[type="text"]:hover,
+    .col-preset-row input[type="text"]:focus {
+      background: var(--surface);
+      border-color: var(--border);
+      outline: none;
+    }
+    .col-preset-row .col-preset-meta {
+      color: var(--muted);
+      font-size: 0.78rem;
     }
 
     /* ── Pipelines tab ── */
@@ -1268,10 +1346,20 @@
       <div class="panel" style="padding:0;overflow:hidden">
         <!-- Column toggles -->
         <div id="viewColumnTogglesRow" style="padding:10px 16px;border-bottom:1px solid var(--border);background:var(--surface2)">
-          <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap">
             <strong style="font-size:0.88rem">Columns</strong>
             <button class="btn btn-ghost btn-small" onclick="setAllColumns(true)">All</button>
             <button class="btn btn-ghost btn-small" onclick="setAllColumns(false)">None</button>
+            <div style="display:flex;align-items:center;gap:6px;margin-left:8px">
+              <label for="viewColumnPresetSelect" style="font-size:0.75rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600">Preset</label>
+              <select id="viewColumnPresetSelect" onchange="applyColumnPresetFromSelect(this.value)"
+                      style="background:var(--surface);border:1px solid var(--border);color:var(--text);padding:4px 8px;border-radius:4px;font-size:0.82rem">
+                <option value="">— None —</option>
+              </select>
+              <button class="btn btn-small" onclick="saveCurrentAsColumnPreset()" title="Save current hide/show selection as a named preset">+ Save…</button>
+              <button id="viewColumnPresetUpdateBtn" class="btn btn-small hidden" onclick="updateActiveColumnPreset()" title="Overwrite this preset with the current selection">Update</button>
+              <button id="viewColumnPresetDeleteBtn" class="btn btn-small hidden" onclick="deleteActiveColumnPreset()" title="Delete this preset">Delete</button>
+            </div>
             <span style="margin-left:auto;color:var(--muted);font-size:0.78rem">Toggle to show/hide in processed dataset</span>
           </div>
           <div id="viewColumnToggles" style="display:flex;flex-wrap:wrap;gap:6px"></div>
@@ -1311,18 +1399,22 @@
   <!-- ═══ Settings ═══ -->
   <section id="tab-settings" class="tab-panel hidden">
     <div class="panel">
-      <div class="panel-title">Column mappings <span class="hint">Applied at upload time · original → friendly name</span></div>
-      <div id="mappingList"></div>
-      <div class="mapping-row" style="margin-top:10px">
-        <input type="text" id="newMapFrom" placeholder="original column (e.g. prize_name)">
-        <div class="mapping-arrow">→</div>
-        <input type="text" id="newMapTo"   placeholder="friendly name (e.g. prize)">
-        <button class="btn btn-primary btn-small" onclick="addMapping()">Add</button>
+      <div class="panel-title">
+        Column mappings
+        <span class="hint">Saved sets of original → friendly renames · the active set runs at upload time</span>
       </div>
-      <div style="margin-top:12px;display:flex;gap:8px">
-        <button class="btn btn-primary" onclick="saveMappings()">Save mappings</button>
-        <button class="btn btn-ghost" onclick="loadSettings().then(renderMappings)">Revert</button>
+      <div class="mapping-sets-layout">
+        <aside class="mapping-sets-sidebar" id="mappingSetsSidebar"></aside>
+        <div id="mappingSetEditor"></div>
       </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">
+        Column visibility presets
+        <span class="hint">Saved hide/show selections · apply on the View tab</span>
+      </div>
+      <div id="columnPresetsList"></div>
     </div>
 
     <div class="panel">
@@ -3216,9 +3308,24 @@ function renderViewResult(result, opts) {
   const allHeaders = result.headers || (result.rows[0] ? Object.keys(result.rows[0]) : []);
   _viewVisibleCols = new Set(allHeaders);
 
+  // Re-apply the active column preset (if any) now that headers are known.
+  // The preset stores a hide-list, so columns that no longer exist are simply
+  // ignored, and any newly-added columns default to visible.
+  if (_activeColPresetId) {
+    const p = (settings.columnPresets || []).find(x => x.id === _activeColPresetId);
+    if (p) {
+      const hidden = new Set(p.hidden || []);
+      _viewVisibleCols = new Set(allHeaders.filter(h => !hidden.has(h)));
+    } else {
+      // Preset was deleted while the view was open — clear the stale ref.
+      _activeColPresetId = null;
+    }
+  }
+
   if (!_viewReadOnly) renderColumnToggles(allHeaders);
   renderViewTable(result.rows, allHeaders);
   document.getElementById('viewRowCount').textContent = `${fmtNumber(result.rows.length)} rows`;
+  if (!_viewReadOnly) refreshViewColumnPresetSelect();
 }
 
 function renderColumnToggles(headers) {
@@ -3241,6 +3348,12 @@ function toggleColumn(col, visible) {
   if (_viewResult) renderViewTable(_viewResult.rows, _viewResult.headers || []);
   // Re-render toggles to update text colour
   renderColumnToggles(_viewResult ? (_viewResult.headers || []) : []);
+  // Manual toggle deviates from any applied preset → drop preset selection so
+  // the dropdown doesn't lie about what's currently shown.
+  if (_activeColPresetId) {
+    _activeColPresetId = null;
+    refreshViewColumnPresetSelect();
+  }
 }
 
 function setAllColumns(show) {
@@ -3249,6 +3362,10 @@ function setAllColumns(show) {
   _viewVisibleCols = show ? new Set(headers) : new Set();
   renderColumnToggles(headers);
   renderViewTable(_viewResult.rows, headers);
+  if (_activeColPresetId) {
+    _activeColPresetId = null;
+    refreshViewColumnPresetSelect();
+  }
 }
 
 function renderViewTable(rows, allHeaders) {
@@ -3509,72 +3626,365 @@ function renderMetricCard(m) {
 }
 
 // ── Settings ────────────────────────────────────────────────────────────────
+// ── Mapping sets (Settings tab) ─────────────────────────────────────────────
+// Each set has {id, name, mappings:{from:to}}. activeMappingSetId picks which
+// set runs at upload time. The legacy settings.columnMappings is derived
+// server-side from the active set.
+let activeMappingSetEditId = null;  // which set the editor panel is showing
+
+function activeMappingSetForEdit() {
+  const sets = settings.mappingSets || [];
+  if (!sets.length) return null;
+  if (!sets.find(s => s.id === activeMappingSetEditId)) {
+    activeMappingSetEditId = sets[0].id;
+  }
+  return sets.find(s => s.id === activeMappingSetEditId) || null;
+}
+
 function renderMappings() {
-  const host = document.getElementById('mappingList');
-  const entries = Object.entries(settings.columnMappings || {});
-  if (!entries.length) {
-    host.innerHTML = `<div style="color:var(--muted);font-size:0.86rem;padding:6px 0">No mappings yet.</div>`;
+  const sidebar = document.getElementById('mappingSetsSidebar');
+  const editor  = document.getElementById('mappingSetEditor');
+  if (!sidebar || !editor) return;
+
+  const sets = settings.mappingSets || [];
+  const activeId = settings.activeMappingSetId;
+  const editing = activeMappingSetForEdit();
+
+  sidebar.innerHTML = sets.map(s => `
+    <div class="mapping-set-item ${editing && s.id === editing.id ? 'active' : ''}"
+         onclick="selectMappingSet('${esc(s.id)}')">
+      <span class="mapping-set-item-name" title="${esc(s.name)}">${esc(s.name)}</span>
+      ${s.id === activeId ? `<span class="mapping-set-item-active-badge">ACTIVE</span>` : ''}
+    </div>
+  `).join('') + `
+    <div style="margin-top:6px;padding-top:6px;border-top:1px solid var(--border)">
+      <button class="btn btn-primary btn-small" onclick="createMappingSet()" style="width:100%">+ New mapping set</button>
+    </div>
+  `;
+
+  if (!editing) {
+    editor.innerHTML = `
+      <div class="empty-state" style="padding:18px">
+        <span class="empty-icon">🗂️</span>
+        No mapping sets yet. Create one on the left.
+      </div>`;
     return;
   }
-  host.innerHTML = entries.map(([from, to]) => `
-    <div class="mapping-row">
-      <input type="text" value="${esc(from)}" data-from="${esc(from)}" onchange="renameMappingKey(this)">
-      <div class="mapping-arrow">→</div>
-      <input type="text" value="${esc(to)}" onchange="settings.columnMappings['${esc(from).replace(/'/g, "\\'")}'] = this.value">
-      <button class="btn btn-danger btn-small" onclick="removeMapping('${esc(from).replace(/'/g, "\\'")}')">✕</button>
+
+  const isActive = editing.id === activeId;
+  const entries = Object.entries(editing.mappings || {});
+  editor.innerHTML = `
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+      <input type="text" value="${esc(editing.name)}"
+             onblur="renameMappingSet('${esc(editing.id)}', this.value)"
+             onkeydown="if(event.key==='Enter'){this.blur()}"
+             style="flex:1;min-width:160px;background:transparent;border:1px solid var(--border);color:var(--text);font-weight:700;font-size:1.02rem;padding:5px 9px;border-radius:6px">
+      ${isActive
+        ? `<span style="font-size:0.7rem;color:var(--bg);background:var(--gold);padding:3px 9px;border-radius:999px;font-weight:700">ACTIVE</span>`
+        : `<button class="btn btn-primary btn-small" onclick="activateMappingSet('${esc(editing.id)}')">Make active</button>`}
+      <button class="btn btn-small btn-danger" onclick="deleteMappingSet('${esc(editing.id)}')">Delete</button>
     </div>
-  `).join('');
+    <div id="mappingSetRows">
+      ${entries.length
+        ? entries.map(([from, to]) => `
+          <div class="mapping-row">
+            <input type="text" value="${esc(from)}" data-from="${esc(from)}" onchange="renameMappingKeyInSet(this)">
+            <div class="mapping-arrow">→</div>
+            <input type="text" value="${esc(to)}" onchange="updateMappingValue('${esc(from).replace(/'/g, "\\'")}', this.value)">
+            <button class="btn btn-danger btn-small" onclick="removeMappingFromSet('${esc(from).replace(/'/g, "\\'")}')">✕</button>
+          </div>`).join('')
+        : `<div style="color:var(--muted);font-size:0.86rem;padding:6px 0">No mappings yet — add the first row below.</div>`}
+    </div>
+    <div class="mapping-row" style="margin-top:10px">
+      <input type="text" id="newMapFrom" placeholder="original column (e.g. prize_name)">
+      <div class="mapping-arrow">→</div>
+      <input type="text" id="newMapTo"   placeholder="friendly name (e.g. prize)">
+      <button class="btn btn-primary btn-small" onclick="addMappingToSet()">Add</button>
+    </div>
+    <div style="margin-top:14px;display:flex;gap:8px">
+      <button class="btn btn-primary" onclick="saveMappingSet()">Save changes</button>
+      <button class="btn btn-ghost" onclick="loadSettings().then(renderMappings)">Revert</button>
+    </div>
+  `;
+
+  renderColumnPresetsList();
 }
-function addMapping() {
+
+function selectMappingSet(id) {
+  activeMappingSetEditId = id;
+  renderMappings();
+}
+
+async function createMappingSet() {
+  try {
+    const r = await api('/api/mapping-sets', {
+      method: 'POST',
+      body: JSON.stringify({ name: 'New mapping set', mappings: {} }),
+    });
+    settings = r.settings;
+    activeMappingSetEditId = r.mappingSet.id;
+    renderMappings();
+    banner('Mapping set created', 'success');
+  } catch (err) {
+    banner(`Create failed: ${err.message}`, 'error');
+  }
+}
+
+async function deleteMappingSet(id) {
+  const s = (settings.mappingSets || []).find(x => x.id === id);
+  if (!s) return;
+  if (!confirm(`Delete mapping set "${s.name}"?`)) return;
+  try {
+    const r = await api(`/api/mapping-sets/${id}`, { method: 'DELETE' });
+    settings = r.settings;
+    if (activeMappingSetEditId === id) activeMappingSetEditId = null;
+    renderMappings();
+  } catch (err) {
+    banner(`Delete failed: ${err.message}`, 'error');
+  }
+}
+
+async function renameMappingSet(id, newName) {
+  const v = (newName || '').trim();
+  const cur = (settings.mappingSets || []).find(s => s.id === id);
+  if (!cur || !v || v === cur.name) return;
+  try {
+    const r = await api(`/api/mapping-sets/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ name: v }),
+    });
+    settings = r.settings;
+    renderMappings();
+  } catch (err) {
+    banner(`Rename failed: ${err.message}`, 'error');
+  }
+}
+
+async function activateMappingSet(id) {
+  try {
+    const r = await api(`/api/mapping-sets/${id}/activate`, { method: 'POST' });
+    settings = r.settings;
+    const rewrites = r.rewrites || {};
+    const n = Object.keys(rewrites).length;
+    if (n > 0) {
+      const pairs = Object.entries(rewrites).map(([a, b]) => `${a} → ${b}`).join(', ');
+      banner(`Activated · swept ${n} column ref${n === 1 ? '' : 's'} in rule sets (${pairs})`, 'success');
+    } else {
+      banner('Mapping set activated', 'success');
+    }
+    renderMappings();
+    if (!document.getElementById('tab-rulesets').classList.contains('hidden')) {
+      renderRuleSets();
+    }
+  } catch (err) {
+    banner(`Activate failed: ${err.message}`, 'error');
+  }
+}
+
+// In-memory edits to the active editor pane — committed on Save changes
+function _editingSet() { return activeMappingSetForEdit(); }
+
+function addMappingToSet() {
+  const set = _editingSet();
+  if (!set) return;
   const from = document.getElementById('newMapFrom').value.trim();
   const to   = document.getElementById('newMapTo').value.trim();
   if (!from || !to) return banner('Both fields are required', 'error');
-  settings.columnMappings[from] = to;
+  set.mappings[from] = to;
   document.getElementById('newMapFrom').value = '';
   document.getElementById('newMapTo').value = '';
   renderMappings();
 }
-function removeMapping(key) {
-  delete settings.columnMappings[key];
+
+function removeMappingFromSet(key) {
+  const set = _editingSet();
+  if (!set) return;
+  delete set.mappings[key];
   renderMappings();
 }
-function renameMappingKey(input) {
+
+function renameMappingKeyInSet(input) {
+  const set = _editingSet();
+  if (!set) return;
   const oldKey = input.dataset.from;
   const newKey = input.value.trim();
   if (!newKey || oldKey === newKey) return;
-  const v = settings.columnMappings[oldKey];
-  delete settings.columnMappings[oldKey];
-  settings.columnMappings[newKey] = v;
+  const v = set.mappings[oldKey];
+  delete set.mappings[oldKey];
+  set.mappings[newKey] = v;
   renderMappings();
 }
-async function saveMappings() {
+
+function updateMappingValue(key, value) {
+  const set = _editingSet();
+  if (!set) return;
+  set.mappings[key] = value;
+}
+
+async function saveMappingSet() {
+  const set = _editingSet();
+  if (!set) return;
   try {
-    const res = await api('/api/settings', {
-      method: 'POST',
-      body: JSON.stringify({
-        columnMappings: settings.columnMappings,
-        ruleSets: settings.ruleSets,
-      }),
+    const r = await api(`/api/mapping-sets/${set.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ name: set.name, mappings: set.mappings }),
     });
-    // Server may have rewritten column references in rule sets to track the
-    // new mapping. Pull the swept settings back into memory so the UI reflects it.
-    if (res && res.settings) {
-      settings = res.settings;
-      renderMappings();
-      if (!document.getElementById('tab-rulesets').classList.contains('hidden')) {
-        renderRuleSets();
-      }
-    }
-    const rewriteCount = res && res.rewrites ? Object.keys(res.rewrites).length : 0;
-    if (rewriteCount > 0) {
-      const pairs = Object.entries(res.rewrites).map(([a, b]) => `${a} → ${b}`).join(', ');
-      banner(`Mappings saved · swept ${rewriteCount} column ref${rewriteCount === 1 ? '' : 's'} in rule sets (${pairs})`, 'success');
+    settings = r.settings;
+    const n = Object.keys(r.rewrites || {}).length;
+    if (n > 0) {
+      const pairs = Object.entries(r.rewrites).map(([a, b]) => `${a} → ${b}`).join(', ');
+      banner(`Saved · swept ${n} column ref${n === 1 ? '' : 's'} in rule sets (${pairs})`, 'success');
     } else {
-      banner('Mappings saved', 'success');
+      banner('Mapping set saved', 'success');
+    }
+    renderMappings();
+    if (!document.getElementById('tab-rulesets').classList.contains('hidden')) {
+      renderRuleSets();
     }
   } catch (err) {
     banner(`Save failed: ${err.message}`, 'error');
   }
+}
+
+// ── Column visibility presets (Settings tab list + View tab picker) ─────────
+let _activeColPresetId = null;  // currently-applied preset on the View tab
+
+function renderColumnPresetsList() {
+  const host = document.getElementById('columnPresetsList');
+  if (!host) return;
+  const list = settings.columnPresets || [];
+  if (!list.length) {
+    host.innerHTML = `
+      <div style="color:var(--muted);font-size:0.86rem;padding:6px 0">
+        No presets yet. Save one from the View tab — toggle columns, then click <strong>+ Save…</strong>.
+      </div>`;
+    return;
+  }
+  host.innerHTML = list.map(p => `
+    <div class="col-preset-row">
+      <input type="text" value="${esc(p.name)}"
+             onblur="renameColumnPreset('${esc(p.id)}', this.value)"
+             onkeydown="if(event.key==='Enter'){this.blur()}">
+      <span class="col-preset-meta">hides ${p.hidden.length} column${p.hidden.length === 1 ? '' : 's'}</span>
+      <button class="btn btn-small btn-danger" onclick="deleteColumnPreset('${esc(p.id)}')">Delete</button>
+    </div>
+  `).join('');
+}
+
+async function renameColumnPreset(id, newName) {
+  const v = (newName || '').trim();
+  const cur = (settings.columnPresets || []).find(p => p.id === id);
+  if (!cur || !v || v === cur.name) return;
+  try {
+    const r = await api(`/api/column-presets/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ name: v }),
+    });
+    settings = r.settings;
+    renderColumnPresetsList();
+    refreshViewColumnPresetSelect();
+  } catch (err) {
+    banner(`Rename failed: ${err.message}`, 'error');
+  }
+}
+
+async function deleteColumnPreset(id) {
+  const p = (settings.columnPresets || []).find(x => x.id === id);
+  if (!p) return;
+  if (!confirm(`Delete preset "${p.name}"?`)) return;
+  try {
+    const r = await api(`/api/column-presets/${id}`, { method: 'DELETE' });
+    settings = r.settings;
+    if (_activeColPresetId === id) _activeColPresetId = null;
+    renderColumnPresetsList();
+    refreshViewColumnPresetSelect();
+  } catch (err) {
+    banner(`Delete failed: ${err.message}`, 'error');
+  }
+}
+
+// View tab column-preset picker
+function refreshViewColumnPresetSelect() {
+  const sel = document.getElementById('viewColumnPresetSelect');
+  if (!sel) return;
+  const list = settings.columnPresets || [];
+  const cur  = _activeColPresetId;
+  sel.innerHTML = `<option value="">— None —</option>` +
+    list.map(p => `<option value="${esc(p.id)}" ${p.id === cur ? 'selected' : ''}>${esc(p.name)}</option>`).join('');
+  // Show/hide Update + Delete buttons depending on whether a preset is selected
+  const upd = document.getElementById('viewColumnPresetUpdateBtn');
+  const del = document.getElementById('viewColumnPresetDeleteBtn');
+  if (upd) upd.classList.toggle('hidden', !cur);
+  if (del) del.classList.toggle('hidden', !cur);
+}
+
+function applyColumnPresetFromSelect(id) {
+  if (!id) {
+    _activeColPresetId = null;
+    if (_viewResult) {
+      _viewVisibleCols = new Set(_viewResult.headers || []);
+      renderColumnToggles(_viewResult.headers || []);
+      renderViewTable(_viewResult.rows, _viewResult.headers || []);
+    }
+    refreshViewColumnPresetSelect();
+    return;
+  }
+  const p = (settings.columnPresets || []).find(x => x.id === id);
+  if (!p) return;
+  _activeColPresetId = id;
+  if (_viewResult) {
+    const hidden = new Set(p.hidden || []);
+    _viewVisibleCols = new Set((_viewResult.headers || []).filter(h => !hidden.has(h)));
+    renderColumnToggles(_viewResult.headers || []);
+    renderViewTable(_viewResult.rows, _viewResult.headers || []);
+  }
+  refreshViewColumnPresetSelect();
+}
+
+async function saveCurrentAsColumnPreset() {
+  if (!_viewResult) {
+    banner('Apply a rule set first so there are columns to capture', 'error');
+    return;
+  }
+  const name = prompt('Name this preset:');
+  if (!name || !name.trim()) return;
+  const all = _viewResult.headers || [];
+  const hidden = all.filter(h => !_viewVisibleCols.has(h));
+  try {
+    const r = await api('/api/column-presets', {
+      method: 'POST',
+      body: JSON.stringify({ name: name.trim(), hidden }),
+    });
+    settings = r.settings;
+    _activeColPresetId = r.columnPreset.id;
+    refreshViewColumnPresetSelect();
+    renderColumnPresetsList();
+    banner(`Preset "${r.columnPreset.name}" saved`, 'success');
+  } catch (err) {
+    banner(`Save preset failed: ${err.message}`, 'error');
+  }
+}
+
+async function updateActiveColumnPreset() {
+  if (!_viewResult || !_activeColPresetId) return;
+  const all = _viewResult.headers || [];
+  const hidden = all.filter(h => !_viewVisibleCols.has(h));
+  try {
+    const r = await api(`/api/column-presets/${_activeColPresetId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ hidden }),
+    });
+    settings = r.settings;
+    renderColumnPresetsList();
+    banner('Preset updated', 'success');
+  } catch (err) {
+    banner(`Update failed: ${err.message}`, 'error');
+  }
+}
+
+async function deleteActiveColumnPreset() {
+  if (!_activeColPresetId) return;
+  await deleteColumnPreset(_activeColPresetId);
 }
 
 // ── Profile API settings ────────────────────────────────────────────────────
@@ -3833,6 +4243,8 @@ async function refreshAll() {
     renderDatasets();
     renderStats();
     renderMappings();
+    renderColumnPresetsList();
+    refreshViewColumnPresetSelect();
     renderProfileApi();
     refreshViewSelectors();
     if (!document.getElementById('tab-rulesets').classList.contains('hidden')) {

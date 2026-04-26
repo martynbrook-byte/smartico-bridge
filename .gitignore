@@ -10,6 +10,8 @@ uploads/
 # Persisted datasets — these live on the Railway volume, not in git.
 # Keep the folder structure but not the data files.
 data/datasets/*.json
+data/pipelines/*.json
+data/dropzones/*.json
 
 # macOS
 .DS_Store

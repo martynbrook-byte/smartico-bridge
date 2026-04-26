@@ -822,8 +822,255 @@
 
     @media (max-width: 900px) {
       .rulesets-layout { grid-template-columns: 1fr; }
+      .pipelines-layout { grid-template-columns: 1fr; }
       .container { padding: 16px; }
     }
+
+    /* ── Pipelines tab ── */
+    .pipelines-layout {
+      display: grid;
+      grid-template-columns: 260px minmax(0, 1fr);
+      gap: 16px;
+      align-items: start;
+    }
+    .pipelines-sidebar {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .pipeline-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+      border-radius: 6px;
+      border: 1px solid transparent;
+      cursor: pointer;
+      transition: all 0.15s;
+      min-width: 0;
+    }
+    .pipeline-item:hover { background: var(--surface2); border-color: var(--border); }
+    .pipeline-item.active { background: var(--surface2); border-color: var(--gold); }
+    .pipeline-item-name {
+      flex: 1;
+      font-size: 0.88rem;
+      font-weight: 600;
+      color: var(--text);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .pipeline-item.active .pipeline-item-name { color: var(--gold); }
+    .pipeline-item-count {
+      font-size: 0.7rem;
+      color: var(--muted);
+      background: var(--surface3);
+      padding: 1px 7px;
+      border-radius: 999px;
+    }
+
+    /* Canvas editor */
+    .canvas-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border);
+      flex-wrap: wrap;
+    }
+    .canvas-toolbar select,
+    .canvas-toolbar input[type="text"] {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 6px 8px;
+      border-radius: 6px;
+      font-size: 0.85rem;
+    }
+    .canvas-wrap {
+      position: relative;
+      background:
+        radial-gradient(circle at center, rgba(245,200,66,0.04) 0%, transparent 60%),
+        var(--surface);
+      background-size: 24px 24px;
+      background-image:
+        linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px);
+      border-top: 1px solid var(--border);
+      height: 520px;
+      overflow: auto;
+    }
+    .canvas-wrap svg {
+      display: block;
+      min-width: 100%;
+      min-height: 100%;
+    }
+    .canvas-hint {
+      position: absolute;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      color: var(--muted);
+      font-size: 0.86rem;
+      text-align: center;
+      pointer-events: none;
+    }
+
+    /* Node card inside foreignObject */
+    .pipe-node {
+      width: 200px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px;
+      cursor: grab;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.25);
+      transition: border-color 0.12s, box-shadow 0.12s;
+      user-select: none;
+      font-size: 0.85rem;
+    }
+    .pipe-node:hover { border-color: var(--gold); }
+    .pipe-node.connecting { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(96,165,250,0.2); }
+    .pipe-node.dragging { cursor: grabbing; opacity: 0.85; }
+    .pipe-node-head {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 4px;
+    }
+    .pipe-node-step {
+      font-size: 0.7rem;
+      color: var(--bg);
+      background: var(--gold);
+      padding: 1px 7px;
+      border-radius: 999px;
+      font-weight: 700;
+    }
+    .pipe-node-name {
+      font-weight: 600;
+      color: var(--text);
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .pipe-node-meta {
+      color: var(--muted);
+      font-size: 0.74rem;
+      margin-bottom: 6px;
+    }
+    .pipe-node-acts {
+      display: flex;
+      gap: 4px;
+      justify-content: flex-end;
+    }
+    .pipe-node-btn {
+      background: var(--surface3);
+      border: 1px solid var(--border);
+      color: var(--muted);
+      border-radius: 4px;
+      font-size: 0.72rem;
+      padding: 2px 7px;
+      cursor: pointer;
+    }
+    .pipe-node-btn:hover { color: var(--gold); border-color: var(--gold); }
+    .pipe-node-btn.danger:hover { color: var(--red); border-color: var(--red); }
+    .pipe-port {
+      cursor: crosshair;
+      fill: var(--surface3);
+      stroke: var(--muted);
+      stroke-width: 1.5;
+      transition: fill 0.12s, stroke 0.12s;
+    }
+    .pipe-port:hover { fill: var(--gold); stroke: var(--gold); }
+    .pipe-edge {
+      fill: none;
+      stroke: var(--gold);
+      stroke-width: 2;
+      cursor: pointer;
+    }
+    .pipe-edge:hover { stroke: var(--red); stroke-width: 3; }
+    .pipe-edge-ghost {
+      fill: none;
+      stroke: var(--blue);
+      stroke-width: 2;
+      stroke-dasharray: 4 3;
+      pointer-events: none;
+    }
+
+    /* ── Drop zones tab ── */
+    .dz-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 14px;
+    }
+    .dz-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      transition: border-color 0.12s, background 0.12s;
+    }
+    .dz-card.drag-over {
+      border-color: var(--gold);
+      background: rgba(245,200,66,0.06);
+    }
+    .dz-card-head {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .dz-card-name {
+      flex: 1;
+      background: transparent;
+      border: 1px solid transparent;
+      color: var(--text);
+      font-weight: 600;
+      font-size: 0.95rem;
+      padding: 4px 6px;
+      border-radius: 4px;
+    }
+    .dz-card-name:hover, .dz-card-name:focus { border-color: var(--border); background: var(--surface2); outline: none; }
+    .dz-card-pipeline {
+      width: 100%;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 6px 8px;
+      border-radius: 6px;
+      font-size: 0.85rem;
+    }
+    .dz-card-drop {
+      border: 2px dashed var(--border);
+      border-radius: 8px;
+      padding: 22px 12px;
+      text-align: center;
+      color: var(--muted);
+      font-size: 0.86rem;
+      background: var(--surface2);
+      transition: all 0.12s;
+      cursor: pointer;
+    }
+    .dz-card.drag-over .dz-card-drop {
+      border-color: var(--gold);
+      color: var(--gold);
+      background: rgba(245,200,66,0.05);
+    }
+    .dz-card-status {
+      font-size: 0.78rem;
+      color: var(--muted);
+      min-height: 18px;
+    }
+    .dz-card-status.ok { color: var(--green); }
+    .dz-card-status.err { color: var(--red); }
+    .dz-card-status.busy { color: var(--blue); }
+    .dz-card-actions { display: flex; gap: 6px; justify-content: flex-end; }
   </style>
 </head>
 <body>
@@ -851,6 +1098,12 @@
     </button>
     <button class="pill-tab" data-tab="rulesets" onclick="switchTab('rulesets')">
       Rule Sets <span class="count" id="tabCountRulesets">0</span>
+    </button>
+    <button class="pill-tab" data-tab="pipelines" onclick="switchTab('pipelines')">
+      Pipelines <span class="count" id="tabCountPipelines">0</span>
+    </button>
+    <button class="pill-tab" data-tab="dropzones" onclick="switchTab('dropzones')">
+      Drop Zones <span class="count" id="tabCountDropzones">0</span>
     </button>
     <button class="pill-tab" data-tab="view" onclick="switchTab('view')">
       View Data
@@ -917,6 +1170,67 @@
         </div>
         <div id="rulesetEditor" class="ruleset-editor hidden"></div>
       </div>
+    </div>
+  </section>
+
+  <!-- ═══ Pipelines ═══ -->
+  <section id="tab-pipelines" class="tab-panel hidden">
+    <div class="pipelines-layout">
+      <aside class="pipelines-sidebar" id="pipelinesSidebar"></aside>
+      <div id="pipelinesMain">
+        <div class="panel empty-state" id="pipelineEmpty">
+          <span class="empty-icon">🔗</span>
+          No pipeline selected.<br>
+          Create one on the left, then drop in rule-set steps and connect them.
+        </div>
+        <div id="pipelineEditor" class="panel hidden" style="padding:0;overflow:hidden">
+          <div style="padding:14px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+            <input id="pipelineName" type="text" placeholder="Pipeline name"
+                   style="flex:1;min-width:180px;background:transparent;border:1px solid var(--border);color:var(--text);font-weight:700;font-size:1.05rem;padding:6px 10px;border-radius:6px"
+                   onblur="onPipelineNameBlur()">
+            <input id="pipelineFilenameTpl" type="text" placeholder="{pipelineName}"
+                   title="Filename template — tokens: {pipelineName} {sourceFilename} {date} {time}"
+                   style="min-width:180px;background:var(--surface2);border:1px solid var(--border);color:var(--text);font-size:0.85rem;padding:6px 10px;border-radius:6px"
+                   onblur="onPipelineFilenameTplBlur()">
+            <button class="btn btn-small" onclick="deleteActivePipeline()">Delete</button>
+          </div>
+          <div class="canvas-toolbar">
+            <strong style="font-size:0.82rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Add step</strong>
+            <select id="pipelineAddSelect">
+              <option value="">— Pick a rule set —</option>
+            </select>
+            <button class="btn btn-primary btn-small" onclick="addPipelineNode()">+ Add</button>
+            <span style="color:var(--muted);font-size:0.78rem;margin-left:auto">
+              Drag nodes · drag the right port to another node's left port to connect · click an arrow to delete it
+            </span>
+          </div>
+          <div class="canvas-wrap" id="pipelineCanvasWrap">
+            <svg id="pipelineCanvas" viewBox="0 0 2000 1000" preserveAspectRatio="xMinYMin meet">
+              <defs>
+                <marker id="pipelineArrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                  <path d="M0,0 L10,5 L0,10 z" fill="var(--gold)"></path>
+                </marker>
+              </defs>
+              <g id="pipelineEdges"></g>
+              <g id="pipelineEdgeGhost"></g>
+              <g id="pipelineNodes"></g>
+            </svg>
+            <div class="canvas-hint" id="pipelineCanvasHint">Add a step above to begin</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ Drop Zones ═══ -->
+  <section id="tab-dropzones" class="tab-panel hidden">
+    <div class="panel">
+      <div class="panel-title">
+        Drop Zones
+        <span class="hint">drop a CSV onto a card to run its pipeline</span>
+        <button class="btn btn-primary btn-small" style="margin-left:auto" onclick="createDropZone()">+ New drop zone</button>
+      </div>
+      <div id="dropzoneGrid" class="dz-grid"></div>
     </div>
   </section>
 
@@ -1184,6 +1498,8 @@ function switchTab(name) {
   document.getElementById(`tab-${name}`).classList.remove('hidden');
   if (name === 'view') refreshViewSelectors();
   if (name === 'rulesets') renderRuleSets();
+  if (name === 'pipelines') renderPipelines();
+  if (name === 'dropzones') renderDropzones();
 }
 
 // ── Datasets ────────────────────────────────────────────────────────────────
@@ -1390,6 +1706,10 @@ function renderStats() {
 
   document.getElementById('tabCountDatasets').textContent = datasets.length;
   document.getElementById('tabCountRulesets').textContent = (settings.ruleSets || []).length;
+  const pCount = document.getElementById('tabCountPipelines');
+  if (pCount) pCount.textContent = pipelines.length;
+  const dCount = document.getElementById('tabCountDropzones');
+  if (dCount) dCount.textContent = dropzones.length;
 }
 
 function tickUptime() {
@@ -2202,6 +2522,548 @@ async function moveSelectedColumn(ruleSetId, idx, colIdx, delta) {
   renderRuleSetEditor(rs);
 }
 
+// ── Pipelines tab ───────────────────────────────────────────────────────────
+// State
+let pipelines = [];                // summaries from list endpoint
+let activePipeline = null;         // full record for the open pipeline
+let _pipeDrag = null;              // { id, dx, dy } while dragging a node
+let _pipeConnect = null;           // { fromId } while drawing a ghost edge
+let _pipeSaveTimer = null;
+
+// Default node size (kept in sync with .pipe-node CSS width)
+const PIPE_NODE_W = 200;
+const PIPE_NODE_H = 96;
+
+async function loadPipelines() {
+  const r = await api('/api/pipelines');
+  pipelines = r.pipelines || [];
+  const tc = document.getElementById('tabCountPipelines');
+  if (tc) tc.textContent = pipelines.length;
+  return pipelines;
+}
+
+function renderPipelines() {
+  const sidebar = document.getElementById('pipelinesSidebar');
+  if (!sidebar) return;
+
+  sidebar.innerHTML = pipelines.map(p => `
+    <div class="pipeline-item ${activePipeline && p.id === activePipeline.id ? 'active' : ''}"
+         onclick="selectPipeline('${esc(p.id)}')">
+      <span class="pipeline-item-name">${esc(p.name || 'Untitled pipeline')}</span>
+      <span class="pipeline-item-count">${p.nodeCount || 0}</span>
+    </div>
+  `).join('') + `
+    <div class="ruleset-new-btn">
+      <button class="btn btn-primary btn-small" onclick="createPipeline()" style="width:100%">+ New pipeline</button>
+    </div>
+  `;
+
+  // Populate the "add step" select with available rule sets
+  const sel = document.getElementById('pipelineAddSelect');
+  if (sel) {
+    const cur = sel.value;
+    const sets = settings.ruleSets || [];
+    sel.innerHTML = `<option value="">— Pick a rule set —</option>` +
+      sets.map(rs => `<option value="${esc(rs.id)}">${esc(rs.name)} · ${(rs.rules || []).length} rules</option>`).join('');
+    if (cur) sel.value = cur;
+  }
+
+  const editor = document.getElementById('pipelineEditor');
+  const empty = document.getElementById('pipelineEmpty');
+  if (!activePipeline) {
+    editor.classList.add('hidden');
+    empty.classList.remove('hidden');
+    return;
+  }
+  empty.classList.add('hidden');
+  editor.classList.remove('hidden');
+  renderPipelineEditor(activePipeline);
+}
+
+function renderPipelineEditor(p) {
+  const nameEl = document.getElementById('pipelineName');
+  const tplEl  = document.getElementById('pipelineFilenameTpl');
+  if (nameEl && document.activeElement !== nameEl) nameEl.value = p.name || '';
+  if (tplEl  && document.activeElement !== tplEl)  tplEl.value  = p.filenameTemplate || '';
+  renderPipelineCanvas();
+}
+
+function renderPipelineCanvas() {
+  const p = activePipeline;
+  if (!p) return;
+  const nodesG = document.getElementById('pipelineNodes');
+  const edgesG = document.getElementById('pipelineEdges');
+  const hint   = document.getElementById('pipelineCanvasHint');
+  const nodes = Array.isArray(p.nodes) ? p.nodes : [];
+  const edges = Array.isArray(p.edges) ? p.edges : [];
+
+  if (!nodes.length) {
+    nodesG.innerHTML = '';
+    edgesG.innerHTML = '';
+    if (hint) hint.style.display = '';
+    return;
+  }
+  if (hint) hint.style.display = 'none';
+
+  // Render edges first so they sit beneath nodes
+  edgesG.innerHTML = edges.map(e => {
+    const from = nodes.find(n => n.id === e.from);
+    const to   = nodes.find(n => n.id === e.to);
+    if (!from || !to) return '';
+    const x1 = (from.x || 0) + PIPE_NODE_W;          // right edge of source
+    const y1 = (from.y || 0) + PIPE_NODE_H / 2;
+    const x2 = (to.x || 0);                           // left edge of target
+    const y2 = (to.y || 0) + PIPE_NODE_H / 2;
+    const dx = Math.max(40, Math.abs(x2 - x1) * 0.45);
+    const d  = `M${x1},${y1} C${x1 + dx},${y1} ${x2 - dx},${y2} ${x2},${y2}`;
+    return `<path class="pipe-edge" d="${d}"
+      marker-end="url(#pipelineArrow)"
+      onclick="deletePipelineEdge('${esc(e.id)}')"></path>`;
+  }).join('');
+
+  // Order nodes for the step badge
+  let ordered = [];
+  try { ordered = topoOrder(nodes, edges); } catch(_) { ordered = nodes; }
+  const stepIndex = {};
+  ordered.forEach((n, i) => { stepIndex[n.id] = i + 1; });
+
+  nodesG.innerHTML = nodes.map(n => {
+    const rs = (settings.ruleSets || []).find(r => r.id === n.ruleSetId);
+    const label = rs ? rs.name : '(missing rule set)';
+    const ruleCount = rs ? (rs.rules || []).length : 0;
+    const x = n.x || 0, y = n.y || 0;
+    return `
+      <foreignObject x="${x}" y="${y}" width="${PIPE_NODE_W}" height="${PIPE_NODE_H}"
+        data-node-id="${esc(n.id)}" style="overflow:visible">
+        <div xmlns="http://www.w3.org/1999/xhtml" class="pipe-node" data-node-id="${esc(n.id)}"
+             onmousedown="onPipeNodeMouseDown(event, '${esc(n.id)}')">
+          <div class="pipe-node-head">
+            <span class="pipe-node-step">${stepIndex[n.id] || '·'}</span>
+            <span class="pipe-node-name" title="${esc(label)}">${esc(label)}</span>
+          </div>
+          <div class="pipe-node-meta">${ruleCount} rule${ruleCount === 1 ? '' : 's'}</div>
+          <div class="pipe-node-acts">
+            <button class="pipe-node-btn danger" onclick="deletePipelineNode('${esc(n.id)}')" title="Remove step">✕</button>
+          </div>
+        </div>
+      </foreignObject>
+      <circle class="pipe-port pipe-port-in" cx="${x}" cy="${y + PIPE_NODE_H/2}" r="7"
+              onmouseup="onPipePortMouseUp(event, '${esc(n.id)}', 'in')"></circle>
+      <circle class="pipe-port pipe-port-out" cx="${x + PIPE_NODE_W}" cy="${y + PIPE_NODE_H/2}" r="7"
+              onmousedown="onPipePortMouseDown(event, '${esc(n.id)}')"></circle>
+    `;
+  }).join('');
+}
+
+// Topological sort (Kahn's) — used purely client-side to label steps. The
+// server runs its own ordering when executing, so this is just for display.
+function topoOrder(nodes, edges) {
+  const indeg = {};
+  const outAdj = {};
+  for (const n of nodes) { indeg[n.id] = 0; outAdj[n.id] = []; }
+  for (const e of (edges || [])) {
+    if (!(e.from in indeg) || !(e.to in indeg)) continue;
+    indeg[e.to]++;
+    outAdj[e.from].push(e.to);
+  }
+  const queue = nodes.filter(n => indeg[n.id] === 0).map(n => n.id);
+  const out = [];
+  const idMap = Object.fromEntries(nodes.map(n => [n.id, n]));
+  while (queue.length) {
+    const id = queue.shift();
+    out.push(idMap[id]);
+    for (const nx of outAdj[id]) {
+      if (--indeg[nx] === 0) queue.push(nx);
+    }
+  }
+  if (out.length !== nodes.length) throw new Error('cycle');
+  return out;
+}
+
+async function selectPipeline(id) {
+  try {
+    activePipeline = await api(`/api/pipelines/${id}`);
+    renderPipelines();
+  } catch (err) {
+    banner(`Load pipeline failed: ${err.message}`, 'error');
+  }
+}
+
+async function createPipeline() {
+  try {
+    const created = await api('/api/pipelines', {
+      method: 'POST',
+      body: JSON.stringify({ name: 'New pipeline', nodes: [], edges: [], filenameTemplate: '{pipelineName}' }),
+    });
+    activePipeline = created;
+    await loadPipelines();
+    renderPipelines();
+    renderDropzones(); // refresh dropdowns that list pipelines
+  } catch (err) {
+    banner(`Create failed: ${err.message}`, 'error');
+  }
+}
+
+async function deleteActivePipeline() {
+  if (!activePipeline) return;
+  if (!confirm(`Delete pipeline "${activePipeline.name}"?`)) return;
+  try {
+    await api(`/api/pipelines/${activePipeline.id}`, { method: 'DELETE' });
+    activePipeline = null;
+    await loadPipelines();
+    renderPipelines();
+    renderDropzones();
+  } catch (err) {
+    banner(`Delete failed: ${err.message}`, 'error');
+  }
+}
+
+function onPipelineNameBlur() {
+  if (!activePipeline) return;
+  const v = (document.getElementById('pipelineName').value || '').trim();
+  if (v && v !== activePipeline.name) {
+    activePipeline.name = v;
+    queuePipelineSave();
+  }
+}
+function onPipelineFilenameTplBlur() {
+  if (!activePipeline) return;
+  const v = document.getElementById('pipelineFilenameTpl').value || '';
+  if (v !== activePipeline.filenameTemplate) {
+    activePipeline.filenameTemplate = v;
+    queuePipelineSave();
+  }
+}
+
+function queuePipelineSave() {
+  clearTimeout(_pipeSaveTimer);
+  _pipeSaveTimer = setTimeout(() => savePipelineNow(), 250);
+}
+
+async function savePipelineNow() {
+  if (!activePipeline) return;
+  const id = activePipeline.id;
+  const body = {
+    name: activePipeline.name,
+    filenameTemplate: activePipeline.filenameTemplate,
+    nodes: activePipeline.nodes || [],
+    edges: activePipeline.edges || [],
+  };
+  try {
+    const updated = await api(`/api/pipelines/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+    activePipeline = updated;
+    // Refresh sidebar counts/order without disturbing the open editor
+    await loadPipelines();
+    const sidebar = document.getElementById('pipelinesSidebar');
+    if (sidebar) {
+      sidebar.innerHTML = pipelines.map(p => `
+        <div class="pipeline-item ${activePipeline && p.id === activePipeline.id ? 'active' : ''}"
+             onclick="selectPipeline('${esc(p.id)}')">
+          <span class="pipeline-item-name">${esc(p.name || 'Untitled pipeline')}</span>
+          <span class="pipeline-item-count">${p.nodeCount || 0}</span>
+        </div>
+      `).join('') + `
+        <div class="ruleset-new-btn">
+          <button class="btn btn-primary btn-small" onclick="createPipeline()" style="width:100%">+ New pipeline</button>
+        </div>
+      `;
+    }
+  } catch (err) {
+    banner(`Save failed: ${err.message}`, 'error');
+  }
+}
+
+function addPipelineNode() {
+  if (!activePipeline) return;
+  const sel = document.getElementById('pipelineAddSelect');
+  const ruleSetId = sel.value;
+  if (!ruleSetId) {
+    banner('Pick a rule set first', 'error');
+    return;
+  }
+  const nodes = Array.isArray(activePipeline.nodes) ? activePipeline.nodes : [];
+  const id = 'n_' + Math.random().toString(36).slice(2, 9);
+  // Stagger new nodes diagonally so they don't all stack
+  const x = 60 + (nodes.length % 4) * (PIPE_NODE_W + 60);
+  const y = 60 + Math.floor(nodes.length / 4) * (PIPE_NODE_H + 50);
+  nodes.push({ id, ruleSetId, x, y });
+  activePipeline.nodes = nodes;
+  renderPipelineCanvas();
+  queuePipelineSave();
+  sel.value = '';
+}
+
+function deletePipelineNode(nodeId) {
+  if (!activePipeline) return;
+  activePipeline.nodes = (activePipeline.nodes || []).filter(n => n.id !== nodeId);
+  activePipeline.edges = (activePipeline.edges || []).filter(e => e.from !== nodeId && e.to !== nodeId);
+  renderPipelineCanvas();
+  queuePipelineSave();
+}
+
+function deletePipelineEdge(edgeId) {
+  if (!activePipeline) return;
+  activePipeline.edges = (activePipeline.edges || []).filter(e => e.id !== edgeId);
+  renderPipelineCanvas();
+  queuePipelineSave();
+}
+
+// ── Canvas mouse handlers ────────────────────────────────────────────────────
+function pipeCanvasPoint(evt) {
+  // Convert page coords to SVG viewBox coords using getScreenCTM inverse
+  const svg = document.getElementById('pipelineCanvas');
+  const pt  = svg.createSVGPoint();
+  pt.x = evt.clientX;
+  pt.y = evt.clientY;
+  const ctm = svg.getScreenCTM();
+  if (!ctm) return { x: 0, y: 0 };
+  const p = pt.matrixTransform(ctm.inverse());
+  return { x: p.x, y: p.y };
+}
+
+function onPipeNodeMouseDown(evt, nodeId) {
+  // Don't start a drag if the user clicked the delete button
+  if (evt.target && evt.target.closest && evt.target.closest('.pipe-node-btn')) return;
+  if (!activePipeline) return;
+  const node = (activePipeline.nodes || []).find(n => n.id === nodeId);
+  if (!node) return;
+  const pt = pipeCanvasPoint(evt);
+  _pipeDrag = { id: nodeId, dx: pt.x - (node.x || 0), dy: pt.y - (node.y || 0) };
+  evt.preventDefault();
+}
+
+function onPipePortMouseDown(evt, nodeId) {
+  evt.stopPropagation();
+  evt.preventDefault();
+  _pipeConnect = { fromId: nodeId };
+}
+
+function onPipePortMouseUp(evt, nodeId, side) {
+  if (!_pipeConnect) return;
+  if (side !== 'in') return;
+  if (_pipeConnect.fromId === nodeId) { _pipeConnect = null; clearGhostEdge(); return; }
+  const edges = activePipeline.edges = activePipeline.edges || [];
+  // Don't add duplicates
+  const exists = edges.some(e => e.from === _pipeConnect.fromId && e.to === nodeId);
+  if (!exists) {
+    edges.push({ id: 'e_' + Math.random().toString(36).slice(2, 9), from: _pipeConnect.fromId, to: nodeId });
+    // Verify no cycle was introduced; revert if so
+    try { topoOrder(activePipeline.nodes || [], edges); }
+    catch (err) {
+      edges.pop();
+      banner('That connection would create a loop', 'error');
+    }
+  }
+  _pipeConnect = null;
+  clearGhostEdge();
+  renderPipelineCanvas();
+  queuePipelineSave();
+}
+
+function clearGhostEdge() {
+  const g = document.getElementById('pipelineEdgeGhost');
+  if (g) g.innerHTML = '';
+}
+
+document.addEventListener('mousemove', (evt) => {
+  if (_pipeDrag && activePipeline) {
+    const node = (activePipeline.nodes || []).find(n => n.id === _pipeDrag.id);
+    if (node) {
+      const pt = pipeCanvasPoint(evt);
+      node.x = Math.max(0, pt.x - _pipeDrag.dx);
+      node.y = Math.max(0, pt.y - _pipeDrag.dy);
+      renderPipelineCanvas();
+    }
+  }
+  if (_pipeConnect && activePipeline) {
+    const from = (activePipeline.nodes || []).find(n => n.id === _pipeConnect.fromId);
+    if (!from) return;
+    const x1 = (from.x || 0) + PIPE_NODE_W;
+    const y1 = (from.y || 0) + PIPE_NODE_H / 2;
+    const pt = pipeCanvasPoint(evt);
+    const dx = Math.max(40, Math.abs(pt.x - x1) * 0.45);
+    const d  = `M${x1},${y1} C${x1 + dx},${y1} ${pt.x - dx},${pt.y} ${pt.x},${pt.y}`;
+    const g = document.getElementById('pipelineEdgeGhost');
+    if (g) g.innerHTML = `<path class="pipe-edge pipe-edge-ghost" d="${d}"></path>`;
+  }
+});
+
+document.addEventListener('mouseup', () => {
+  if (_pipeDrag) {
+    _pipeDrag = null;
+    queuePipelineSave();
+  }
+  if (_pipeConnect) {
+    _pipeConnect = null;
+    clearGhostEdge();
+  }
+});
+
+// ── Drop Zones tab ──────────────────────────────────────────────────────────
+let dropzones = [];
+const _dzStatus = {}; // ephemeral per-card status text/state
+
+async function loadDropzones() {
+  const r = await api('/api/dropzones');
+  dropzones = r.dropzones || [];
+  const tc = document.getElementById('tabCountDropzones');
+  if (tc) tc.textContent = dropzones.length;
+  return dropzones;
+}
+
+function renderDropzones() {
+  const grid = document.getElementById('dropzoneGrid');
+  if (!grid) return;
+  if (!dropzones.length) {
+    grid.innerHTML = `
+      <div class="empty-state" style="grid-column:1/-1">
+        <span class="empty-icon">🎯</span>
+        No drop zones yet. Click <strong>+ New drop zone</strong> to create one.
+      </div>`;
+    return;
+  }
+  grid.innerHTML = dropzones.map(dz => renderDropZoneCard(dz)).join('');
+  // Wire drag handlers per card (event delegation would also work, but per-card
+  // handlers keep the data attribute usage straightforward)
+  for (const dz of dropzones) {
+    const card = grid.querySelector(`[data-dz-id="${dz.id}"]`);
+    if (!card) continue;
+    const drop = card.querySelector('.dz-card-drop');
+    drop.addEventListener('dragover', (e) => { e.preventDefault(); card.classList.add('drag-over'); });
+    drop.addEventListener('dragleave', () => card.classList.remove('drag-over'));
+    drop.addEventListener('drop', (e) => {
+      e.preventDefault();
+      card.classList.remove('drag-over');
+      const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      if (f) runDropZone(dz.id, f);
+    });
+    drop.addEventListener('click', () => {
+      const inp = card.querySelector('input[type="file"]');
+      if (inp) inp.click();
+    });
+  }
+}
+
+function renderDropZoneCard(dz) {
+  const status = _dzStatus[dz.id] || { kind: '', text: 'Ready' };
+  const pipelineOpts = pipelines.map(p =>
+    `<option value="${esc(p.id)}" ${p.id === dz.pipelineId ? 'selected' : ''}>${esc(p.name)}</option>`
+  ).join('');
+  const noPipelines = !pipelines.length;
+  return `
+    <div class="dz-card" data-dz-id="${esc(dz.id)}">
+      <div class="dz-card-head">
+        <input class="dz-card-name" type="text" value="${esc(dz.name || 'Untitled drop zone')}"
+               onblur="updateDropZoneName('${esc(dz.id)}', this.value)"
+               onkeydown="if(event.key==='Enter'){this.blur()}">
+      </div>
+      <select class="dz-card-pipeline" onchange="updateDropZonePipeline('${esc(dz.id)}', this.value)">
+        <option value="">${noPipelines ? '— No pipelines yet —' : '— Pick a pipeline —'}</option>
+        ${pipelineOpts}
+      </select>
+      <div class="dz-card-drop">
+        <div style="font-size:1.4rem">📥</div>
+        <div><strong>Drop a CSV here</strong> or click to browse</div>
+        <input type="file" accept=".csv" class="hidden"
+               onchange="if(this.files[0]) runDropZone('${esc(dz.id)}', this.files[0]); this.value='';">
+      </div>
+      <div class="dz-card-status ${status.kind}">${esc(status.text)}</div>
+      <div class="dz-card-actions">
+        <button class="btn btn-small" onclick="deleteDropZone('${esc(dz.id)}')">Delete</button>
+      </div>
+    </div>
+  `;
+}
+
+async function createDropZone() {
+  try {
+    await api('/api/dropzones', {
+      method: 'POST',
+      body: JSON.stringify({ name: 'New drop zone', pipelineId: pipelines[0]?.id || null }),
+    });
+    await loadDropzones();
+    renderDropzones();
+  } catch (err) {
+    banner(`Create drop zone failed: ${err.message}`, 'error');
+  }
+}
+
+async function deleteDropZone(id) {
+  const dz = dropzones.find(d => d.id === id);
+  if (!dz) return;
+  if (!confirm(`Delete drop zone "${dz.name}"?`)) return;
+  try {
+    await api(`/api/dropzones/${id}`, { method: 'DELETE' });
+    await loadDropzones();
+    renderDropzones();
+  } catch (err) {
+    banner(`Delete failed: ${err.message}`, 'error');
+  }
+}
+
+async function updateDropZoneName(id, name) {
+  const dz = dropzones.find(d => d.id === id);
+  if (!dz) return;
+  const v = (name || '').trim();
+  if (!v || v === dz.name) return;
+  try {
+    await api(`/api/dropzones/${id}`, { method: 'PATCH', body: JSON.stringify({ name: v }) });
+    await loadDropzones();
+    // No re-render needed for the input itself, but keep state in sync
+  } catch (err) {
+    banner(`Rename failed: ${err.message}`, 'error');
+  }
+}
+
+async function updateDropZonePipeline(id, pipelineId) {
+  try {
+    await api(`/api/dropzones/${id}`, { method: 'PATCH', body: JSON.stringify({ pipelineId: pipelineId || null }) });
+    await loadDropzones();
+  } catch (err) {
+    banner(`Update failed: ${err.message}`, 'error');
+  }
+}
+
+async function runDropZone(id, file) {
+  const dz = dropzones.find(d => d.id === id);
+  if (!dz) return;
+  if (!dz.pipelineId) {
+    setDropZoneStatus(id, 'err', 'Pick a pipeline first');
+    return;
+  }
+  if (!/\.csv$/i.test(file.name)) {
+    setDropZoneStatus(id, 'err', 'Only .csv files');
+    return;
+  }
+  setDropZoneStatus(id, 'busy', `Processing ${file.name}…`);
+  try {
+    const fd = new FormData();
+    fd.append('file', file);
+    const res = await fetch(`/api/pipelines/${dz.pipelineId}/run`, { method: 'POST', body: fd });
+    const j = await res.json();
+    if (!res.ok || !j.ok) {
+      throw new Error(j.error || `HTTP ${res.status}`);
+    }
+    const ds = j.dataset || {};
+    setDropZoneStatus(id, 'ok', `✓ Saved ${ds.label || ds.filename || 'dataset'} · ${fmtNumber(ds.rowCount || 0)} rows`);
+    await loadDatasets();
+    renderDatasets();
+    renderStats();
+  } catch (err) {
+    setDropZoneStatus(id, 'err', `Failed: ${err.message}`);
+  }
+}
+
+function setDropZoneStatus(id, kind, text) {
+  _dzStatus[id] = { kind, text };
+  const card = document.querySelector(`[data-dz-id="${id}"]`);
+  if (!card) return;
+  const s = card.querySelector('.dz-card-status');
+  if (!s) return;
+  s.className = 'dz-card-status ' + (kind || '');
+  s.textContent = text;
+}
+
 // ── View tab ────────────────────────────────────────────────────────────────
 function refreshViewSelectors() {
   const dSel = document.getElementById('viewDataset');
@@ -2967,7 +3829,7 @@ async function importSettings(input) {
 // ── Boot ────────────────────────────────────────────────────────────────────
 async function refreshAll() {
   try {
-    await Promise.all([loadSettings(), loadDatasets(), loadHealth()]);
+    await Promise.all([loadSettings(), loadDatasets(), loadHealth(), loadPipelines(), loadDropzones()]);
     renderDatasets();
     renderStats();
     renderMappings();
@@ -2975,6 +3837,12 @@ async function refreshAll() {
     refreshViewSelectors();
     if (!document.getElementById('tab-rulesets').classList.contains('hidden')) {
       renderRuleSets();
+    }
+    if (!document.getElementById('tab-pipelines').classList.contains('hidden')) {
+      renderPipelines();
+    }
+    if (!document.getElementById('tab-dropzones').classList.contains('hidden')) {
+      renderDropzones();
     }
   } catch (err) {
     banner(`Refresh failed: ${err.message}`, 'error');

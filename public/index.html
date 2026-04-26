@@ -1841,7 +1841,12 @@ function renderRuleConfigFields(ruleSetId, rule, idx, headers) {
           </select>
         </div>
       `;
-    case 'extract-number':
+    case 'extract-number': {
+      // Preview-friendly hint that adapts to the user's chosen target column
+      // so they know where the formatted string will land (if any).
+      const target = cfg.targetColumn || 'prize_value';
+      const fmt    = cfg.format || 'plain';
+      const wantDisplay = fmt !== 'plain' || !!cfg.rounded;
       return `
         <div class="field">
           <label class="field-label">From column (text with a number in it)</label>
@@ -1858,7 +1863,17 @@ function renderRuleConfigFields(ruleSetId, rule, idx, headers) {
             Pulls the first number (handles commas + decimals). "50,000 Cash" → 50000 · "Free Flight 20MT" → 20 · "$1,234.56 prize" → 1234.56. Add a <strong>Sort</strong> rule on this new column below to rank rows.
           </div>
         </div>
+        ${formatFieldHtml(ruleSetId, idx, cfg)}
+        ${wantDisplay ? `
+          <div class="field">
+            <div style="font-size:0.72rem;color:var(--muted);background:rgba(245,166,35,0.08);border:1px solid rgba(245,166,35,0.3);border-radius:6px;padding:8px 10px">
+              Formatted output will land in a companion column <strong>${esc(target)}_display</strong>.<br>
+              Bind <span style="font-family:monospace;color:var(--gold)">#${esc(target)}.1</span> in Figma for the raw number (sortable), or <span style="font-family:monospace;color:var(--gold)">#${esc(target)}_display.1</span> for the formatted string.
+            </div>
+          </div>
+        ` : ''}
       `;
+    }
     case 'select-columns': {
       const selected = Array.isArray(cfg.columns) ? cfg.columns : [];
       const selSet = new Set(selected);

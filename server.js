@@ -585,14 +585,35 @@ function applyRules(inputRows, inputHeaders, rules) {
         // Reads sourceColumn, pulls the first numeric token, writes a real
         // Number into targetColumn (so downstream `sort` and sum/avg/min/max
         // rules work natively without comma-aware hacks).
+        //
+        // If any formatting config is set on this rule (format/rounded/
+        // currency...) we also emit a companion column `<targetColumn>_display`
+        // with the formatted string. The raw column stays numeric for sort and
+        // aggregation; the _display column is what designers bind in Figma
+        // when they want the formatted view ("$50,000" vs 50000).
         const { sourceColumn, targetColumn } = cfg;
         if (!sourceColumn || !targetColumn) break;
+        const fmt     = cfg.format     || 'plain';
+        const code    = cfg.currencyCode || 'USD';
+        const pos     = cfg.currencyPosition || 'before';
+        const rounded = !!cfg.rounded;
+        // Only produce a display column when there's something to format —
+        // plain+no-rounding is identical to raw number. Avoid cluttering the
+        // schema with a duplicate column in that case.
+        const wantDisplay = fmt !== 'plain' || rounded;
+        const displayCol  = wantDisplay ? `${targetColumn}_display` : null;
+
         rows = rows.map(row => {
           const out = { ...row };
-          out[targetColumn] = extractFirstNumber(row[sourceColumn]);
+          const num = extractFirstNumber(row[sourceColumn]);
+          out[targetColumn] = num;
+          if (displayCol) {
+            out[displayCol] = num === null ? '' : formatTotal(num, fmt, code, pos, rounded);
+          }
           return out;
         });
         if (!headers.includes(targetColumn)) headers = [...headers, targetColumn];
+        if (displayCol && !headers.includes(displayCol)) headers = [...headers, displayCol];
         break;
       }
 

@@ -150,12 +150,9 @@
 
   <!-- Processed dataset list -->
   <div class="section">
-    <div style="display:flex;align-items:center;justify-content:space-between">
-      <span class="section-title">Processed dataset</span>
-      <button class="btn btn-ghost btn-sm" onclick="loadDatasets()">↻</button>
-    </div>
+    <span class="section-title">Processed dataset</span>
     <div style="font-size:10px;color:var(--muted)">
-      Only datasets saved via "💾 Save processed dataset" in the dashboard appear here.
+      Auto-refreshes every few seconds — drop a CSV onto a pipeline and it'll appear here.
     </div>
     <div id="dsList"><div class="empty">Connecting…</div></div>
   </div>
@@ -168,9 +165,7 @@
 
   <!-- Figma selection -->
   <div class="section" id="selSection" style="display:none">
-    <span class="section-title">Figma selection
-      <button class="btn btn-ghost btn-sm" onclick="refreshSel()" style="margin-left:6px">↻ Refresh</button>
-    </span>
+    <span class="section-title">Figma selection</span>
     <div class="sel-box none" id="selBox">
       <span id="selLabel">Nothing selected</span>
     </div>
@@ -178,10 +173,7 @@
 
   <!-- Refs found in selection -->
   <div class="section" id="refsSection" style="display:none">
-    <div style="display:flex;align-items:center;gap:8px">
-      <span class="section-title">Layer refs found</span>
-      <button class="btn btn-ghost btn-sm" onclick="scanRefs()">↻ Scan</button>
-    </div>
+    <span class="section-title">Layer refs found</span>
     <div style="font-size:10px;color:var(--muted);margin-bottom:2px">
       Text / image: <span style="font-family:monospace;color:var(--teal)">#columnname.rowindex</span> e.g. <span style="font-family:monospace;color:var(--teal)">#prize.1</span> · <span style="font-family:monospace;color:var(--teal)">#avatar.2</span><br>
       Rule totals: <span style="font-family:monospace;color:var(--teal)">#rule.1</span> · <span style="font-family:monospace;color:var(--teal)">#totals.1</span> (1-based)<br>
@@ -208,9 +200,15 @@ var scannedRefs  = [];      // flat ['prize.1', 'avatar.2', ...] — used by inj
 var scannedGroups = [];     // [{ frameId, frameName, frameType, refs: [...] }]
 var openGroups   = {};      // frameId → true; tracks expanded groups
 var figmaSel     = [];
+var lastSelKey   = '';      // joined ids of last selection — debounces auto-scan
+var pollTimer    = null;    // setInterval handle for dataset polling
+var POLL_MS      = 4000;    // 4s — fast enough to feel "live", easy on the network
+var autoScanT    = null;    // debounce timer for auto-scan after selectionchange
 
 connect();
-refreshSel();
+// Ask code.js for the current selection on first load. After that the
+// figma.on('selectionchange') hook in code.js pushes updates — no polling here.
+parent.postMessage({ pluginMessage: { type: 'get-selection' } }, '*');
 
 // ── Connection ────────────────────────────────────────────────────────────────
 async function connect() {
@@ -225,11 +223,27 @@ async function connect() {
     await api('/api/health');
     setStatus('Online', true);
     loadDatasets();
+    startPolling();
   } catch (e) {
     setStatus('Offline', false);
     document.getElementById('dsList').innerHTML =
       '<div class="empty">Cannot reach server.<br>Is the bridge running?</div>';
+    // Retry on a slow cadence so the plugin recovers from a temporary outage
+    // without the user touching anything.
+    if (!pollTimer) startPolling();
   }
+}
+
+// Start the dataset poll. Only one timer ever runs — startPolling is idempotent.
+function startPolling() {
+  if (pollTimer) return;
+  pollTimer = setInterval(function() {
+    // Skip while the plugin window is hidden — saves battery and avoids
+    // racing with users on slow connections. Figma sometimes hides the
+    // iframe when the plugin window is collapsed.
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+    loadDatasets({ silent: true });
+  }, POLL_MS);
 }
 
 function setStatus(t, ok) {
@@ -247,17 +261,74 @@ async function api(path, opts) {
 }
 
 // ── Datasets ──────────────────────────────────────────────────────────────────
-async function loadDatasets() {
-  document.getElementById('dsList').innerHTML = '<div class="empty"><span class="spinner"></span>Loading…</div>';
+// silent = true skips the loading spinner — used by the poll so the list
+// doesn't flicker every 4s. The list is only re-rendered if the server
+// returns something materially different from what we already have.
+async function loadDatasets(opts) {
+  opts = opts || {};
+  if (!opts.silent) {
+    document.getElementById('dsList').innerHTML = '<div class="empty"><span class="spinner"></span>Loading…</div>';
+  }
   try {
     // Dedicated Figma endpoint — server guarantees only processed datasets
     // are returned, so this plugin can never accidentally load a raw upload.
     var j = await api('/api/figma/datasets');
-    allDatasets = (j.datasets || []);
-    renderDsList();
+    var next = j.datasets || [];
+
+    // Only re-render the list when something visible actually changed —
+    // count, ids, names, rowCounts, or the per-row uploadedAt (a re-save
+    // bumps that). Avoids a full DOM rebuild every 4s.
+    if (datasetsKey(next) !== datasetsKey(allDatasets)) {
+      allDatasets = next;
+      renderDsList();
+    } else {
+      allDatasets = next;
+    }
+
+    // If the active dataset still exists but its server-side stamp moved
+    // (re-save with new rules), pull the fresh rows so the preview and
+    // injection use the latest data.
+    if (activeDataset) {
+      var stillThere = null;
+      for (var i = 0; i < allDatasets.length; i++) {
+        if (allDatasets[i].id === activeDataset.id) { stillThere = allDatasets[i]; break; }
+      }
+      if (!stillThere) {
+        // Source dataset deleted — clear the selection.
+        activeDataset = null;
+        scannedRefs = [];
+        renderRefList();
+        renderDsList();
+        var prev = document.getElementById('previewSection');
+        if (prev) prev.style.display = 'none';
+      } else if (stillThere.uploadedAt && stillThere.uploadedAt !== activeDataset.uploadedAt) {
+        // Re-save detected — re-fetch the full record (rows + ruleTable).
+        try {
+          var full = await api('/api/figma/datasets/' + activeDataset.id);
+          activeDataset = full;
+          renderPreview();
+          // Re-render refs in case the columns / row counts shifted.
+          renderRefList();
+        } catch (_) { /* benign — next poll will retry */ }
+      }
+    }
   } catch (e) {
-    document.getElementById('dsList').innerHTML = '<div class="empty" style="color:var(--red)">' + esc(e.message) + '</div>';
+    if (!opts.silent) {
+      document.getElementById('dsList').innerHTML = '<div class="empty" style="color:var(--red)">' + esc(e.message) + '</div>';
+    }
   }
+}
+
+// Cheap signature for the dataset list — used to skip rerenders when
+// nothing meaningful changed between polls.
+function datasetsKey(list) {
+  if (!list || !list.length) return '';
+  var parts = [];
+  for (var i = 0; i < list.length; i++) {
+    var d = list[i] || {};
+    parts.push(String(d.id) + '|' + String(d.label || d.filename || '') + '|' + String(d.rowCount || 0) + '|' + String(d.uploadedAt || ''));
+  }
+  return parts.join(';');
 }
 
 function renderDsList() {
@@ -537,6 +608,27 @@ window.onmessage = function(event) {
   if (msg.type === 'selection') {
     figmaSel = msg.nodes || [];
     updateSelBox();
+
+    // Auto-scan: if the selection changed AND has at least one node, kick off
+    // a fresh scan-refs after a short debounce. The debounce keeps drag-marquee
+    // selections (which fire per-pixel) from spamming the sandbox.
+    var key = figmaSel.map(function(n){ return n.id; }).join('|');
+    if (key !== lastSelKey) {
+      lastSelKey = key;
+      if (autoScanT) clearTimeout(autoScanT);
+      autoScanT = setTimeout(function() {
+        autoScanT = null;
+        if (figmaSel.length) {
+          parent.postMessage({ pluginMessage: { type: 'scan-refs' } }, '*');
+        } else {
+          // Nothing selected — clear the refs view, no scan to run.
+          scannedRefs = [];
+          scannedGroups = [];
+          renderRefList();
+          hideBanner();
+        }
+      }, 250);
+    }
     return;
   }
 

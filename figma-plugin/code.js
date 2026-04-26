@@ -21,6 +21,30 @@
 
 figma.showUI(__html__, { width: 440, height: 580, title: 'Smartico Bridge' });
 
+// ── Selection broadcast ──────────────────────────────────────────────────────
+// Push the current selection up to the UI. The UI uses this both to render the
+// "Figma selection" box and as a trigger to auto-scan refs whenever the user
+// changes selection — no manual "↻ Scan" click needed.
+function snapshotSelection() {
+  var sel = figma.currentPage.selection;
+  return sel.map(function(n) {
+    return {
+      id:         n.id,
+      name:       n.name,
+      type:       n.type,
+      childCount: 'children' in n ? n.children.length : 0,
+    };
+  });
+}
+
+function postSelection() {
+  figma.ui.postMessage({ type: 'selection', nodes: snapshotSelection() });
+}
+
+// Fire whenever the user picks a different layer/frame. The UI debounces these
+// and turns them into auto-scans.
+figma.on('selectionchange', postSelection);
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 var REF_PATTERN = /^#{1,2}([a-zA-Z0-9_]+)\.(\d+)$/;
@@ -268,19 +292,11 @@ figma.ui.onmessage = async function(msg) {
   }
 
   // ── get-selection: report current selection to the UI ─────────────────────
+  // Still supported for the initial UI load — the UI calls this once on
+  // startup. After that the figma.on('selectionchange') hook above keeps the
+  // UI in sync without polling.
   if (msg.type === 'get-selection') {
-    var sel3 = figma.currentPage.selection;
-    figma.ui.postMessage({
-      type:  'selection',
-      nodes: sel3.map(function(n) {
-        return {
-          id:         n.id,
-          name:       n.name,
-          type:       n.type,
-          childCount: 'children' in n ? n.children.length : 0,
-        };
-      }),
-    });
+    postSelection();
     return;
   }
 

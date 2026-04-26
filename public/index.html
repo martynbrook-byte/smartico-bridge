@@ -999,16 +999,16 @@
 
     /* Node card inside foreignObject */
     .pipe-node {
-      width: 200px;
+      width: 260px;
       background: var(--surface2);
       border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 10px;
+      border-radius: 10px;
+      padding: 14px 16px;
       cursor: grab;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.25);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.28);
       transition: border-color 0.12s, box-shadow 0.12s;
       user-select: none;
-      font-size: 0.85rem;
+      font-size: 0.92rem;
     }
     .pipe-node:hover { border-color: var(--gold); }
     .pipe-node.connecting { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(96,165,250,0.2); }
@@ -1016,16 +1016,17 @@
     .pipe-node-head {
       display: flex;
       align-items: center;
-      gap: 6px;
-      margin-bottom: 4px;
+      gap: 8px;
+      margin-bottom: 6px;
     }
     .pipe-node-step {
-      font-size: 0.7rem;
+      font-size: 0.76rem;
       color: var(--bg);
       background: var(--gold);
-      padding: 1px 7px;
+      padding: 2px 9px;
       border-radius: 999px;
       font-weight: 700;
+      flex-shrink: 0;
     }
     .pipe-node-name {
       font-weight: 600;
@@ -1034,11 +1035,12 @@
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+      font-size: 0.96rem;
     }
     .pipe-node-meta {
       color: var(--muted);
-      font-size: 0.74rem;
-      margin-bottom: 6px;
+      font-size: 0.8rem;
+      margin-bottom: 8px;
     }
     .pipe-node-acts {
       display: flex;
@@ -1278,6 +1280,12 @@
               <option value="">— Pick a rule set —</option>
             </select>
             <button class="btn btn-primary btn-small" onclick="addPipelineNode()">+ Add</button>
+            <span style="width:1px;height:24px;background:var(--border);margin:0 6px"></span>
+            <strong style="font-size:0.82rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px" title="Column mappings applied to the dropped CSV before any rule sets run">Mapping</strong>
+            <select id="pipelineMappingSelect" onchange="onPipelineMappingChange(this.value)"
+                    title="Pin a mapping set or leave on (active) to use whichever is currently active in Settings">
+              <option value="">(active)</option>
+            </select>
             <span style="color:var(--muted);font-size:0.78rem;margin-left:auto">
               Drag nodes · drag the right port to another node's left port to connect · click an arrow to delete it
             </span>
@@ -2623,8 +2631,8 @@ let _pipeConnect = null;           // { fromId } while drawing a ghost edge
 let _pipeSaveTimer = null;
 
 // Default node size (kept in sync with .pipe-node CSS width)
-const PIPE_NODE_W = 200;
-const PIPE_NODE_H = 96;
+const PIPE_NODE_W = 260;
+const PIPE_NODE_H = 120;
 
 async function loadPipelines() {
   const r = await api('/api/pipelines');
@@ -2677,7 +2685,39 @@ function renderPipelineEditor(p) {
   const tplEl  = document.getElementById('pipelineFilenameTpl');
   if (nameEl && document.activeElement !== nameEl) nameEl.value = p.name || '';
   if (tplEl  && document.activeElement !== tplEl)  tplEl.value  = p.filenameTemplate || '';
+  renderPipelineMappingSelect();
   renderPipelineCanvas();
+}
+
+// Populate the toolbar's mapping-set dropdown. The empty value means
+// "use whichever set is active when this pipeline runs"; a specific id
+// pins the pipeline to that set even if the active one changes later.
+function renderPipelineMappingSelect() {
+  const sel = document.getElementById('pipelineMappingSelect');
+  if (!sel || !activePipeline) return;
+  const sets = settings.mappingSets || [];
+  const current = activePipeline.mappingSetId || '';
+  const activeId = settings.activeMappingSetId;
+  sel.innerHTML = `<option value="">(active${activeId ? ' — ' + esc((sets.find(s => s.id === activeId) || {}).name || '') : ''})</option>` +
+    sets.map(s => `<option value="${esc(s.id)}" ${s.id === current ? 'selected' : ''}>${esc(s.name)}</option>`).join('');
+}
+
+async function onPipelineMappingChange(value) {
+  if (!activePipeline) return;
+  const newId = value || null;
+  if ((activePipeline.mappingSetId || null) === newId) return;
+  activePipeline.mappingSetId = newId;
+  try {
+    await api(`/api/pipelines/${activePipeline.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ mappingSetId: newId }),
+    });
+    banner(newId
+      ? `Pipeline pinned to mapping set "${(settings.mappingSets || []).find(s => s.id === newId)?.name || newId}"`
+      : 'Pipeline reverted to active mapping set', 'success');
+  } catch (err) {
+    banner(`Save failed: ${err.message}`, 'error');
+  }
 }
 
 function renderPipelineCanvas() {

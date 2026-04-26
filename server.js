@@ -549,6 +549,9 @@ async function listPipelines() {
         name:             r.name || 'Untitled pipeline',
         description:      r.description || '',
         filenameTemplate: r.filenameTemplate || '{pipelineName}',
+        // null = use the active mapping set at run time. A specific id pins
+        // the pipeline to that set regardless of which one is active.
+        mappingSetId:     typeof r.mappingSetId === 'string' ? r.mappingSetId : null,
         nodeCount:        Array.isArray(r.nodes) ? r.nodes.length : 0,
         edgeCount:        Array.isArray(r.edges) ? r.edges.length : 0,
         createdAt:        r.createdAt || null,
@@ -1800,6 +1803,8 @@ app.post('/api/pipelines', async (req, res) => {
       filenameTemplate: typeof body.filenameTemplate === 'string' && body.filenameTemplate.trim()
         ? body.filenameTemplate.trim()
         : '{pipelineName}',
+      // Pin a specific mapping set or leave null to use the active one at run time.
+      mappingSetId:     typeof body.mappingSetId === 'string' ? body.mappingSetId : null,
       nodes:            Array.isArray(body.nodes) ? body.nodes : [],
       edges:            Array.isArray(body.edges) ? body.edges : [],
     };
@@ -1819,6 +1824,13 @@ app.patch('/api/pipelines/:id', async (req, res) => {
     if (typeof body.description === 'string') record.description = body.description;
     if (typeof body.filenameTemplate === 'string') {
       record.filenameTemplate = body.filenameTemplate.trim() || '{pipelineName}';
+    }
+    // mappingSetId: explicit null clears the pin (revert to active set);
+    // a string pins to that set; undefined leaves the existing value alone.
+    if ('mappingSetId' in body) {
+      record.mappingSetId = (typeof body.mappingSetId === 'string' && body.mappingSetId)
+        ? body.mappingSetId
+        : null;
     }
     if (Array.isArray(body.nodes)) record.nodes = body.nodes;
     if (Array.isArray(body.edges)) record.edges = body.edges;
@@ -1849,12 +1861,28 @@ app.post('/api/pipelines/:id/run', upload.single('file'), async (req, res) => {
     const pipeline = await getPipeline(req.params.id);
     const settings = await readSettings();
 
+    // Resolve which mapping set to use:
+    //   pipeline.mappingSetId  → pinned set (override the active one for this run)
+    //   null                   → fall back to settings.columnMappings (the active set)
+    // If the pinned set was deleted we silently fall back to the active one
+    // rather than blowing up — drop zones shouldn't fail because of an admin
+    // deleting a mapping set.
+    let runMappings = settings.columnMappings || {};
+    let runMappingSetName = null;
+    if (pipeline.mappingSetId) {
+      const pinned = (settings.mappingSets || []).find(s => s.id === pipeline.mappingSetId);
+      if (pinned) {
+        runMappings = pinned.mappings || {};
+        runMappingSetName = pinned.name;
+      }
+    }
+
     // 1. Parse the dropped CSV and apply column mappings.
     const parsed       = await parseCsv(req.file.path);
-    const mappedRows   = applyColumnMappings(parsed.rows, settings.columnMappings);
+    const mappedRows   = applyColumnMappings(parsed.rows, runMappings);
     const mappedHeaders = mappedRows.length
       ? Object.keys(mappedRows[0])
-      : parsed.headers.map(h => settings.columnMappings[h] || h);
+      : parsed.headers.map(h => runMappings[h] || h);
 
     // 2. Order the pipeline nodes — bail out cleanly on cycles or unknown rule sets.
     let ordered;
@@ -1911,6 +1939,8 @@ app.post('/api/pipelines/:id/run', upload.single('file'), async (req, res) => {
       sourceFilename:  req.file.originalname,
       pipelineId:      pipeline.id,
       pipelineName:    pipeline.name,
+      mappingSetId:    pipeline.mappingSetId || settings.activeMappingSetId || null,
+      mappingSetName:  runMappingSetName || null,
       ruleSetId:       null,
       ruleSetName:     ordered.length === 1 ? stepLog[0].ruleSetName : `${ordered.length} steps`,
       pipelineSteps:   stepLog,

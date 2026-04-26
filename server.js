@@ -37,12 +37,14 @@ const crypto     = require('crypto');
 const app       = express();
 const PORT      = process.env.PORT || 3001;
 const DATA_DIR  = process.env.DATA_DIR || path.join(__dirname, 'data');
-const DATASETS_DIR = path.join(DATA_DIR, 'datasets');
+const DATASETS_DIR  = path.join(DATA_DIR, 'datasets');
+const PIPELINES_DIR = path.join(DATA_DIR, 'pipelines');
+const DROPZONES_DIR = path.join(DATA_DIR, 'dropzones');
 const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
 const UPLOADS_DIR = path.join(__dirname, 'uploads');
 
 // ── Bootstrap folders & files ────────────────────────────────────────────────
-for (const dir of [DATA_DIR, DATASETS_DIR, UPLOADS_DIR]) {
+for (const dir of [DATA_DIR, DATASETS_DIR, PIPELINES_DIR, DROPZONES_DIR, UPLOADS_DIR]) {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 }
 if (!fs.existsSync(SETTINGS_FILE)) {
@@ -473,6 +475,158 @@ async function getDataset(id) {
 async function deleteDataset(id) {
   const file = path.join(DATASETS_DIR, `${id}.json`);
   await fsp.unlink(file);
+}
+
+// ── Pipelines storage ────────────────────────────────────────────────────────
+// A pipeline is an ordered chain of saved rule sets. Storage shape:
+//   {
+//     id, name, description, filenameTemplate,
+//     nodes: [{ id, ruleSetId, x, y }],
+//     edges: [{ from, to }],   // node-id → node-id, defines run order
+//     createdAt, updatedAt,
+//   }
+// The canvas editor in the UI persists node positions (x/y) here so the
+// layout survives reloads.
+async function listPipelines() {
+  const files = (await fsp.readdir(PIPELINES_DIR)).filter(f => f.endsWith('.json'));
+  const out = [];
+  for (const f of files) {
+    try {
+      const raw = await fsp.readFile(path.join(PIPELINES_DIR, f), 'utf8');
+      const r   = JSON.parse(raw);
+      out.push({
+        id:               r.id,
+        name:             r.name || 'Untitled pipeline',
+        description:      r.description || '',
+        filenameTemplate: r.filenameTemplate || '{pipelineName}',
+        nodeCount:        Array.isArray(r.nodes) ? r.nodes.length : 0,
+        edgeCount:        Array.isArray(r.edges) ? r.edges.length : 0,
+        createdAt:        r.createdAt || null,
+        updatedAt:        r.updatedAt || null,
+      });
+    } catch (e) {
+      console.warn(`[pipelines] skipping unreadable file ${f}: ${e.message}`);
+    }
+  }
+  // Most-recently-updated first matches the dataset list ordering.
+  out.sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
+  return out;
+}
+
+async function getPipeline(id) {
+  const file = path.join(PIPELINES_DIR, `${id}.json`);
+  const raw  = await fsp.readFile(file, 'utf8');
+  return JSON.parse(raw);
+}
+
+async function savePipeline(record) {
+  record.updatedAt = new Date().toISOString();
+  if (!record.createdAt) record.createdAt = record.updatedAt;
+  const file = path.join(PIPELINES_DIR, `${record.id}.json`);
+  await fsp.writeFile(file, JSON.stringify(record, null, 2));
+  return record;
+}
+
+async function deletePipeline(id) {
+  const file = path.join(PIPELINES_DIR, `${id}.json`);
+  await fsp.unlink(file);
+}
+
+// Topo-order the nodes given the edge list. For the linear-chain MVP we just
+// follow `from → to` greedily — but using a proper Kahn's algorithm here
+// future-proofs us for the day pipelines branch. Returns nodes in the order
+// they should run; cycles are detected and throw.
+function orderPipelineNodes(nodes, edges) {
+  if (!Array.isArray(nodes) || !nodes.length) return [];
+  const safeEdges = Array.isArray(edges) ? edges : [];
+  const indeg = {};
+  const outAdj = {};
+  for (const n of nodes) { indeg[n.id] = 0; outAdj[n.id] = []; }
+  for (const e of safeEdges) {
+    if (!e || !(e.from in indeg) || !(e.to in indeg)) continue;
+    indeg[e.to] = (indeg[e.to] || 0) + 1;
+    outAdj[e.from].push(e.to);
+  }
+  const queue = nodes.filter(n => indeg[n.id] === 0).map(n => n.id);
+  const ordered = [];
+  const idToNode = Object.fromEntries(nodes.map(n => [n.id, n]));
+  while (queue.length) {
+    const id = queue.shift();
+    ordered.push(idToNode[id]);
+    for (const next of outAdj[id]) {
+      indeg[next]--;
+      if (indeg[next] === 0) queue.push(next);
+    }
+  }
+  if (ordered.length !== nodes.length) {
+    throw new Error('Pipeline has a cycle — every node must be reachable in a non-circular order.');
+  }
+  return ordered;
+}
+
+// ── Drop zones storage ───────────────────────────────────────────────────────
+// A drop zone is a named card on the dashboard that runs a specific pipeline
+// when a CSV is dropped onto it. Storage shape:
+//   { id, name, pipelineId, position, createdAt, updatedAt }
+async function listDropZones() {
+  const files = (await fsp.readdir(DROPZONES_DIR)).filter(f => f.endsWith('.json'));
+  const out = [];
+  for (const f of files) {
+    try {
+      const raw = await fsp.readFile(path.join(DROPZONES_DIR, f), 'utf8');
+      out.push(JSON.parse(raw));
+    } catch (e) {
+      console.warn(`[dropzones] skipping unreadable file ${f}: ${e.message}`);
+    }
+  }
+  // Sort by position (manual user ordering), then by createdAt as a tiebreaker.
+  out.sort((a, b) => {
+    const pa = Number.isFinite(a.position) ? a.position : 9999;
+    const pb = Number.isFinite(b.position) ? b.position : 9999;
+    if (pa !== pb) return pa - pb;
+    return String(a.createdAt || '').localeCompare(String(b.createdAt || ''));
+  });
+  return out;
+}
+
+async function getDropZone(id) {
+  const file = path.join(DROPZONES_DIR, `${id}.json`);
+  const raw  = await fsp.readFile(file, 'utf8');
+  return JSON.parse(raw);
+}
+
+async function saveDropZone(record) {
+  record.updatedAt = new Date().toISOString();
+  if (!record.createdAt) record.createdAt = record.updatedAt;
+  const file = path.join(DROPZONES_DIR, `${record.id}.json`);
+  await fsp.writeFile(file, JSON.stringify(record, null, 2));
+  return record;
+}
+
+async function deleteDropZone(id) {
+  const file = path.join(DROPZONES_DIR, `${id}.json`);
+  await fsp.unlink(file);
+}
+
+// Resolve a filename template against a pipeline run. Supported tokens
+// (always lowercased {curly} form): {pipelineName}, {sourceFilename}, {date},
+// {time}. Unknown tokens are left in place so a typo is at least visible.
+function renderFilenameTemplate(template, ctx) {
+  const safeTpl = String(template || '{pipelineName}').trim() || '{pipelineName}';
+  const now = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  const dateStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+  const timeStr = `${pad(now.getHours())}-${pad(now.getMinutes())}`;
+  const vars = {
+    pipelinename:   ctx.pipelineName || 'Pipeline',
+    sourcefilename: (ctx.sourceFilename || 'data').replace(/\.csv$/i, ''),
+    date:           dateStr,
+    time:           timeStr,
+  };
+  return safeTpl.replace(/\{([a-zA-Z]+)\}/g, (whole, key) => {
+    const v = vars[String(key).toLowerCase()];
+    return v !== undefined ? v : whole;
+  });
 }
 
 function parseCsv(filepath) {
@@ -1379,6 +1533,246 @@ app.post('/api/datasets/:id/apply-rules', async (req, res) => {
       ...result,
       ruleTable,
     });
+  } catch (err) {
+    const status = err.code === 'ENOENT' ? 404 : 500;
+    res.status(status).json({ error: err.message });
+  }
+});
+
+// ── Pipelines ────────────────────────────────────────────────────────────────
+// A pipeline = an ordered chain of saved rule sets. Drop-zone cards on the
+// dashboard run a pipeline against a CSV the user drops onto them.
+
+// List pipelines (summaries only — no nodes/edges)
+app.get('/api/pipelines', async (_req, res) => {
+  try {
+    res.json({ pipelines: await listPipelines() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get a single pipeline with its full node + edge graph.
+app.get('/api/pipelines/:id', async (req, res) => {
+  try {
+    res.json(await getPipeline(req.params.id));
+  } catch (err) {
+    const status = err.code === 'ENOENT' ? 404 : 500;
+    res.status(status).json({ error: err.message });
+  }
+});
+
+// Create a pipeline. Body: { name, description?, filenameTemplate?, nodes?, edges? }
+app.post('/api/pipelines', async (req, res) => {
+  try {
+    const body = req.body || {};
+    if (!body.name || typeof body.name !== 'string') {
+      return res.status(400).json({ error: 'name is required' });
+    }
+    const record = {
+      id:               crypto.randomUUID(),
+      name:             body.name,
+      description:      typeof body.description === 'string' ? body.description : '',
+      filenameTemplate: typeof body.filenameTemplate === 'string' && body.filenameTemplate.trim()
+        ? body.filenameTemplate.trim()
+        : '{pipelineName}',
+      nodes:            Array.isArray(body.nodes) ? body.nodes : [],
+      edges:            Array.isArray(body.edges) ? body.edges : [],
+    };
+    await savePipeline(record);
+    res.json({ pipeline: record });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Patch a pipeline. Any of: name, description, filenameTemplate, nodes, edges.
+app.patch('/api/pipelines/:id', async (req, res) => {
+  try {
+    const record = await getPipeline(req.params.id);
+    const body   = req.body || {};
+    if (typeof body.name === 'string') record.name = body.name;
+    if (typeof body.description === 'string') record.description = body.description;
+    if (typeof body.filenameTemplate === 'string') {
+      record.filenameTemplate = body.filenameTemplate.trim() || '{pipelineName}';
+    }
+    if (Array.isArray(body.nodes)) record.nodes = body.nodes;
+    if (Array.isArray(body.edges)) record.edges = body.edges;
+    await savePipeline(record);
+    res.json({ pipeline: record });
+  } catch (err) {
+    const status = err.code === 'ENOENT' ? 404 : 500;
+    res.status(status).json({ error: err.message });
+  }
+});
+
+app.delete('/api/pipelines/:id', async (req, res) => {
+  try {
+    await deletePipeline(req.params.id);
+    res.json({ ok: true });
+  } catch (err) {
+    const status = err.code === 'ENOENT' ? 404 : 500;
+    res.status(status).json({ error: err.message });
+  }
+});
+
+// Run a pipeline against an uploaded CSV. Multipart form with field name 'file'.
+// Steps: parse CSV → mapping → for each node in topo order, apply that rule
+// set's rules (carry metrics across) → save as a processed dataset → return.
+app.post('/api/pipelines/:id/run', upload.single('file'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+  try {
+    const pipeline = await getPipeline(req.params.id);
+    const settings = await readSettings();
+
+    // 1. Parse the dropped CSV and apply column mappings.
+    const parsed       = await parseCsv(req.file.path);
+    const mappedRows   = applyColumnMappings(parsed.rows, settings.columnMappings);
+    const mappedHeaders = mappedRows.length
+      ? Object.keys(mappedRows[0])
+      : parsed.headers.map(h => settings.columnMappings[h] || h);
+
+    // 2. Order the pipeline nodes — bail out cleanly on cycles or unknown rule sets.
+    let ordered;
+    try {
+      ordered = orderPipelineNodes(pipeline.nodes || [], pipeline.edges || []);
+    } catch (e) {
+      return res.status(400).json({ error: e.message });
+    }
+
+    // 3. Walk the chain. For each step, look up the rule set and run it against
+    // the rows produced by the previous step. Metrics from every step are
+    // concatenated in run order so the {RULE,TOTALS} table reflects the chain
+    // as it ran (so e.g. a "count of winners" computed late still appears).
+    let rows    = mappedRows;
+    let headers = mappedHeaders;
+    const allMetrics = [];
+    const stepLog = [];
+    for (const node of ordered) {
+      const ruleSet = findRuleSet(settings, node.ruleSetId);
+      if (!ruleSet) {
+        return res.status(400).json({
+          error: `Pipeline references missing rule set ${node.ruleSetId} (node ${node.id}). Edit the pipeline and re-link the step.`,
+        });
+      }
+      const out = applyRules(rows, headers, ruleSet.rules || []);
+      rows    = out.rows;
+      headers = out.headers;
+      if (Array.isArray(out.metrics)) {
+        for (const m of out.metrics) allMetrics.push({ ...m, _stepRuleSet: ruleSet.name });
+      }
+      stepLog.push({ nodeId: node.id, ruleSetId: ruleSet.id, ruleSetName: ruleSet.name, ruleCount: (ruleSet.rules || []).length });
+    }
+
+    const ruleTable = buildRuleTable(allMetrics);
+
+    // 4. Build the processed dataset record and save it. Filename template is
+    // resolved against the source CSV name + pipeline name + date/time tokens.
+    const filenameLabel = renderFilenameTemplate(pipeline.filenameTemplate, {
+      pipelineName:   pipeline.name,
+      sourceFilename: req.file.originalname,
+    });
+
+    const processed = {
+      id:              crypto.randomUUID(),
+      filename:        `${filenameLabel}.csv`,
+      label:           filenameLabel,
+      storedAs:        null,
+      uploadedAt:      new Date().toISOString(),
+      rowCount:        rows.length,
+      headers,
+      rows,
+      isProcessed:    true,
+      sourceDatasetId: null,
+      sourceFilename:  req.file.originalname,
+      pipelineId:      pipeline.id,
+      pipelineName:    pipeline.name,
+      ruleSetId:       null,
+      ruleSetName:     ordered.length === 1 ? stepLog[0].ruleSetName : `${ordered.length} steps`,
+      pipelineSteps:   stepLog,
+      metrics:         allMetrics,
+      ruleTable,
+      visibleColumns:  headers,
+      maxRows:         null,
+      sort:            null,
+    };
+    processed.summary = computeSummary(processed);
+    await saveDataset(processed);
+
+    res.json({
+      ok:      true,
+      dataset: {
+        id:           processed.id,
+        filename:     processed.filename,
+        label:        processed.label,
+        uploadedAt:   processed.uploadedAt,
+        rowCount:     processed.rowCount,
+        headers:      processed.headers,
+        pipelineId:   processed.pipelineId,
+        pipelineName: processed.pipelineName,
+        steps:        stepLog,
+        ruleTable:    processed.ruleTable,
+      },
+    });
+  } catch (err) {
+    console.error('[pipelines/run] error:', err);
+    const status = err.code === 'ENOENT' ? 404 : 500;
+    res.status(status).json({ error: err.message });
+  }
+});
+
+// ── Drop zones ───────────────────────────────────────────────────────────────
+// Drop zones are persisted cards on the dashboard, each linked to one pipeline.
+// Drag a CSV onto a card → POST /api/pipelines/:pipelineId/run.
+
+app.get('/api/dropzones', async (_req, res) => {
+  try {
+    res.json({ dropzones: await listDropZones() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/dropzones', async (req, res) => {
+  try {
+    const body = req.body || {};
+    if (!body.name || typeof body.name !== 'string') {
+      return res.status(400).json({ error: 'name is required' });
+    }
+    const existing = await listDropZones();
+    const record = {
+      id:         crypto.randomUUID(),
+      name:       body.name,
+      pipelineId: body.pipelineId || null,
+      // Append to the end of the list by default; UI can patch position later.
+      position:   Number.isFinite(Number(body.position)) ? Number(body.position) : existing.length,
+    };
+    await saveDropZone(record);
+    res.json({ dropzone: record });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.patch('/api/dropzones/:id', async (req, res) => {
+  try {
+    const record = await getDropZone(req.params.id);
+    const body   = req.body || {};
+    if (typeof body.name === 'string') record.name = body.name;
+    if ('pipelineId' in body) record.pipelineId = body.pipelineId || null;
+    if (Number.isFinite(Number(body.position))) record.position = Number(body.position);
+    await saveDropZone(record);
+    res.json({ dropzone: record });
+  } catch (err) {
+    const status = err.code === 'ENOENT' ? 404 : 500;
+    res.status(status).json({ error: err.message });
+  }
+});
+
+app.delete('/api/dropzones/:id', async (req, res) => {
+  try {
+    await deleteDropZone(req.params.id);
+    res.json({ ok: true });
   } catch (err) {
     const status = err.code === 'ENOENT' ? 404 : 500;
     res.status(status).json({ error: err.message });

@@ -666,16 +666,27 @@ async function deleteDropZone(id) {
 
 // Resolve a filename template against a pipeline run. Supported tokens
 // (always lowercased {curly} form): {pipelineName}, {sourceFilename}, {date},
-// {time}. Unknown tokens are left in place so a typo is at least visible.
+// {time}, {dropZoneName}, {iteration}. Unknown tokens are left in place so a
+// typo is at least visible.
+//
+// {iteration} is zero-padded to 3 digits (e.g. 001) — a friendlier default
+// than a raw counter, and 999 runs is enough headroom that designers never
+// see overflow on practical CSV drop cards.
 function renderFilenameTemplate(template, ctx) {
   const safeTpl = String(template || '{pipelineName}').trim() || '{pipelineName}';
   const now = new Date();
   const pad = (n) => String(n).padStart(2, '0');
   const dateStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
   const timeStr = `${pad(now.getHours())}-${pad(now.getMinutes())}`;
+  const iterRaw = Number(ctx.iteration);
+  const iterStr = Number.isFinite(iterRaw) && iterRaw > 0
+    ? String(iterRaw).padStart(3, '0')
+    : '001';
   const vars = {
     pipelinename:   ctx.pipelineName || 'Pipeline',
     sourcefilename: (ctx.sourceFilename || 'data').replace(/\.csv$/i, ''),
+    dropzonename:   ctx.dropZoneName || '',
+    iteration:      iterStr,
     date:           dateStr,
     time:           timeStr,
   };
@@ -1872,6 +1883,25 @@ app.post('/api/pipelines/:id/run', upload.single('file'), async (req, res) => {
     const pipeline = await getPipeline(req.params.id);
     const settings = await readSettings();
 
+    // Optional drop-zone context. When the run is triggered by a Bridge drop
+    // card the UI passes ?dropZoneId=… so we can (a) bump the card's run
+    // counter and (b) expose {dropZoneName}/{iteration} to the filename
+    // template. If the id refers to a zone that's been deleted, we don't blow
+    // up the run — just fall back to the pipeline-only context.
+    const dropZoneIdRaw = (req.body && (req.body.dropZoneId || req.body.dropzoneId)) || null;
+    let dropZone = null;
+    if (dropZoneIdRaw) {
+      try {
+        dropZone = await getDropZone(String(dropZoneIdRaw));
+      } catch (e) {
+        if (e.code !== 'ENOENT') console.warn('[pipelines/run] drop-zone lookup failed:', e.message);
+        dropZone = null;
+      }
+    }
+    const iteration = dropZone
+      ? (Number.isFinite(Number(dropZone.runCount)) ? Number(dropZone.runCount) : 0) + 1
+      : 1;
+
     // Resolve which mapping set to use:
     //   pipeline.mappingSetId  → pinned set (override the active one for this run)
     //   null                   → fall back to settings.columnMappings (the active set)
@@ -1950,11 +1980,24 @@ app.post('/api/pipelines/:id/run', upload.single('file'), async (req, res) => {
     }
 
     // 4. Build the processed dataset record and save it. Filename template is
-    // resolved against the source CSV name + pipeline name + date/time tokens.
+    // resolved against the source CSV name + pipeline name + date/time tokens
+    // and (when triggered via a drop card) the drop-zone name + run counter.
     const filenameLabel = renderFilenameTemplate(pipeline.filenameTemplate, {
       pipelineName:   pipeline.name,
       sourceFilename: req.file.originalname,
+      dropZoneName:   dropZone ? dropZone.name : '',
+      iteration:      iteration,
     });
+
+    // Persist the bumped iteration counter back onto the drop-zone record so the
+    // next drop renders the next number. We do this AFTER the run succeeds —
+    // failed runs shouldn't burn iteration numbers.
+    if (dropZone) {
+      dropZone.runCount = iteration;
+      try { await saveDropZone(dropZone); } catch (e) {
+        console.warn('[pipelines/run] saving drop-zone runCount failed:', e.message);
+      }
+    }
 
     const processed = {
       id:              crypto.randomUUID(),
@@ -2033,6 +2076,9 @@ app.post('/api/dropzones', async (req, res) => {
       pipelineId: body.pipelineId || null,
       // Append to the end of the list by default; UI can patch position later.
       position:   Number.isFinite(Number(body.position)) ? Number(body.position) : existing.length,
+      // Iteration counter — bumps on each successful pipeline run from this card.
+      // Surfaced to filename templates as {iteration} (zero-padded to 3 digits).
+      runCount:   0,
     };
     await saveDropZone(record);
     res.json({ dropzone: record });
@@ -2048,6 +2094,11 @@ app.patch('/api/dropzones/:id', async (req, res) => {
     if (typeof body.name === 'string') record.name = body.name;
     if ('pipelineId' in body) record.pipelineId = body.pipelineId || null;
     if (Number.isFinite(Number(body.position))) record.position = Number(body.position);
+    // Allow explicit reset / override of the run counter (e.g. "reset to 1").
+    if ('runCount' in body) {
+      const n = Number(body.runCount);
+      record.runCount = Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0;
+    }
     await saveDropZone(record);
     res.json({ dropzone: record });
   } catch (err) {

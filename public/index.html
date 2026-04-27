@@ -951,24 +951,158 @@
       border-radius: 999px;
     }
 
-    /* Canvas editor */
-    .canvas-toolbar {
+    /* ── Pipeline editor header ── */
+    .pipe-editor-title-row {
       display: flex;
       align-items: center;
       gap: 10px;
-      padding: 10px 14px;
+      padding: 12px 16px;
       border-bottom: 1px solid var(--border);
-      flex-wrap: wrap;
     }
-    .canvas-toolbar select,
-    .canvas-toolbar input[type="text"] {
-      background: var(--surface2);
+    .pipe-name-input {
+      flex: 1;
+      min-width: 180px;
+      background: transparent;
       border: 1px solid var(--border);
       color: var(--text);
-      padding: 6px 8px;
+      font-weight: 700;
+      font-size: 1.05rem;
+      padding: 6px 10px;
       border-radius: 6px;
-      font-size: 0.85rem;
     }
+    .pipe-name-input:focus { border-color: var(--gold); outline: none; }
+
+    /* Section toolbar (Mapping | Rules | Enrich | Filter | Name) */
+    .pipe-section-toolbar {
+      display: flex;
+      align-items: stretch;
+      flex-wrap: wrap;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface2);
+    }
+    .pipe-tb-section {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      padding: 10px 14px;
+    }
+    .pipe-tb-label {
+      font-size: 0.68rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.7px;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+    .pipe-tb-sep {
+      width: 1px;
+      background: var(--border);
+      margin: 8px 0;
+      flex-shrink: 0;
+    }
+    .pipe-tb-name { flex: 1; min-width: 260px; }
+    .pipe-tb-hint {
+      font-size: 0.7rem;
+      color: var(--muted);
+      padding: 10px 14px;
+      align-self: center;
+      margin-left: auto;
+      white-space: nowrap;
+      opacity: 0.7;
+    }
+
+    /* Token chips for name convention */
+    .pipe-token-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      align-items: center;
+    }
+    .pipe-token-hint {
+      font-size: 0.65rem;
+      color: var(--muted);
+      margin-right: 2px;
+    }
+    .pipe-token-chip {
+      background: var(--surface3);
+      border: 1px solid var(--border);
+      color: var(--blue);
+      border-radius: 4px;
+      padding: 2px 7px;
+      font-size: 0.7rem;
+      font-family: 'SF Mono', Consolas, monospace;
+      cursor: pointer;
+      transition: all 0.12s;
+      line-height: 1.4;
+    }
+    .pipe-token-chip:hover { border-color: var(--blue); background: rgba(96,165,250,0.12); }
+
+    /* Enrich toggle */
+    .pipe-toggle {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      cursor: pointer;
+      user-select: none;
+      margin-top: 2px;
+    }
+    .pipe-toggle input[type="checkbox"] { display: none; }
+    .pipe-toggle-track {
+      width: 32px; height: 18px;
+      background: var(--surface3);
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      position: relative;
+      transition: background 0.15s, border-color 0.15s;
+      flex-shrink: 0;
+    }
+    .pipe-toggle-track::after {
+      content: '';
+      position: absolute;
+      width: 12px; height: 12px;
+      background: var(--muted);
+      border-radius: 50%;
+      top: 2px; left: 2px;
+      transition: left 0.15s, background 0.15s;
+    }
+    .pipe-toggle input:checked + .pipe-toggle-track { background: rgba(94,234,212,0.18); border-color: #14b8a6; }
+    .pipe-toggle input:checked + .pipe-toggle-track::after { left: 16px; background: #5eead4; }
+    .pipe-toggle-label { font-size: 0.82rem; color: var(--muted); }
+    .pipe-toggle input:checked ~ .pipe-toggle-label { color: #5eead4; }
+
+    /* ── Canvas node drag grip ── */
+    .pipe-node-grip {
+      text-align: center;
+      color: var(--border);
+      font-size: 0.75rem;
+      letter-spacing: 3px;
+      margin: -8px -10px 8px;
+      padding: 3px 0;
+      border-radius: 10px 10px 0 0;
+      background: var(--surface3);
+      border-bottom: 1px solid var(--border);
+      cursor: grab;
+      user-select: none;
+      transition: background 0.12s, color 0.12s;
+    }
+    .pipe-node-grip:hover { background: rgba(245,200,66,0.06); color: var(--muted); }
+    .pipe-node.dragging .pipe-node-grip { cursor: grabbing; }
+
+    /* RULES type lozenge on rule-set cards */
+    .pipe-node-type-lozenge {
+      font-size: 0.6rem;
+      font-weight: 700;
+      padding: 2px 6px;
+      border-radius: 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.7px;
+      background: rgba(129,140,248,0.14);
+      color: var(--indigo);
+      border: 1px solid rgba(129,140,248,0.3);
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
     .canvas-wrap {
       position: relative;
       background:
@@ -979,13 +1113,14 @@
         linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px),
         linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px);
       border-top: 1px solid var(--border);
-      height: 520px;
+      height: 600px;
       overflow: auto;
     }
+    /* Natural-pixel sizing: 1 SVG unit == 1 visual pixel. The wrap scrolls if the
+       canvas grows beyond its viewport. Width/height are set on the <svg> element
+       at render time based on node bounds; defaults below are a sensible minimum. */
     .canvas-wrap svg {
       display: block;
-      min-width: 100%;
-      min-height: 100%;
     }
     .canvas-hint {
       position: absolute;
@@ -1302,40 +1437,84 @@
           Create one on the left, then drop in rule-set steps and connect them.
         </div>
         <div id="pipelineEditor" class="panel hidden" style="padding:0;overflow:hidden">
-          <div style="padding:14px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-            <input id="pipelineName" type="text" placeholder="Pipeline name"
-                   style="flex:1;min-width:180px;background:transparent;border:1px solid var(--border);color:var(--text);font-weight:700;font-size:1.05rem;padding:6px 10px;border-radius:6px"
+
+          <!-- Row 1: Pipeline name + delete -->
+          <div class="pipe-editor-title-row">
+            <input id="pipelineName" type="text" placeholder="Pipeline name" class="pipe-name-input"
                    onblur="onPipelineNameBlur()">
-            <input id="pipelineFilenameTpl" type="text" placeholder="{pipelineName}"
-                   title="Filename template — tokens: {pipelineName} {sourceFilename} {date} {time}"
-                   style="min-width:180px;background:var(--surface2);border:1px solid var(--border);color:var(--text);font-size:0.85rem;padding:6px 10px;border-radius:6px"
-                   onblur="onPipelineFilenameTplBlur()">
-            <button class="btn btn-small" onclick="deleteActivePipeline()">Delete</button>
+            <button class="btn btn-small btn-danger" onclick="deleteActivePipeline()">Delete</button>
           </div>
-          <div class="canvas-toolbar">
-            <strong style="font-size:0.82rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Add step</strong>
-            <select id="pipelineAddSelect">
-              <option value="">— Pick a rule set —</option>
-            </select>
-            <button class="btn btn-primary btn-small" onclick="addPipelineNode()">+ Add</button>
-            <span style="width:1px;height:24px;background:var(--border);margin:0 6px"></span>
-            <strong style="font-size:0.82rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px" title="Column mappings applied to the dropped CSV before any rule sets run">Mapping</strong>
-            <select id="pipelineMappingSelect" onchange="onPipelineMappingChange(this.value)"
-                    title="Pin a mapping set or leave on (active) to use whichever is currently active in Settings">
-              <option value="">(active)</option>
-            </select>
-            <span style="width:1px;height:24px;background:var(--border);margin:0 6px"></span>
-            <strong style="font-size:0.82rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px" title="Column preset applied to the final output — hides listed columns from the saved dataset">Filter</strong>
-            <select id="pipelineFilterSelect" onchange="onPipelineFilterChange(this.value)"
-                    title="Apply a saved column preset to drop columns from the saved output">
-              <option value="">— None —</option>
-            </select>
-            <span style="color:var(--muted);font-size:0.78rem;margin-left:auto">
-              Drag nodes · drag the right port to another node's left port to connect · click an arrow to delete it
-            </span>
+
+          <!-- Row 2: Section toolbar -->
+          <div class="pipe-section-toolbar">
+
+            <!-- MAPPING -->
+            <div class="pipe-tb-section">
+              <span class="pipe-tb-label" title="Column mappings applied to the dropped CSV before any rule sets run">🗺 Mapping</span>
+              <select id="pipelineMappingSelect" onchange="onPipelineMappingChange(this.value)"
+                      title="Pin a mapping set or leave on (active) to use whichever is currently active in Settings">
+                <option value="">(active)</option>
+              </select>
+            </div>
+
+            <div class="pipe-tb-sep"></div>
+
+            <!-- RULES -->
+            <div class="pipe-tb-section">
+              <span class="pipe-tb-label">📐 Rules</span>
+              <div style="display:flex;gap:6px;align-items:center">
+                <select id="pipelineAddSelect" style="min-width:150px">
+                  <option value="">— Pick a rule set —</option>
+                </select>
+                <button class="btn btn-primary btn-small" onclick="addPipelineNode()">+ Add</button>
+              </div>
+            </div>
+
+            <div class="pipe-tb-sep"></div>
+
+            <!-- ENRICH -->
+            <div class="pipe-tb-section">
+              <span class="pipe-tb-label" title="Auto-enrich players with profile data (avatar, display name) after rules run">✨ Enrich</span>
+              <label class="pipe-toggle">
+                <input type="checkbox" id="pipelineEnrichCheck" onchange="onPipelineEnrichChange(this.checked)">
+                <span class="pipe-toggle-track"></span>
+                <span class="pipe-toggle-label" id="pipelineEnrichLabel">Off</span>
+              </label>
+            </div>
+
+            <div class="pipe-tb-sep"></div>
+
+            <!-- COLUMN FILTER -->
+            <div class="pipe-tb-section">
+              <span class="pipe-tb-label" title="Column preset applied to the final output — hides listed columns from the saved dataset">🔍 Column Filter</span>
+              <select id="pipelineFilterSelect" onchange="onPipelineFilterChange(this.value)"
+                      title="Apply a saved column preset to drop columns from the saved output">
+                <option value="">— None —</option>
+              </select>
+            </div>
+
+            <div class="pipe-tb-sep"></div>
+
+            <!-- NAME CONVENTION -->
+            <div class="pipe-tb-section pipe-tb-name">
+              <span class="pipe-tb-label" title="Template for the output dataset name. Click tokens to insert.">🏷 Name Convention</span>
+              <input id="pipelineFilenameTpl" type="text" placeholder="{dropZoneName}-{iteration}"
+                     onblur="onPipelineFilenameTplBlur()">
+              <div class="pipe-token-row">
+                <span class="pipe-token-hint">Insert:</span>
+                <button class="pipe-token-chip" onclick="insertTplToken('{pipelineName}')">{pipelineName}</button>
+                <button class="pipe-token-chip" onclick="insertTplToken('{dropZoneName}')">{dropZoneName}</button>
+                <button class="pipe-token-chip" onclick="insertTplToken('{iteration}')">{iteration}</button>
+                <button class="pipe-token-chip" onclick="insertTplToken('{date}')">{date}</button>
+                <button class="pipe-token-chip" onclick="insertTplToken('{time}')">{time}</button>
+                <button class="pipe-token-chip" onclick="insertTplToken('{sourceFilename}')">{sourceFilename}</button>
+              </div>
+            </div>
+
+            <span class="pipe-tb-hint">Grab handle to drag cards · right port → left port to connect · click arrow to delete</span>
           </div>
           <div class="canvas-wrap" id="pipelineCanvasWrap">
-            <svg id="pipelineCanvas" viewBox="0 0 2000 1000" preserveAspectRatio="xMinYMin meet">
+            <svg id="pipelineCanvas" width="1600" height="900" viewBox="0 0 1600 900">
               <defs>
                 <marker id="pipelineArrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
                   <path d="M0,0 L10,5 L0,10 z" fill="var(--gold)"></path>
@@ -2725,13 +2904,43 @@ function renderPipelines() {
 }
 
 function renderPipelineEditor(p) {
-  const nameEl = document.getElementById('pipelineName');
-  const tplEl  = document.getElementById('pipelineFilenameTpl');
-  if (nameEl && document.activeElement !== nameEl) nameEl.value = p.name || '';
-  if (tplEl  && document.activeElement !== tplEl)  tplEl.value  = p.filenameTemplate || '';
+  const nameEl    = document.getElementById('pipelineName');
+  const tplEl     = document.getElementById('pipelineFilenameTpl');
+  const enrichEl  = document.getElementById('pipelineEnrichCheck');
+  const enrichLbl = document.getElementById('pipelineEnrichLabel');
+  if (nameEl   && document.activeElement !== nameEl)   nameEl.value    = p.name || '';
+  if (tplEl    && document.activeElement !== tplEl)    tplEl.value     = p.filenameTemplate || '';
+  if (enrichEl) {
+    enrichEl.checked = !!p.enrichAfterRun;
+    if (enrichLbl) enrichLbl.textContent = enrichEl.checked ? 'On' : 'Off';
+  }
   renderPipelineMappingSelect();
   renderPipelineFilterSelect();
   renderPipelineCanvas();
+}
+
+// Enrich toggle
+function onPipelineEnrichChange(checked) {
+  if (!activePipeline) return;
+  activePipeline.enrichAfterRun = checked;
+  const lbl = document.getElementById('pipelineEnrichLabel');
+  if (lbl) lbl.textContent = checked ? 'On' : 'Off';
+  queuePipelineSave();
+}
+
+// Insert a template token at the cursor position in the filename template input
+function insertTplToken(token) {
+  const inp = document.getElementById('pipelineFilenameTpl');
+  if (!inp) return;
+  const start = inp.selectionStart;
+  const end   = inp.selectionEnd;
+  inp.value = inp.value.slice(0, start) + token + inp.value.slice(end);
+  inp.focus();
+  inp.setSelectionRange(start + token.length, start + token.length);
+  if (activePipeline) {
+    activePipeline.filenameTemplate = inp.value;
+    queuePipelineSave();
+  }
 }
 
 // Populate the toolbar's filter dropdown — column presets that, when picked,
@@ -2894,10 +3103,11 @@ function renderPipelineCanvas() {
     return `
       <foreignObject x="${x}" y="${y}" width="${PIPE_NODE_W}" height="${PIPE_NODE_H}"
         data-node-id="${esc(n.id)}" style="overflow:visible">
-        <div xmlns="http://www.w3.org/1999/xhtml" class="pipe-node" data-node-id="${esc(n.id)}"
-             onmousedown="onPipeNodeMouseDown(event, '${esc(n.id)}')">
+        <div xmlns="http://www.w3.org/1999/xhtml" class="pipe-node" data-node-id="${esc(n.id)}">
+          <div class="pipe-node-grip" onmousedown="onPipeNodeMouseDown(event, '${esc(n.id)}')">⠿ ⠿ ⠿</div>
           <div class="pipe-node-head">
             <span class="pipe-node-step">${stepIndex[n.id] || '·'}</span>
+            <span class="pipe-node-type-lozenge">RULES</span>
             <span class="pipe-node-name" title="${esc(label)}">${esc(label)}</span>
           </div>
           <div class="pipe-node-meta">${ruleCount} rule${ruleCount === 1 ? '' : 's'}</div>
@@ -2907,8 +3117,10 @@ function renderPipelineCanvas() {
         </div>
       </foreignObject>
       <circle class="pipe-port pipe-port-in" cx="${x}" cy="${y + PIPE_NODE_H/2}" r="7"
+              data-port-node="${esc(n.id)}" data-port-side="in"
               onmouseup="onPipePortMouseUp(event, '${esc(n.id)}', 'in')"></circle>
       <circle class="pipe-port pipe-port-out" cx="${x + PIPE_NODE_W}" cy="${y + PIPE_NODE_H/2}" r="7"
+              data-port-node="${esc(n.id)}" data-port-side="out"
               onmousedown="onPipePortMouseDown(event, '${esc(n.id)}')"></circle>
     `;
   }).join('');
@@ -2917,6 +3129,37 @@ function renderPipelineCanvas() {
     renderMappingBookend(mappingX, mappingY, mappingName, mappingCount, mappingPinned)
     + ruleSetNodes
     + (filterPreset ? renderFilterBookend(filterX, filterY, filterPreset) : '');
+
+  resizePipelineCanvas();
+}
+
+// Resize the SVG to encompass all rendered nodes (including bookends) plus a
+// margin. The wrap scrolls if the canvas exceeds the visible area. Without this,
+// nodes placed past x=1600 / y=900 would be clipped — and on a wide screen the
+// canvas would feel cramped because we're now using natural-pixel units.
+function resizePipelineCanvas() {
+  const svg = document.getElementById('pipelineCanvas');
+  const wrap = document.getElementById('pipelineCanvasWrap');
+  if (!svg || !wrap) return;
+  const p = activePipeline;
+  const nodes = (p && Array.isArray(p.nodes)) ? p.nodes : [];
+
+  // Start with the visible wrap size as a floor so the canvas always fills the
+  // viewport even when there's only one tiny node.
+  let maxX = wrap.clientWidth  || 1200;
+  let maxY = wrap.clientHeight || 600;
+  for (const n of nodes) {
+    maxX = Math.max(maxX, (n.x || 0) + PIPE_NODE_W);
+    maxY = Math.max(maxY, (n.y || 0) + PIPE_NODE_H);
+  }
+  // Bookends extend left of x=0 in some layouts; the renderer already clamps
+  // mappingX to a minimum of 20 so we just need horizontal padding here.
+  maxX += 60;
+  maxY += 60;
+
+  svg.setAttribute('width',  String(maxX));
+  svg.setAttribute('height', String(maxY));
+  svg.setAttribute('viewBox', `0 0 ${maxX} ${maxY}`);
 }
 
 // Static "Mapping" card pinned to the start of the canvas. Shows what
@@ -3058,6 +3301,7 @@ async function savePipelineNow() {
   const body = {
     name: activePipeline.name,
     filenameTemplate: activePipeline.filenameTemplate,
+    enrichAfterRun: !!activePipeline.enrichAfterRun,
     nodes: activePipeline.nodes || [],
     edges: activePipeline.edges || [],
   };
@@ -3177,6 +3421,44 @@ function clearGhostEdge() {
   if (g) g.innerHTML = '';
 }
 
+// Smooth drag: move the card's DOM elements directly without a full re-render.
+// Edges are redrawn separately. Full re-render happens only on mouseup.
+function movePipeNodeDOM(nodeId, x, y) {
+  const nodesG = document.getElementById('pipelineNodes');
+  if (!nodesG) return;
+  const fo = nodesG.querySelector(`foreignObject[data-node-id="${nodeId}"]`);
+  if (fo) { fo.setAttribute('x', x); fo.setAttribute('y', y); }
+  const portIn = nodesG.querySelector(`circle[data-port-node="${nodeId}"][data-port-side="in"]`);
+  if (portIn) { portIn.setAttribute('cx', x); portIn.setAttribute('cy', y + PIPE_NODE_H / 2); }
+  const portOut = nodesG.querySelector(`circle[data-port-node="${nodeId}"][data-port-side="out"]`);
+  if (portOut) { portOut.setAttribute('cx', x + PIPE_NODE_W); portOut.setAttribute('cy', y + PIPE_NODE_H / 2); }
+  redrawEdgesOnly();
+}
+
+// Redraw only the rule-set → rule-set edges during drag (fast path; bookend phantoms stay put).
+function redrawEdgesOnly() {
+  const p = activePipeline;
+  if (!p) return;
+  const nodes = Array.isArray(p.nodes) ? p.nodes : [];
+  const edges = Array.isArray(p.edges) ? p.edges : [];
+  const edgesG = document.getElementById('pipelineEdges');
+  if (!edgesG) return;
+  const realEdges = edges.map(e => {
+    const from = nodes.find(n => n.id === e.from);
+    const to   = nodes.find(n => n.id === e.to);
+    if (!from || !to) return '';
+    const x1 = (from.x || 0) + PIPE_NODE_W;
+    const y1 = (from.y || 0) + PIPE_NODE_H / 2;
+    const x2 = (to.x || 0);
+    const y2 = (to.y || 0) + PIPE_NODE_H / 2;
+    const dx = Math.max(40, Math.abs(x2 - x1) * 0.45);
+    const d  = `M${x1},${y1} C${x1 + dx},${y1} ${x2 - dx},${y2} ${x2},${y2}`;
+    return `<path class="pipe-edge" d="${d}" marker-end="url(#pipelineArrow)"
+              onclick="deletePipelineEdge('${esc(e.id)}')"></path>`;
+  }).join('');
+  edgesG.innerHTML = realEdges;
+}
+
 document.addEventListener('mousemove', (evt) => {
   if (_pipeDrag && activePipeline) {
     const node = (activePipeline.nodes || []).find(n => n.id === _pipeDrag.id);
@@ -3184,7 +3466,7 @@ document.addEventListener('mousemove', (evt) => {
       const pt = pipeCanvasPoint(evt);
       node.x = Math.max(0, pt.x - _pipeDrag.dx);
       node.y = Math.max(0, pt.y - _pipeDrag.dy);
-      renderPipelineCanvas();
+      movePipeNodeDOM(_pipeDrag.id, node.x, node.y); // smooth — no full re-render
     }
   }
   if (_pipeConnect && activePipeline) {
@@ -3203,6 +3485,7 @@ document.addEventListener('mousemove', (evt) => {
 document.addEventListener('mouseup', () => {
   if (_pipeDrag) {
     _pipeDrag = null;
+    renderPipelineCanvas(); // full re-render on drop to restore bookend phantoms & resize
     queuePipelineSave();
   }
   if (_pipeConnect) {
@@ -3276,6 +3559,10 @@ function renderDropZoneCard(dz) {
     `<option value="${esc(p.id)}" ${p.id === dz.pipelineId ? 'selected' : ''}>${esc(p.name)}</option>`
   ).join('');
   const noPipelines = !pipelines.length;
+  // Show the next iteration number so designers know what {iteration} will resolve
+  // to on the next drop. Padded to match the 3-digit filename rendering.
+  const runCount = Number.isFinite(Number(dz.runCount)) ? Number(dz.runCount) : 0;
+  const nextIter = String(runCount + 1).padStart(3, '0');
   return `
     <div class="dz-card" data-dz-id="${esc(dz.id)}">
       <div class="dz-card-head">
@@ -3294,11 +3581,33 @@ function renderDropZoneCard(dz) {
                onchange="if(this.files[0]) runDropZone('${esc(dz.id)}', this.files[0]); this.value='';">
       </div>
       <div class="dz-card-status ${status.kind}">${esc(status.text)}</div>
+      <div class="dz-card-meta" style="font-size:0.78rem;color:var(--muted);display:flex;gap:8px;align-items:center;justify-content:space-between">
+        <span title="The next drop will be saved as iteration #${nextIter}">Next iteration: <strong>${nextIter}</strong></span>
+        <button class="btn btn-small" style="font-size:0.75rem;padding:2px 8px"
+                onclick="resetDropZoneIteration('${esc(dz.id)}')"
+                title="Reset {iteration} back to 001">Reset</button>
+      </div>
       <div class="dz-card-actions">
         <button class="btn btn-small" onclick="deleteDropZone('${esc(dz.id)}')">Delete</button>
       </div>
     </div>
   `;
+}
+
+async function resetDropZoneIteration(id) {
+  try {
+    const res = await fetch(`/api/dropzones/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ runCount: 0 }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    await loadDropzones();
+    renderDropzones();
+    banner('Iteration counter reset to 001', 'success');
+  } catch (err) {
+    banner(`Reset failed: ${err.message}`, 'error');
+  }
 }
 
 async function createDropZone() {
@@ -3365,6 +3674,9 @@ async function runDropZone(id, file) {
   try {
     const fd = new FormData();
     fd.append('file', file);
+    // Send the drop-zone id so the runner can bump the iteration counter and
+    // expose {dropZoneName} / {iteration} to the filename template.
+    fd.append('dropZoneId', id);
     const res = await fetch(`/api/pipelines/${dz.pipelineId}/run`, { method: 'POST', body: fd });
     const j = await res.json();
     if (!res.ok || !j.ok) {
@@ -3372,6 +3684,9 @@ async function runDropZone(id, file) {
     }
     const ds = j.dataset || {};
     setDropZoneStatus(id, 'ok', `✓ Saved ${ds.label || ds.filename || 'dataset'} · ${fmtNumber(ds.rowCount || 0)} rows`);
+    // Reload drop zones so the bumped runCount appears in the card subtitle.
+    await loadDropzones();
+    renderDropzones();
     await loadDatasets();
     renderDatasets();
     renderStats();

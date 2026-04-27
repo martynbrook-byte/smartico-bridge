@@ -2,7 +2,7 @@
   "mappingSets": [
     {
       "id": "ms_default",
-      "name": "Default",
+      "name": "PID + Prize",
       "mappings": {
         "prize_name": "prize",
         "user_id": "PID"
@@ -195,5 +195,49 @@
     "pidColumn": "PID",
     "batchSize": 1000
   },
-  "columnPresets": []
+  "columnPresets": [
+    {
+      "id": "cp_321e380b",
+      "name": "PID/PRIZE REMAP",
+      "hidden": [
+        "saw_template_id",
+        "spin_id",
+        "create_date",
+        "prize_amount",
+        "buyin_cost_points",
+        "saw_prize_note",
+        "label_id",
+        "saw_prize_id",
+        "crm_brand_id",
+        "user_ext_id",
+        "public_username",
+        "pnet_customer_code",
+        "acknowledge_date",
+        "lose_date",
+        "win_date",
+        "is_loss",
+        "template_name",
+        "saw_template_ui_name",
+        "saw_game_type_id",
+        "saw_buyin_type_id",
+        "jackpot_symbol",
+        "saw_game_name",
+        "price_description",
+        "saw_skin_name",
+        "saw_buyin_type_name",
+        "prize_details_json.ui_amount",
+        "prize_details_json.ignore_bonus_cap",
+        "prize_details_json.label_bonus_template_id",
+        "prize_type_name",
+        "ext_brand_id",
+        "crm_brand_name",
+        "profile_name",
+        "avatar",
+        "avatar_image",
+        "phone",
+        "prize_value",
+        "prize_value_display"
+      ]
+    }
+  ]
 }

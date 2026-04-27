@@ -7,8 +7,9 @@ node_modules/
 # Uploaded CSV files (transient)
 uploads/
 
-# Persisted datasets — these live on the Railway volume, not in git.
-# Keep the folder structure but not the data files.
+# Persisted data — all of this lives on the Railway volume, not in git.
+# Keep folder structure via .gitkeep files, but never commit live data.
+data/settings.json
 data/datasets/*.json
 data/pipelines/*.json
 data/dropzones/*.json

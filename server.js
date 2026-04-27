@@ -1926,7 +1926,7 @@ app.post('/api/pipelines/:id/run', upload.single('file'), async (req, res) => {
     // 1. Parse the dropped CSV and apply column mappings.
     const parsed       = await parseCsv(req.file.path);
     const mappedRows   = applyColumnMappings(parsed.rows, runMappings);
-    const mappedHeaders = mappedRows.length
+    let mappedHeaders = mappedRows.length
       ? Object.keys(mappedRows[0])
       : parsed.headers.map(h => runMappings[h] || h);
 
@@ -1934,9 +1934,11 @@ app.post('/api/pipelines/:id/run', upload.single('file'), async (req, res) => {
     //     This gives rule sets access to avatar_image, display_name, phone etc.
     let enrichResult = null;
     if (pipeline.enrichAfterRun) {
-      const tempRecord = { rows: mappedRows };
+      const tempRecord = { rows: mappedRows, headers: mappedHeaders };
       enrichResult = await enrichDataset(tempRecord, settings);
-      // enrichDataset mutates tempRecord.rows in place
+      // enrichDataset mutates tempRecord.rows in place AND updates tempRecord.headers
+      // to include enriched columns (profile_name, avatar, avatar_image, phone).
+      mappedHeaders = tempRecord.headers;
     }
 
     // 2. Order the pipeline nodes — bail out cleanly on cycles or unknown rule sets.

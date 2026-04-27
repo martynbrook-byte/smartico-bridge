@@ -61,7 +61,7 @@
   .ds-chip.proc { background: #14b8a615; color: var(--teal); border: 1px solid #14b8a633; }
 
   /* Preview table */
-  .tbl-wrap { overflow: auto; border: 1px solid var(--border); border-radius: var(--radius); max-height: 140px; }
+  .tbl-wrap { overflow: auto; border: 1px solid var(--border); border-radius: var(--radius); max-height: 160px; }
   .tbl-wrap::-webkit-scrollbar { height: 4px; width: 4px; }
   .tbl-wrap::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
   table { width: 100%; border-collapse: collapse; font-size: 10px; }
@@ -71,6 +71,11 @@
   td { padding: 3px 7px; border-bottom: 1px solid #1e293b;
        max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .av-thumb { width: 18px; height: 18px; border-radius: 50%; object-fit: cover; vertical-align: middle; }
+  /* Clickable data rows */
+  tbody tr { cursor: pointer; transition: background .1s; }
+  tbody tr:hover { background: rgba(245,200,66,0.06); }
+  tbody tr.row-sel { background: rgba(245,200,66,0.13); }
+  tbody tr.row-sel td:first-child { box-shadow: inset 2px 0 0 var(--gold); }
 
   /* Selection box */
   .sel-box { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
@@ -147,6 +152,63 @@
   }
   .proc-label { font-size: 12px; color: var(--text); font-weight: 600; }
   .proc-sub   { font-size: 10px; color: var(--muted); }
+
+  /* Bind layer panel */
+  .bind-panel {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 8px 10px;
+    display: flex; flex-direction: column; gap: 7px;
+  }
+  .bind-hint { font-size: 10px; color: var(--muted); text-align: center; padding: 4px 0; }
+  .bind-sel-row {
+    display: flex; align-items: center; gap: 6px;
+    background: var(--surface2); border-radius: 4px; padding: 4px 8px;
+  }
+  .bind-sel-row-label { font-size: 10px; color: var(--muted); flex-shrink: 0; }
+  .bind-sel-row-val   { font-size: 11px; color: var(--gold); font-weight: 600; flex: 1; }
+  /* Column chips */
+  .bind-cols { display: flex; flex-wrap: wrap; gap: 4px; max-height: 80px; overflow-y: auto; }
+  .bind-col-chip {
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 4px; padding: 2px 7px; font-size: 10px;
+    cursor: pointer; transition: all .12s; white-space: nowrap;
+  }
+  .bind-col-chip:hover  { border-color: var(--teal); color: var(--teal); }
+  .bind-col-chip.active { border-color: var(--teal); background: #14b8a620; color: var(--teal); }
+  .bind-preview {
+    font-family: monospace; font-size: 11px; color: var(--teal);
+    background: #14b8a610; border: 1px solid #14b8a630;
+    border-radius: 4px; padding: 3px 8px; text-align: center;
+  }
+  .bind-preview.empty { color: var(--muted); background: none; border-color: transparent; }
+  .btn-bind { background: var(--teal); border-color: var(--teal); color: #0f1a1a;
+              font-weight: 700; width: 100%; padding: 6px; font-size: 11px; }
+  .btn-bind:hover:not(:disabled) { background: #2dd4bf; border-color: #2dd4bf; color: #0f1a1a; }
+  .btn-bind:disabled { opacity: .45; }
+  .bind-ok { font-size: 10px; color: var(--teal); text-align: center; display: none; }
+
+  /* Upload CSV section */
+  .upload-toggle { font-size: 10px; color: var(--muted); background: none; border: none;
+                   cursor: pointer; padding: 0; font-family: var(--font);
+                   display: flex; align-items: center; gap: 4px; align-self: flex-start; }
+  .upload-toggle:hover { color: var(--gold); }
+  .upload-panel { display: none; flex-direction: column; gap: 7px;
+                  background: var(--surface); border: 1px solid var(--border);
+                  border-radius: var(--radius); padding: 9px 10px; }
+  .upload-panel.open { display: flex; }
+  .upload-drop {
+    border: 2px dashed var(--border); border-radius: var(--radius);
+    padding: 16px 10px; text-align: center; cursor: pointer; transition: all .15s;
+    color: var(--muted); font-size: 11px; line-height: 1.6;
+  }
+  .upload-drop:hover, .upload-drop.over { border-color: var(--gold); color: var(--gold); background: #f5a62308; }
+  .upload-drop.busy { border-color: var(--teal); color: var(--teal); background: #14b8a608; cursor: default; }
+  .upload-progress { font-size: 10px; color: var(--teal); display: none; text-align: center; }
+  .upload-progress.active { display: block; }
+  .upload-ok { font-size: 10px; color: var(--teal); display: none; text-align: center; }
+  .upload-ok.active { display: block; }
+  .upload-err { font-size: 10px; color: var(--red); display: none; }
+  .upload-err.active { display: block; }
 </style>
 </head>
 <body>
@@ -180,6 +242,30 @@
     <div id="dsList"><div class="empty">Connecting…</div></div>
   </div>
 
+  <!-- Upload CSV via plugin -->
+  <div class="section" id="uploadSection">
+    <button class="upload-toggle" onclick="toggleUpload()">▸ Upload CSV to pipeline</button>
+    <div class="upload-panel" id="uploadPanel">
+      <div>
+        <label>Pipeline</label>
+        <select id="uploadPipelineSel" style="margin-top:2px">
+          <option value="">Loading…</option>
+        </select>
+      </div>
+      <div class="upload-drop" id="uploadDrop"
+           onclick="document.getElementById('uploadFileInput').click()"
+           ondragover="onUploadDragOver(event)"
+           ondragleave="onUploadDragLeave(event)"
+           ondrop="onUploadDrop(event)">
+        📂 Drop a CSV here or click to browse
+      </div>
+      <input type="file" id="uploadFileInput" accept=".csv,text/csv" style="display:none" onchange="onUploadFileChange(event)">
+      <div class="upload-progress" id="uploadProgress">⟳ Processing…</div>
+      <div class="upload-ok" id="uploadOk"></div>
+      <div class="upload-err" id="uploadErr"></div>
+    </div>
+  </div>
+
   <!-- Preview -->
   <div class="section" id="previewSection" style="display:none">
     <span class="section-title">Data preview</span>
@@ -191,6 +277,26 @@
     <span class="section-title">Figma selection</span>
     <div class="sel-box none" id="selBox">
       <span id="selLabel">Nothing selected</span>
+    </div>
+  </div>
+
+  <!-- Bind layer — shown when exactly one Figma element is selected + dataset loaded -->
+  <div class="section" id="bindSection" style="display:none">
+    <span class="section-title">Bind layer to data</span>
+    <div class="bind-panel">
+      <div class="bind-hint" id="bindHint">← Click a row in the data preview above</div>
+      <div id="bindRowInfo" style="display:none">
+        <div class="bind-sel-row">
+          <span class="bind-sel-row-label">Row</span>
+          <span class="bind-sel-row-val" id="bindRowVal">—</span>
+          <span class="bind-sel-row-label" id="bindRowSrc" style="font-size:9px"></span>
+        </div>
+        <div style="font-size:10px;color:var(--muted);margin:5px 0 3px">Pick a column to bind:</div>
+        <div class="bind-cols" id="bindCols"></div>
+        <div class="bind-preview empty" id="bindPreview">#column.row</div>
+        <button class="btn btn-bind" id="bindBtn" onclick="bindLayer()" disabled>Rename Layer</button>
+        <div class="bind-ok" id="bindOk"></div>
+      </div>
     </div>
   </div>
 
@@ -395,6 +501,7 @@ async function selectDataset(id) {
     hideBanner();
     scannedRefs = [];
     renderRefList();
+    refreshBindSection();
   } catch (e) {
     showBanner('Load failed: ' + e.message, 'err');
   }
@@ -413,18 +520,18 @@ function renderPreview() {
 
   var thead = '<tr>' + cols.map(function(c){ return '<th title="' + esc(c) + '">' + esc(trunc(c,12)) + '</th>'; }).join('') + '</tr>';
   var tbody = rows.map(function(row, i) {
-    return '<tr>' + cols.map(function(c) {
-      var v = row[c] !== undefined && row[c] !== null ? String(row[c]) : '';
-      // Only AVATAR_IMAGE (or any *_image column) renders as an image. AVATAR
-      // is treated as a URL column so designers can bind it to e.g. a link or
-      // copy the raw URL.
-      var lc = String(c).toLowerCase();
-      var isImgCol = (lc === 'avatar_image' || lc === 'image' || lc.slice(-6) === '_image');
-      if (isImgCol && v.indexOf('http') === 0) {
-        return '<td><img class="av-thumb" src="' + esc(v) + '" loading="lazy" onerror="this.style.display=\'none\'"></td>';
-      }
-      return '<td title="' + esc(v) + '">' + esc(trunc(v, 16)) + '</td>';
-    }).join('') + '</tr>';
+    var rowNum = i + 1; // 1-based
+    var selCls = (bindRowSource === 'data' && bindRowIndex === rowNum) ? ' row-sel' : '';
+    return '<tr class="' + selCls + '" data-bind-src="data" data-bind-row="' + rowNum + '" onclick="selectBindRow(\'data\',' + rowNum + ')">' +
+      cols.map(function(c) {
+        var v = row[c] !== undefined && row[c] !== null ? String(row[c]) : '';
+        var lc = String(c).toLowerCase();
+        var isImgCol = (lc === 'avatar_image' || lc === 'image' || lc.slice(-6) === '_image');
+        if (isImgCol && v.indexOf('http') === 0) {
+          return '<td><img class="av-thumb" src="' + esc(v) + '" loading="lazy" onerror="this.style.display=\'none\'"></td>';
+        }
+        return '<td title="' + esc(v) + '">' + esc(trunc(v, 16)) + '</td>';
+      }).join('') + '</tr>';
   }).join('');
 
   // Rule totals — RULE/TOTALS companion table saved with processed datasets.
@@ -433,10 +540,13 @@ function renderPreview() {
   var ruleTableHtml = '';
   var rt = activeDataset.ruleTable;
   if (Array.isArray(rt) && rt.length) {
-    var rtBody = rt.map(function(r){
+    var rtBody = rt.map(function(r, ri){
+      var rowNum = ri + 1;
       var rv = (r && r.RULE !== undefined && r.RULE !== null) ? String(r.RULE) : '';
       var tv = (r && r.TOTALS !== undefined && r.TOTALS !== null) ? String(r.TOTALS) : '';
-      return '<tr><td title="' + esc(rv) + '">' + esc(trunc(rv, 24)) + '</td>' +
+      var selCls = (bindRowSource === 'rules' && bindRowIndex === rowNum) ? ' row-sel' : '';
+      return '<tr class="' + selCls + '" data-bind-src="rules" data-bind-row="' + rowNum + '" onclick="selectBindRow(\'rules\',' + rowNum + ')">' +
+             '<td title="' + esc(rv) + '">' + esc(trunc(rv, 24)) + '</td>' +
              '<td style="text-align:right;font-variant-numeric:tabular-nums" title="' + esc(tv) + '">' + esc(trunc(tv, 14)) + '</td></tr>';
     }).join('');
     ruleTableHtml =
@@ -466,6 +576,7 @@ function updateSelBox() {
       (figmaSel.length > 1 ? ' <span style="color:var(--muted)">+ ' + (figmaSel.length-1) + ' more</span>' :
        ' <span style="color:var(--muted)">' + n.type + (n.childCount ? ' · ' + n.childCount + ' children' : '') + '</span>');
   }
+  refreshBindSection();
 }
 
 // ── Refs ──────────────────────────────────────────────────────────────────────
@@ -699,6 +810,20 @@ window.onmessage = function(event) {
     return;
   }
 
+  if (msg.type === 'rename-result') {
+    var btn2 = document.getElementById('bindBtn');
+    if (btn2) btn2.disabled = false;
+    if (msg.ok) {
+      if (figmaSel.length) figmaSel[0].name = msg.newName;
+      updateSelBox();
+      var okEl = document.getElementById('bindOk');
+      if (okEl) { okEl.textContent = '✓ Renamed to ' + msg.newName; okEl.style.display = 'block'; }
+    } else {
+      showBanner('Rename failed: ' + (msg.error || 'unknown error'), 'err');
+    }
+    return;
+  }
+
   if (msg.type === 'inject-result') {
     var btn = document.getElementById('injectBtn');
     btn.disabled = false;
@@ -710,6 +835,225 @@ window.onmessage = function(event) {
     showBanner(txt, errs ? 'info' : 'ok');
   }
 };
+
+// ── Bind layer ────────────────────────────────────────────────────────────────
+// State: which row is selected in the preview table
+var bindRowIndex  = null;  // 1-based index into activeDataset.rows (or ruleTable)
+var bindRowSource = null;  // 'data' | 'rules'
+var bindColName   = null;  // currently selected column name / key
+
+function refreshBindSection() {
+  var canBind = (figmaSel.length === 1 && activeDataset && (activeDataset.headers || []).length > 0);
+  show('bindSection', canBind);
+  document.getElementById('bindOk').style.display = 'none';
+  if (!canBind) return;
+  renderBindRowPanel();
+}
+
+// Called when the user clicks a data row or rule row in the preview table.
+// source: 'data' | 'rules'   rowIdx: 1-based
+function selectBindRow(source, rowIdx) {
+  bindRowIndex  = rowIdx;
+  bindRowSource = source;
+  bindColName   = null;
+
+  // Highlight the clicked row and clear the other table
+  document.querySelectorAll('tbody tr').forEach(function(tr) { tr.classList.remove('row-sel'); });
+  var sel = document.querySelector('tr[data-bind-src="' + source + '"][data-bind-row="' + rowIdx + '"]');
+  if (sel) sel.classList.add('row-sel');
+
+  refreshBindSection();
+  // Scroll bind section into view smoothly
+  var bsec = document.getElementById('bindSection');
+  if (bsec) bsec.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function renderBindRowPanel() {
+  var hint    = document.getElementById('bindHint');
+  var rowInfo = document.getElementById('bindRowInfo');
+
+  if (bindRowIndex === null) {
+    hint.style.display    = '';
+    rowInfo.style.display = 'none';
+    return;
+  }
+  hint.style.display    = 'none';
+  rowInfo.style.display = '';
+
+  // Row label
+  document.getElementById('bindRowVal').textContent = 'Row ' + bindRowIndex;
+  document.getElementById('bindRowSrc').textContent = bindRowSource === 'rules' ? 'rule data' : 'winners data';
+
+  // Build column chips
+  var chips = '';
+  if (bindRowSource === 'rules') {
+    // Rule table has two columns: RULE and TOTALS
+    var rt  = (activeDataset && activeDataset.ruleTable) ? activeDataset.ruleTable : [];
+    var rRow = rt[bindRowIndex - 1] || {};
+    ['RULE', 'TOTALS'].forEach(function(col) {
+      var val  = rRow[col] !== undefined ? String(rRow[col]) : '—';
+      var active = col === bindColName ? ' active' : '';
+      chips += '<span class="bind-col-chip' + active + '" onclick="selectBindCol(\'' + col + '\')">' +
+               col.toLowerCase() + ' <span style="color:var(--muted)">→ ' + esc(trunc(val, 14)) + '</span></span>';
+    });
+  } else {
+    var rows    = (activeDataset && activeDataset.rows)    ? activeDataset.rows    : [];
+    var headers = (activeDataset && activeDataset.headers) ? activeDataset.headers : [];
+    var dRow    = rows[bindRowIndex - 1] || {};
+    headers.forEach(function(h) {
+      var val  = dRow[h] !== undefined ? String(dRow[h]) : '—';
+      var active = h === bindColName ? ' active' : '';
+      chips += '<span class="bind-col-chip' + active + '" onclick="selectBindCol(\'' + jsEsc(h) + '\')">' +
+               esc(h) + ' <span style="color:var(--muted)">→ ' + esc(trunc(val, 14)) + '</span></span>';
+    });
+  }
+  document.getElementById('bindCols').innerHTML = chips;
+  updateBindPreview();
+}
+
+function selectBindCol(colName) {
+  bindColName = colName;
+  // Update chip highlights without full re-render
+  document.querySelectorAll('.bind-col-chip').forEach(function(c) { c.classList.remove('active'); });
+  var active = document.querySelector('.bind-col-chip[onclick*="\'' + jsEsc(colName) + '\'"]');
+  if (active) active.classList.add('active');
+  updateBindPreview();
+  // Immediately rename the selected Figma layer — no second button click needed.
+  if (figmaSel.length && bindRowIndex !== null) bindLayer();
+}
+
+function updateBindPreview() {
+  var prev = document.getElementById('bindPreview');
+  var btn  = document.getElementById('bindBtn');
+  if (!prev) return;
+
+  if (!bindColName || bindRowIndex === null) {
+    prev.textContent = '#column.row';
+    prev.className   = 'bind-preview empty';
+    if (btn) btn.disabled = true;
+    return;
+  }
+
+  var safeName = bindColName.toLowerCase().replace(/\s+/g, '_');
+  var name = '#' + safeName + '.' + bindRowIndex;
+  prev.textContent = name;
+  prev.className   = 'bind-preview';
+  if (btn) btn.disabled = false;
+}
+
+function bindLayer() {
+  if (!figmaSel.length || bindColName === null || bindRowIndex === null) return;
+  var safeName = bindColName.toLowerCase().replace(/\s+/g, '_');
+  var newName  = '#' + safeName + '.' + bindRowIndex;
+  document.getElementById('bindBtn').disabled = true;
+  parent.postMessage({ pluginMessage: { type: 'rename-node', nodeId: figmaSel[0].id, newName: newName } }, '*');
+}
+
+// ── Upload CSV ────────────────────────────────────────────────────────────────
+var uploadPanelOpen = false;
+var uploadPipelines = [];
+
+function toggleUpload() {
+  uploadPanelOpen = !uploadPanelOpen;
+  var panel = document.getElementById('uploadPanel');
+  var btn   = document.querySelector('.upload-toggle');
+  panel.classList.toggle('open', uploadPanelOpen);
+  if (btn) btn.textContent = (uploadPanelOpen ? '▾' : '▸') + ' Upload CSV to pipeline';
+  if (uploadPanelOpen && !uploadPipelines.length) loadUploadPipelines();
+}
+
+async function loadUploadPipelines() {
+  var sel = document.getElementById('uploadPipelineSel');
+  try {
+    var j = await api('/api/pipelines');
+    uploadPipelines = (j.pipelines || []).filter(function(p) { return !p.archived; });
+    if (!uploadPipelines.length) {
+      sel.innerHTML = '<option value="">No pipelines found</option>';
+      return;
+    }
+    sel.innerHTML = uploadPipelines.map(function(p) {
+      return '<option value="' + esc(p.id) + '">' + esc(p.name) + '</option>';
+    }).join('');
+  } catch (e) {
+    sel.innerHTML = '<option value="">Could not load pipelines</option>';
+  }
+}
+
+function onUploadDragOver(evt) {
+  evt.preventDefault();
+  document.getElementById('uploadDrop').classList.add('over');
+}
+function onUploadDragLeave(evt) {
+  document.getElementById('uploadDrop').classList.remove('over');
+}
+function onUploadDrop(evt) {
+  evt.preventDefault();
+  document.getElementById('uploadDrop').classList.remove('over');
+  var files = evt.dataTransfer && evt.dataTransfer.files;
+  if (files && files.length) runUpload(files[0]);
+}
+function onUploadFileChange(evt) {
+  var files = evt.target.files;
+  if (files && files.length) runUpload(files[0]);
+  // Reset so the same file can be re-uploaded if needed
+  evt.target.value = '';
+}
+
+async function runUpload(file) {
+  var pipelineId = document.getElementById('uploadPipelineSel').value;
+  if (!pipelineId) {
+    setUploadErr('Select a pipeline first.'); return;
+  }
+  if (!file.name.match(/\.csv$/i)) {
+    setUploadErr('Please select a .csv file.'); return;
+  }
+
+  var drop = document.getElementById('uploadDrop');
+  var prog = document.getElementById('uploadProgress');
+  var okEl = document.getElementById('uploadOk');
+  var errEl = document.getElementById('uploadErr');
+
+  drop.classList.add('busy');
+  drop.textContent = '⟳ Uploading ' + file.name + '…';
+  prog.classList.add('active');
+  okEl.classList.remove('active');
+  errEl.classList.remove('active');
+
+  try {
+    var form = new FormData();
+    form.append('csv', file);
+
+    var res = await fetch(serverUrl + '/api/pipelines/' + encodeURIComponent(pipelineId) + '/run', {
+      method: 'POST',
+      body: form
+    });
+    var j = await res.json().catch(function() { return {}; });
+    if (!res.ok || !j.ok) throw new Error(j.error || ('HTTP ' + res.status));
+
+    var ds = j.dataset || {};
+    okEl.textContent = '✓ Processed: ' + (ds.label || ds.filename || 'dataset') +
+                       ' (' + fmtNum(ds.rowCount || 0) + ' rows, ' + (ds.headers||[]).length + ' cols)';
+    okEl.classList.add('active');
+    prog.classList.remove('active');
+    drop.classList.remove('busy');
+    drop.textContent = '📂 Drop a CSV here or click to browse';
+
+    // Refresh the dataset list so the new result appears immediately
+    await loadDatasets({ silent: false });
+
+  } catch (e) {
+    prog.classList.remove('active');
+    drop.classList.remove('busy');
+    drop.textContent = '📂 Drop a CSV here or click to browse';
+    setUploadErr('Upload failed: ' + e.message);
+  }
+}
+
+function setUploadErr(msg) {
+  var el = document.getElementById('uploadErr');
+  el.textContent = msg;
+  el.classList.add('active');
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function toggleSettings() { document.getElementById('settingsDrawer').classList.toggle('open'); }

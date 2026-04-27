@@ -2942,25 +2942,6 @@ function onPipelineEnrichChange(checked) {
   const lbl = document.getElementById('pipelineEnrichLabel');
   if (lbl) lbl.textContent = checked ? 'On' : 'Off';
 
-  // When enabling ENRICH, auto-push rule nodes right if they would overlap
-  // the ENRICH bookend. The bookend position depends on minX of nodes, so we
-  // simulate it here and shift all nodes by whatever gap is needed.
-  if (checked) {
-    const nodes = activePipeline.nodes || [];
-    if (nodes.length) {
-      const minX    = Math.min(...nodes.map(n => n.x || 0));
-      const enrichGap = PIPE_NODE_W + 40;
-      const mappingX  = Math.max(20, minX - PIPE_NODE_W - 40 - enrichGap);
-      const enrichX   = mappingX + PIPE_NODE_W + 40;
-      const enrichEnd = enrichX + PIPE_NODE_W;
-      const needed    = enrichEnd + 40; // nodes must start at least here
-      if (minX < needed) {
-        const shift = needed - minX;
-        nodes.forEach(n => { n.x = (n.x || 0) + shift; });
-      }
-    }
-  }
-
   renderPipelineCanvas();
   queuePipelineSave();
 }
@@ -3094,59 +3075,76 @@ function renderPipelineCanvas() {
     ? (settings.columnPresets || []).find(cp => cp.id === p.columnPresetId)
     : null;
 
+  // ── Resolve bookend positions ──────────────────────────────────────────────
+  // Stored positions (activePipeline.bookends) take priority so the user can
+  // drag every card freely. Defaults are computed from the node layout and used
+  // only on first load before the user has positioned anything.
+  const bk = p.bookends || {};
+  const doEnrich = !!p.enrichAfterRun;
+
   if (!nodes.length) {
-    const doEnrichEmpty = !!p.enrichAfterRun;
-    const enrichOffsetEmpty = doEnrichEmpty ? (PIPE_NODE_W + 40) : 0;
-    const mapX0 = 40;
-    const enrichX0 = mapX0 + PIPE_NODE_W + 40;
-    const filterX0 = mapX0 + enrichOffsetEmpty + PIPE_NODE_W + 60;
-    _bookendPos = { mapX: mapX0, mapY: 60, enrichX: enrichX0, enrichY: 60,
-                    filterX: filterX0, filterY: 60, doEnrich: doEnrichEmpty, hasFilter: !!filterPreset };
+    const doEnrichEmpty = doEnrich;
+    const mapX0    = bk.map    ? bk.map.x    : 40;
+    const mapY0    = bk.map    ? bk.map.y    : 60;
+    const enrichX0 = bk.enrich ? bk.enrich.x : mapX0 + PIPE_NODE_W + 40;
+    const enrichY0 = bk.enrich ? bk.enrich.y : mapY0;
+    const filterX0 = bk.filter ? bk.filter.x : mapX0 + (doEnrichEmpty ? PIPE_NODE_W + 40 : 0) + PIPE_NODE_W + 60;
+    const filterY0 = bk.filter ? bk.filter.y : mapY0;
+    _bookendPos = { mapX: mapX0, mapY: mapY0, enrichX: enrichX0, enrichY: enrichY0,
+                    filterX: filterX0, filterY: filterY0, doEnrich: doEnrichEmpty, hasFilter: !!filterPreset };
     let emptyEdges = '';
     if (doEnrichEmpty) {
       const ph = (x1, y1, x2, y2) => {
         const dx = Math.max(40, Math.abs(x2 - x1) * 0.45);
         return `<path class="pipe-edge pipe-edge-phantom" d="M${x1},${y1} C${x1+dx},${y1} ${x2-dx},${y2} ${x2},${y2}" marker-end="url(#pipelineArrow)"></path>`;
       };
-      emptyEdges = ph(mapX0 + PIPE_NODE_W, 60 + PIPE_NODE_H/2, enrichX0, 60 + PIPE_NODE_H/2);
+      emptyEdges = ph(mapX0 + PIPE_NODE_W, mapY0 + PIPE_NODE_H/2, enrichX0, enrichY0 + PIPE_NODE_H/2);
     }
     edgesG.innerHTML = emptyEdges;
-    nodesG.innerHTML = renderMappingBookend(mapX0, 60, mappingName, mappingCount, mappingPinned)
-      + (doEnrichEmpty ? renderEnrichBookend(enrichX0, 60) : '')
-      + (filterPreset ? renderFilterBookend(filterX0, 60, filterPreset) : '');
+    nodesG.innerHTML = renderMappingBookend(mapX0, mapY0, mappingName, mappingCount, mappingPinned)
+      + (doEnrichEmpty ? renderEnrichBookend(enrichX0, enrichY0) : '')
+      + (filterPreset ? renderFilterBookend(filterX0, filterY0, filterPreset) : '');
     if (hint) hint.style.display = '';
     return;
   }
   if (hint) hint.style.display = 'none';
 
-  // Order nodes for the step badge AND to figure out where the bookends go
+  // Order nodes for step badges
   let ordered = [];
   try { ordered = topoOrder(nodes, edges); } catch(_) { ordered = nodes; }
   const stepIndex = {};
   ordered.forEach((n, i) => { stepIndex[n.id] = i + 1; });
 
-  // Place the mapping bookend just left of the leftmost rule-set node, vertically
-  // centered against the first ordered step (looks natural; user can ignore it).
-  const minX = Math.min(...nodes.map(n => n.x || 0));
   const firstNode = ordered[0] || nodes[0];
-  const firstY = firstNode ? (firstNode.y || 0) : 60;
-  const doEnrich = !!p.enrichAfterRun;
-  // If enrich is on, MAP sits further left to leave room for the ENRICH card
-  const enrichGap = doEnrich ? (PIPE_NODE_W + 40) : 0;
-  const mappingX = Math.max(20, minX - PIPE_NODE_W - 40 - enrichGap);
-  const mappingY = firstY;
-  const enrichX  = mappingX + PIPE_NODE_W + 40;
-  const enrichY  = firstY;
-
-  // Place the filter bookend just right of the rightmost rule-set node.
+  const lastNode  = ordered[ordered.length - 1] || nodes[nodes.length - 1];
+  const minX = Math.min(...nodes.map(n => n.x || 0));
   const maxX = Math.max(...nodes.map(n => (n.x || 0) + PIPE_NODE_W));
-  const lastNode = ordered[ordered.length - 1] || nodes[nodes.length - 1];
-  const lastY    = lastNode ? (lastNode.y || 0) : 60;
-  const filterX  = maxX + 40;
-  const filterY  = lastY;
 
-  // Edges (rule-set → rule-set, plus phantom edges from the mapping card to
-  // the first node, and from the last node to the filter card).
+  // Default positions (used only when the user hasn't manually positioned a card)
+  const enrichGap   = doEnrich ? (PIPE_NODE_W + 40) : 0;
+  const defMappingX = Math.max(20, minX - PIPE_NODE_W - 40 - enrichGap);
+  const defMappingY = firstNode ? (firstNode.y || 0) : 60;
+  const defEnrichX  = defMappingX + PIPE_NODE_W + 40;
+  const defEnrichY  = firstNode ? (firstNode.y || 0) : 60;
+  const defFilterX  = maxX + 40;
+  const defFilterY  = lastNode ? (lastNode.y || 0) : 60;
+
+  const mappingX = bk.map    ? bk.map.x    : defMappingX;
+  const mappingY = bk.map    ? bk.map.y    : defMappingY;
+  const enrichX  = bk.enrich ? bk.enrich.x : defEnrichX;
+  const enrichY  = bk.enrich ? bk.enrich.y : defEnrichY;
+  const filterX  = bk.filter ? bk.filter.x : defFilterX;
+  const filterY  = bk.filter ? bk.filter.y : defFilterY;
+
+  // Cache for drag-update path
+  _bookendPos = {
+    mapX: mappingX, mapY: mappingY,
+    enrichX, enrichY,
+    filterX, filterY,
+    doEnrich, hasFilter: !!filterPreset,
+  };
+
+  // Edges
   const realEdges = edges.map(e => {
     const from = nodes.find(n => n.id === e.from);
     const to   = nodes.find(n => n.id === e.to);
@@ -3167,30 +3165,21 @@ function renderPipelineCanvas() {
     const d  = `M${x1},${y1} C${x1 + dx},${y1} ${x2 - dx},${y2} ${x2},${y2}`;
     return `<path class="pipe-edge pipe-edge-phantom" d="${d}" marker-end="url(#pipelineArrow)"></path>`;
   };
-  // Phantom edge: MAP → ENRICH (if on) or MAP → first rule step
-  const firstRuleX = firstNode ? firstNode.x : 60;
-  const firstRuleY = (firstNode ? firstNode.y : 60) + PIPE_NODE_H / 2;
+  const firstRuleX = firstNode ? (firstNode.x || 0) : enrichX + PIPE_NODE_W + 40;
+  const firstRuleY = (firstNode ? (firstNode.y || 0) : enrichY) + PIPE_NODE_H / 2;
   const mappingEdge = doEnrich
     ? phantomEdge(mappingX + PIPE_NODE_W, mappingY + PIPE_NODE_H / 2, enrichX, enrichY + PIPE_NODE_H / 2)
     : phantomEdge(mappingX + PIPE_NODE_W, mappingY + PIPE_NODE_H / 2, firstRuleX, firstRuleY);
   const enrichEdge = doEnrich
     ? phantomEdge(enrichX + PIPE_NODE_W, enrichY + PIPE_NODE_H / 2, firstRuleX, firstRuleY)
     : '';
-  const filterEdge = filterPreset ? phantomEdge(
-    (lastNode ? lastNode.x + PIPE_NODE_W : 60), (lastNode ? lastNode.y : 60) + PIPE_NODE_H / 2,
-    filterX, filterY + PIPE_NODE_H / 2,
-  ) : '';
+  const filterEdge = filterPreset
+    ? phantomEdge((lastNode ? (lastNode.x || 0) + PIPE_NODE_W : 60),
+                  (lastNode ? (lastNode.y || 0) : 60) + PIPE_NODE_H / 2,
+                  filterX, filterY + PIPE_NODE_H / 2)
+    : '';
 
   edgesG.innerHTML = mappingEdge + enrichEdge + realEdges + filterEdge;
-
-  // Cache bookend positions so the drag-update path can keep them frozen while
-  // the user drags a rule-set node (prevents bookends from shifting during drag).
-  _bookendPos = {
-    mapX: mappingX, mapY: mappingY,
-    enrichX, enrichY,
-    filterX, filterY,
-    doEnrich, hasFilter: !!filterPreset,
-  };
 
   const ruleSetNodes = nodes.map(n => {
     const rs = (settings.ruleSets || []).find(r => r.id === n.ruleSetId);
@@ -3269,8 +3258,10 @@ function resizePipelineCanvas() {
 function renderEnrichBookend(x, y) {
   return `
     <foreignObject x="${x}" y="${y}" width="${PIPE_NODE_W}" height="${PIPE_NODE_H}"
-                   style="overflow:visible">
-      <div xmlns="http://www.w3.org/1999/xhtml" class="pipe-node pipe-node-enrich">
+                   data-bookend-id="enrich" style="overflow:visible;cursor:grab">
+      <div xmlns="http://www.w3.org/1999/xhtml" class="pipe-node pipe-node-enrich"
+           onmousedown="onPipeBookendMouseDown(event,'enrich')">
+        <div class="pipe-node-grip">⠿ ⠿ ⠿</div>
         <div class="pipe-node-head">
           <span class="pipe-node-step">ENRICH</span>
           <span class="pipe-node-name">Player profiles</span>
@@ -3294,30 +3285,40 @@ function renderEnrichBookend(x, y) {
 //  2. Redraw all edges using the _bookendPos cached from the last full render,
 //     so bookend cards stay frozen while only the rule node moves.
 
-function applyDragUpdate(nodeId) {
+function applyDragUpdate(drag) {
+  if (!drag) return;
   const p = activePipeline;
   if (!p || !_bookendPos) { renderPipelineCanvas(); return; }
-  const node = (p.nodes || []).find(n => n.id === nodeId);
-  if (!node) return;
 
-  // Move the foreignObject for the dragged node
-  const fo = document.querySelector(`#pipelineNodes foreignObject[data-node-id="${nodeId}"]`);
-  if (fo) {
-    fo.setAttribute('x', node.x || 0);
-    fo.setAttribute('y', node.y || 0);
+  if (drag.bookend) {
+    // ── Bookend card drag ────────────────────────────────────────────────────
+    const bk  = (p.bookends || {})[drag.bookend];
+    if (!bk) return;
+    // Update the _bookendPos cache so edges draw to the new position
+    if (drag.bookend === 'map')    { _bookendPos.mapX    = bk.x; _bookendPos.mapY    = bk.y; }
+    if (drag.bookend === 'enrich') { _bookendPos.enrichX = bk.x; _bookendPos.enrichY = bk.y; }
+    if (drag.bookend === 'filter') { _bookendPos.filterX = bk.x; _bookendPos.filterY = bk.y; }
+    // Move the bookend foreignObject
+    const fo = document.querySelector(`#pipelineNodes foreignObject[data-bookend-id="${drag.bookend}"]`);
+    if (fo) { fo.setAttribute('x', bk.x); fo.setAttribute('y', bk.y); }
+  } else {
+    // ── Rule-set node drag ───────────────────────────────────────────────────
+    const node = (p.nodes || []).find(n => n.id === drag.id);
+    if (!node) return;
+    const fo = document.querySelector(`#pipelineNodes foreignObject[data-node-id="${drag.id}"]`);
+    if (fo) { fo.setAttribute('x', node.x || 0); fo.setAttribute('y', node.y || 0); }
+    const portIn = document.querySelector(`circle[data-port-node="${drag.id}"][data-port-side="in"]`);
+    if (portIn) {
+      portIn.setAttribute('cx', node.x || 0);
+      portIn.setAttribute('cy', (node.y || 0) + PIPE_NODE_H / 2);
+    }
+    const portOut = document.querySelector(`circle[data-port-node="${drag.id}"][data-port-side="out"]`);
+    if (portOut) {
+      portOut.setAttribute('cx', (node.x || 0) + PIPE_NODE_W);
+      portOut.setAttribute('cy', (node.y || 0) + PIPE_NODE_H / 2);
+    }
   }
-  // Move its port circles (sibling SVG elements, queried by data-port-node)
-  const portIn = document.querySelector(`circle[data-port-node="${nodeId}"][data-port-side="in"]`);
-  if (portIn) {
-    portIn.setAttribute('cx', node.x || 0);
-    portIn.setAttribute('cy', (node.y || 0) + PIPE_NODE_H / 2);
-  }
-  const portOut = document.querySelector(`circle[data-port-node="${nodeId}"][data-port-side="out"]`);
-  if (portOut) {
-    portOut.setAttribute('cx', (node.x || 0) + PIPE_NODE_W);
-    portOut.setAttribute('cy', (node.y || 0) + PIPE_NODE_H / 2);
-  }
-  // Redraw edges with frozen bookend positions
+  // Redraw edges using current _bookendPos (updated above if a bookend moved)
   redrawEdgesForDrag(p);
 }
 
@@ -3366,8 +3367,10 @@ function redrawEdgesForDrag(p) {
 function renderMappingBookend(x, y, mappingName, mappingCount, pinned) {
   return `
     <foreignObject x="${x}" y="${y}" width="${PIPE_NODE_W}" height="${PIPE_NODE_H}"
-                   style="overflow:visible">
-      <div xmlns="http://www.w3.org/1999/xhtml" class="pipe-node pipe-node-mapping">
+                   data-bookend-id="map" style="overflow:visible;cursor:grab">
+      <div xmlns="http://www.w3.org/1999/xhtml" class="pipe-node pipe-node-mapping"
+           onmousedown="onPipeBookendMouseDown(event,'map')">
+        <div class="pipe-node-grip">⠿ ⠿ ⠿</div>
         <div class="pipe-node-head">
           <span class="pipe-node-step">MAP</span>
           <span class="pipe-node-name" title="${esc(mappingName)}">${esc(mappingName)}</span>
@@ -3376,23 +3379,24 @@ function renderMappingBookend(x, y, mappingName, mappingCount, pinned) {
           ${mappingCount} rename${mappingCount === 1 ? '' : 's'} · ${pinned ? 'pinned' : 'active set'}
         </div>
         <div style="font-size:0.78rem;color:var(--muted)">
-          Applied to the dropped CSV before step 1
+          Applied to CSV before step 1
         </div>
       </div>
     </foreignObject>
   `;
 }
 
-// Static "Filter" card pinned after the last rule-set node. Shows which
-// columns will be dropped from the saved output.
+// "Filter / OUT" card — draggable, positioned after rule steps.
 function renderFilterBookend(x, y, preset) {
   const hideCount = (preset.hidden || []).length;
   const sample = (preset.hidden || []).slice(0, 3).join(', ');
   const more = hideCount > 3 ? `, +${hideCount - 3} more` : '';
   return `
     <foreignObject x="${x}" y="${y}" width="${PIPE_NODE_W}" height="${PIPE_NODE_H}"
-                   style="overflow:visible">
-      <div xmlns="http://www.w3.org/1999/xhtml" class="pipe-node pipe-node-filter">
+                   data-bookend-id="filter" style="overflow:visible;cursor:grab">
+      <div xmlns="http://www.w3.org/1999/xhtml" class="pipe-node pipe-node-filter"
+           onmousedown="onPipeBookendMouseDown(event,'filter')">
+        <div class="pipe-node-grip">⠿ ⠿ ⠿</div>
         <div class="pipe-node-head">
           <span class="pipe-node-step">OUT</span>
           <span class="pipe-node-name" title="${esc(preset.name)}">${esc(preset.name)}</span>
@@ -3505,6 +3509,7 @@ async function savePipelineNow() {
     edges: activePipeline.edges || [],
     mappingSetId: activePipeline.mappingSetId || null,
     columnPresetId: activePipeline.columnPresetId || null,
+    bookends: activePipeline.bookends || null,
   };
   try {
     const updated = await api(`/api/pipelines/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
@@ -3587,9 +3592,33 @@ function onPipeNodeMouseDown(evt, nodeId) {
   if (!activePipeline) return;
   const node = (activePipeline.nodes || []).find(n => n.id === nodeId);
   if (!node) return;
+  // Freeze current bookend positions so renderPipelineCanvas() on mouseup
+  // uses stored values instead of recomputing relative to the moved node.
+  freezeBookendPositions();
   const pt = pipeCanvasPoint(evt);
   _pipeDrag = { id: nodeId, dx: pt.x - (node.x || 0), dy: pt.y - (node.y || 0) };
   evt.preventDefault();
+}
+
+// Called when the user starts dragging a bookend card (MAP / ENRICH / OUT).
+function onPipeBookendMouseDown(evt, bookendId) {
+  if (!activePipeline || !_bookendPos) return;
+  freezeBookendPositions();
+  const pt  = pipeCanvasPoint(evt);
+  const bk  = activePipeline.bookends[bookendId];
+  _pipeDrag = { bookend: bookendId, dx: pt.x - bk.x, dy: pt.y - bk.y };
+  evt.preventDefault();
+  evt.stopPropagation();
+}
+
+// Snapshot the current _bookendPos into activePipeline.bookends so that the
+// next full renderPipelineCanvas() call uses stored values, not computed ones.
+function freezeBookendPositions() {
+  if (!_bookendPos || !activePipeline) return;
+  const bk = activePipeline.bookends || (activePipeline.bookends = {});
+  if (!bk.map)    bk.map    = { x: _bookendPos.mapX,    y: _bookendPos.mapY };
+  if (!bk.enrich) bk.enrich = { x: _bookendPos.enrichX, y: _bookendPos.enrichY };
+  if (!bk.filter) bk.filter = { x: _bookendPos.filterX, y: _bookendPos.filterY };
 }
 
 function onPipePortMouseDown(evt, nodeId) {
@@ -3633,18 +3662,28 @@ let _rafDragPending = false;
 
 document.addEventListener('mousemove', (evt) => {
   if (_pipeDrag && activePipeline) {
-    const node = (activePipeline.nodes || []).find(n => n.id === _pipeDrag.id);
-    if (node) {
-      const pt = pipeCanvasPoint(evt);
-      node.x = Math.max(0, pt.x - _pipeDrag.dx);
-      node.y = Math.max(0, pt.y - _pipeDrag.dy);
-      if (!_rafDragPending) {
-        _rafDragPending = true;
-        requestAnimationFrame(() => {
-          applyDragUpdate(_pipeDrag && _pipeDrag.id);
-          _rafDragPending = false;
-        });
+    const pt = pipeCanvasPoint(evt);
+    if (_pipeDrag.bookend) {
+      // Bookend card drag — update stored position
+      const bk = activePipeline.bookends || (activePipeline.bookends = {});
+      bk[_pipeDrag.bookend] = {
+        x: Math.max(0, pt.x - _pipeDrag.dx),
+        y: Math.max(0, pt.y - _pipeDrag.dy),
+      };
+    } else {
+      // Rule-set node drag — update node position
+      const node = (activePipeline.nodes || []).find(n => n.id === _pipeDrag.id);
+      if (node) {
+        node.x = Math.max(0, pt.x - _pipeDrag.dx);
+        node.y = Math.max(0, pt.y - _pipeDrag.dy);
       }
+    }
+    if (!_rafDragPending) {
+      _rafDragPending = true;
+      requestAnimationFrame(() => {
+        applyDragUpdate(_pipeDrag);
+        _rafDragPending = false;
+      });
     }
   }
   if (_pipeConnect && activePipeline) {

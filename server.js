@@ -1859,6 +1859,8 @@ app.patch('/api/pipelines/:id', async (req, res) => {
     if (Array.isArray(body.nodes)) record.nodes = body.nodes;
     if (Array.isArray(body.edges)) record.edges = body.edges;
     if ('enrichAfterRun' in body) record.enrichAfterRun = !!body.enrichAfterRun;
+    // bookends: positions for MAP, ENRICH, OUT cards stored per-pipeline
+    if (body.bookends && typeof body.bookends === 'object') record.bookends = body.bookends;
     await savePipeline(record);
     res.json({ pipeline: record });
   } catch (err) {

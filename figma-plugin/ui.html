@@ -167,7 +167,7 @@
   .bind-sel-row-label { font-size: 10px; color: var(--muted); flex-shrink: 0; }
   .bind-sel-row-val   { font-size: 11px; color: var(--gold); font-weight: 600; flex: 1; }
   /* Column chips */
-  .bind-cols { display: flex; flex-wrap: wrap; gap: 4px; max-height: 80px; overflow-y: auto; }
+  .bind-cols { display: flex; flex-wrap: wrap; gap: 6px; max-height: 200px; overflow-y: auto; }
   .bind-col-chip {
     background: var(--surface2); border: 1px solid var(--border);
     border-radius: 4px; padding: 2px 7px; font-size: 10px;
@@ -175,6 +175,22 @@
   }
   .bind-col-chip:hover  { border-color: var(--teal); color: var(--teal); }
   .bind-col-chip.active { border-color: var(--teal); background: #14b8a620; color: var(--teal); }
+  /* Image chip — shows a live thumbnail */
+  .bind-img-chip {
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 6px; padding: 6px 8px; cursor: pointer; transition: all .12s;
+    font-size: 10px; color: var(--muted); width: 80px; flex-shrink: 0;
+  }
+  .bind-img-chip:hover  { border-color: var(--teal); color: var(--teal); }
+  .bind-img-chip.active { border-color: var(--teal); background: #14b8a620; color: var(--teal); }
+  .bind-img-thumb {
+    width: 52px; height: 52px; border-radius: 50%; object-fit: cover;
+    background: var(--border); display: block;
+  }
+  .bind-img-thumb.rect { border-radius: 4px; }
+  .bind-img-label { font-size: 9px; text-align: center; max-width: 72px;
+                    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .bind-preview {
     font-family: monospace; font-size: 11px; color: var(--teal);
     background: #14b8a610; border: 1px solid #14b8a630;
@@ -936,10 +952,25 @@ function renderBindRowPanel() {
     var headers = (activeDataset && activeDataset.headers) ? activeDataset.headers : [];
     var dRow    = rows[bindRowIndex - 1] || {};
     headers.forEach(function(h) {
-      var val  = dRow[h] !== undefined ? String(dRow[h]) : '—';
+      var val    = dRow[h] !== undefined ? String(dRow[h]) : '—';
       var active = h === bindColName ? ' active' : '';
-      chips += '<span class="bind-col-chip' + active + '" onclick="selectBindCol(\'' + jsEsc(h) + '\')">' +
-               esc(h) + ' <span style="color:var(--muted)">→ ' + esc(trunc(val, 14)) + '</span></span>';
+      var lh     = h.toLowerCase();
+      var isImg  = val.indexOf('http') === 0 && (
+        lh.indexOf('avatar') !== -1 || lh.indexOf('image') !== -1 ||
+        val.match(/\.(jpg|jpeg|png|webp|gif)(\?|$)/i)
+      );
+      if (isImg) {
+        // Show a live thumbnail card for image URLs
+        var isCircle = lh.indexOf('avatar') !== -1;
+        var thumbCls = 'bind-img-thumb' + (isCircle ? '' : ' rect');
+        chips += '<div class="bind-img-chip' + active + '" onclick="selectBindCol(\'' + jsEsc(h) + '\')">' +
+                   '<img class="' + thumbCls + '" src="' + esc(val) + '" onerror="this.style.opacity=\'0.3\'">' +
+                   '<span class="bind-img-label">' + esc(h) + '</span>' +
+                 '</div>';
+      } else {
+        chips += '<span class="bind-col-chip' + active + '" onclick="selectBindCol(\'' + jsEsc(h) + '\')">' +
+                 esc(h) + ' <span style="color:var(--muted)">→ ' + esc(trunc(val, 14)) + '</span></span>';
+      }
     });
   }
   document.getElementById('bindCols').innerHTML = chips;
@@ -948,10 +979,10 @@ function renderBindRowPanel() {
 
 function selectBindCol(colName) {
   bindColName = colName;
-  // Update chip highlights without full re-render
-  document.querySelectorAll('.bind-col-chip').forEach(function(c) { c.classList.remove('active'); });
-  var active = document.querySelector('.bind-col-chip[onclick*="\'' + jsEsc(colName) + '\'"]');
-  if (active) active.classList.add('active');
+  // Update chip highlights — covers both text chips (.bind-col-chip) and image chips (.bind-img-chip)
+  document.querySelectorAll('.bind-col-chip, .bind-img-chip').forEach(function(c) { c.classList.remove('active'); });
+  // Re-render to get fresh active state (both chip types need it)
+  renderBindRowPanel();
   updateBindPreview();
   // Immediately rename the selected Figma layer — no second button click needed.
   if (figmaSel.length && bindRowIndex !== null) bindLayer();

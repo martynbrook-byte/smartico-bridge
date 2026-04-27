@@ -1821,6 +1821,8 @@ app.post('/api/pipelines', async (req, res) => {
       mappingSetId:     typeof body.mappingSetId === 'string' ? body.mappingSetId : null,
       // Optional column preset applied to the final output (drops hidden columns).
       columnPresetId:   typeof body.columnPresetId === 'string' ? body.columnPresetId : null,
+      // Whether to run player-profile enrichment between mapping and rule steps.
+      enrichAfterRun:   !!body.enrichAfterRun,
       nodes:            Array.isArray(body.nodes) ? body.nodes : [],
       edges:            Array.isArray(body.edges) ? body.edges : [],
     };
@@ -1856,6 +1858,7 @@ app.patch('/api/pipelines/:id', async (req, res) => {
     }
     if (Array.isArray(body.nodes)) record.nodes = body.nodes;
     if (Array.isArray(body.edges)) record.edges = body.edges;
+    if ('enrichAfterRun' in body) record.enrichAfterRun = !!body.enrichAfterRun;
     await savePipeline(record);
     res.json({ pipeline: record });
   } catch (err) {
@@ -1924,6 +1927,15 @@ app.post('/api/pipelines/:id/run', upload.single('file'), async (req, res) => {
     const mappedHeaders = mappedRows.length
       ? Object.keys(mappedRows[0])
       : parsed.headers.map(h => runMappings[h] || h);
+
+    // 1b. Enrich player profiles BEFORE rules run (MAP → ENRICH → RULES).
+    //     This gives rule sets access to avatar_image, display_name, phone etc.
+    let enrichResult = null;
+    if (pipeline.enrichAfterRun) {
+      const tempRecord = { rows: mappedRows };
+      enrichResult = await enrichDataset(tempRecord, settings);
+      // enrichDataset mutates tempRecord.rows in place
+    }
 
     // 2. Order the pipeline nodes — bail out cleanly on cycles or unknown rule sets.
     let ordered;
@@ -2020,6 +2032,7 @@ app.post('/api/pipelines/:id/run', upload.single('file'), async (req, res) => {
       ruleSetId:       null,
       ruleSetName:     ordered.length === 1 ? stepLog[0].ruleSetName : `${ordered.length} steps`,
       pipelineSteps:   stepLog,
+      enrichment:      enrichResult,   // null if enrich not enabled
       metrics:         allMetrics,
       ruleTable,
       visibleColumns:  headers,

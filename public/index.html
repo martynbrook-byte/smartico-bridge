@@ -1188,6 +1188,18 @@
       color: var(--gold);
       border: 1px solid var(--gold);
     }
+    /* Distinct styling for the ENRICH bookend card */
+    .pipe-node.pipe-node-enrich {
+      background: linear-gradient(135deg, rgba(20,184,166,0.12), rgba(20,184,166,0.04));
+      border-color: #14b8a6;
+      cursor: default;
+    }
+    .pipe-node.pipe-node-enrich .pipe-node-step {
+      background: var(--surface3);
+      color: #5eead4;
+      border: 1px solid #14b8a6;
+    }
+
     /* Distinct styling for the visual "final" output-filter card */
     .pipe-node.pipe-node-filter {
       background: linear-gradient(135deg, rgba(96,165,250,0.10), rgba(96,165,250,0.03));
@@ -3030,12 +3042,23 @@ function renderPipelineCanvas() {
     : null;
 
   if (!nodes.length) {
-    edgesG.innerHTML = '';
-    // Even with zero rule-set steps, show the mapping card so the user sees
-    // their selected mapping set on the canvas. Hides the empty hint when
-    // there's anything to render.
-    nodesG.innerHTML = renderMappingBookend(40, 60, mappingName, mappingCount, mappingPinned)
-      + (filterPreset ? renderFilterBookend(40 + PIPE_NODE_W + 60, 60, filterPreset) : '');
+    const doEnrichEmpty = !!p.enrichAfterRun;
+    const enrichOffsetEmpty = doEnrichEmpty ? (PIPE_NODE_W + 40) : 0;
+    const mapX0 = 40;
+    const enrichX0 = mapX0 + PIPE_NODE_W + 40;
+    const filterX0 = mapX0 + enrichOffsetEmpty + PIPE_NODE_W + 60;
+    let emptyEdges = '';
+    if (doEnrichEmpty) {
+      const ph = (x1, y1, x2, y2) => {
+        const dx = Math.max(40, Math.abs(x2 - x1) * 0.45);
+        return `<path class="pipe-edge pipe-edge-phantom" d="M${x1},${y1} C${x1+dx},${y1} ${x2-dx},${y2} ${x2},${y2}" marker-end="url(#pipelineArrow)"></path>`;
+      };
+      emptyEdges = ph(mapX0 + PIPE_NODE_W, 60 + PIPE_NODE_H/2, enrichX0, 60 + PIPE_NODE_H/2);
+    }
+    edgesG.innerHTML = emptyEdges;
+    nodesG.innerHTML = renderMappingBookend(mapX0, 60, mappingName, mappingCount, mappingPinned)
+      + (doEnrichEmpty ? renderEnrichBookend(enrichX0, 60) : '')
+      + (filterPreset ? renderFilterBookend(filterX0, 60, filterPreset) : '');
     if (hint) hint.style.display = '';
     return;
   }
@@ -3052,8 +3075,13 @@ function renderPipelineCanvas() {
   const minX = Math.min(...nodes.map(n => n.x || 0));
   const firstNode = ordered[0] || nodes[0];
   const firstY = firstNode ? (firstNode.y || 0) : 60;
-  const mappingX = Math.max(20, minX - PIPE_NODE_W - 40);
+  const doEnrich = !!p.enrichAfterRun;
+  // If enrich is on, MAP sits further left to leave room for the ENRICH card
+  const enrichGap = doEnrich ? (PIPE_NODE_W + 40) : 0;
+  const mappingX = Math.max(20, minX - PIPE_NODE_W - 40 - enrichGap);
   const mappingY = firstY;
+  const enrichX  = mappingX + PIPE_NODE_W + 40;
+  const enrichY  = firstY;
 
   // Place the filter bookend just right of the rightmost rule-set node.
   const maxX = Math.max(...nodes.map(n => (n.x || 0) + PIPE_NODE_W));
@@ -3084,16 +3112,21 @@ function renderPipelineCanvas() {
     const d  = `M${x1},${y1} C${x1 + dx},${y1} ${x2 - dx},${y2} ${x2},${y2}`;
     return `<path class="pipe-edge pipe-edge-phantom" d="${d}" marker-end="url(#pipelineArrow)"></path>`;
   };
-  const mappingEdge = phantomEdge(
-    mappingX + PIPE_NODE_W, mappingY + PIPE_NODE_H / 2,
-    (firstNode ? firstNode.x : 60), (firstNode ? firstNode.y : 60) + PIPE_NODE_H / 2,
-  );
+  // Phantom edge: MAP → ENRICH (if on) or MAP → first rule step
+  const firstRuleX = firstNode ? firstNode.x : 60;
+  const firstRuleY = (firstNode ? firstNode.y : 60) + PIPE_NODE_H / 2;
+  const mappingEdge = doEnrich
+    ? phantomEdge(mappingX + PIPE_NODE_W, mappingY + PIPE_NODE_H / 2, enrichX, enrichY + PIPE_NODE_H / 2)
+    : phantomEdge(mappingX + PIPE_NODE_W, mappingY + PIPE_NODE_H / 2, firstRuleX, firstRuleY);
+  const enrichEdge = doEnrich
+    ? phantomEdge(enrichX + PIPE_NODE_W, enrichY + PIPE_NODE_H / 2, firstRuleX, firstRuleY)
+    : '';
   const filterEdge = filterPreset ? phantomEdge(
     (lastNode ? lastNode.x + PIPE_NODE_W : 60), (lastNode ? lastNode.y : 60) + PIPE_NODE_H / 2,
     filterX, filterY + PIPE_NODE_H / 2,
   ) : '';
 
-  edgesG.innerHTML = mappingEdge + realEdges + filterEdge;
+  edgesG.innerHTML = mappingEdge + enrichEdge + realEdges + filterEdge;
 
   const ruleSetNodes = nodes.map(n => {
     const rs = (settings.ruleSets || []).find(r => r.id === n.ruleSetId);
@@ -3103,8 +3136,9 @@ function renderPipelineCanvas() {
     return `
       <foreignObject x="${x}" y="${y}" width="${PIPE_NODE_W}" height="${PIPE_NODE_H}"
         data-node-id="${esc(n.id)}" style="overflow:visible">
-        <div xmlns="http://www.w3.org/1999/xhtml" class="pipe-node" data-node-id="${esc(n.id)}">
-          <div class="pipe-node-grip" onmousedown="onPipeNodeMouseDown(event, '${esc(n.id)}')">⠿ ⠿ ⠿</div>
+        <div xmlns="http://www.w3.org/1999/xhtml" class="pipe-node" data-node-id="${esc(n.id)}"
+             onmousedown="onPipeNodeMouseDown(event, '${esc(n.id)}')">
+          <div class="pipe-node-grip">⠿ ⠿ ⠿</div>
           <div class="pipe-node-head">
             <span class="pipe-node-step">${stepIndex[n.id] || '·'}</span>
             <span class="pipe-node-type-lozenge">RULES</span>
@@ -3127,6 +3161,7 @@ function renderPipelineCanvas() {
 
   nodesG.innerHTML =
     renderMappingBookend(mappingX, mappingY, mappingName, mappingCount, mappingPinned)
+    + (doEnrich ? renderEnrichBookend(enrichX, enrichY) : '')
     + ruleSetNodes
     + (filterPreset ? renderFilterBookend(filterX, filterY, filterPreset) : '');
 
@@ -3160,6 +3195,27 @@ function resizePipelineCanvas() {
   svg.setAttribute('width',  String(maxX));
   svg.setAttribute('height', String(maxY));
   svg.setAttribute('viewBox', `0 0 ${maxX} ${maxY}`);
+}
+
+// Static "Enrich" card — appears between MAP and the first rule-set step when
+// enrichAfterRun is enabled. Visually communicates the run order:
+//   MAP → ENRICH → rule steps → OUT
+function renderEnrichBookend(x, y) {
+  return `
+    <foreignObject x="${x}" y="${y}" width="${PIPE_NODE_W}" height="${PIPE_NODE_H}"
+                   style="overflow:visible">
+      <div xmlns="http://www.w3.org/1999/xhtml" class="pipe-node pipe-node-enrich">
+        <div class="pipe-node-head">
+          <span class="pipe-node-step">ENRICH</span>
+          <span class="pipe-node-name">Player profiles</span>
+        </div>
+        <div class="pipe-node-meta">avatar · display name · phone</div>
+        <div style="font-size:0.78rem;color:#5eead4;opacity:0.8">
+          Runs after mapping, before rule steps
+        </div>
+      </div>
+    </foreignObject>
+  `;
 }
 
 // Static "Mapping" card pinned to the start of the canvas. Shows what
@@ -3250,7 +3306,7 @@ async function createPipeline() {
       method: 'POST',
       body: JSON.stringify({ name: 'New pipeline', nodes: [], edges: [], filenameTemplate: '{pipelineName}' }),
     });
-    activePipeline = created;
+    activePipeline = created.pipeline || created; // server wraps in { pipeline: … }
     await loadPipelines();
     renderPipelines();
     renderDropzones(); // refresh dropdowns that list pipelines
@@ -3307,7 +3363,7 @@ async function savePipelineNow() {
   };
   try {
     const updated = await api(`/api/pipelines/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
-    activePipeline = updated;
+    activePipeline = updated.pipeline || updated; // server wraps in { pipeline: … }
     // Refresh sidebar counts/order without disturbing the open editor
     await loadPipelines();
     const sidebar = document.getElementById('pipelinesSidebar');
@@ -3366,15 +3422,18 @@ function deletePipelineEdge(edgeId) {
 
 // ── Canvas mouse handlers ────────────────────────────────────────────────────
 function pipeCanvasPoint(evt) {
-  // Convert page coords to SVG viewBox coords using getScreenCTM inverse
-  const svg = document.getElementById('pipelineCanvas');
-  const pt  = svg.createSVGPoint();
-  pt.x = evt.clientX;
-  pt.y = evt.clientY;
-  const ctm = svg.getScreenCTM();
-  if (!ctm) return { x: 0, y: 0 };
-  const p = pt.matrixTransform(ctm.inverse());
-  return { x: p.x, y: p.y };
+  // Use getBoundingClientRect so scroll inside .canvas-wrap is accounted for.
+  // getScreenCTM() misses ancestor-element scroll offsets in some browsers.
+  const svg  = document.getElementById('pipelineCanvas');
+  const rect = svg.getBoundingClientRect();
+  const vb   = svg.viewBox.baseVal;
+  if (!vb || !rect.width || !rect.height) return { x: 0, y: 0 };
+  const scaleX = vb.width  / rect.width;
+  const scaleY = vb.height / rect.height;
+  return {
+    x: (evt.clientX - rect.left) * scaleX,
+    y: (evt.clientY - rect.top)  * scaleY,
+  };
 }
 
 function onPipeNodeMouseDown(evt, nodeId) {

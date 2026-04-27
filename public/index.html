@@ -999,16 +999,16 @@
 
     /* Node card inside foreignObject */
     .pipe-node {
-      width: 260px;
+      width: 320px;
       background: var(--surface2);
       border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 14px 16px;
+      border-radius: 12px;
+      padding: 18px 20px;
       cursor: grab;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.28);
+      box-shadow: 0 3px 10px rgba(0,0,0,0.32);
       transition: border-color 0.12s, box-shadow 0.12s;
       user-select: none;
-      font-size: 0.92rem;
+      font-size: 1rem;
     }
     .pipe-node:hover { border-color: var(--gold); }
     .pipe-node.connecting { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(96,165,250,0.2); }
@@ -1020,10 +1020,10 @@
       margin-bottom: 6px;
     }
     .pipe-node-step {
-      font-size: 0.76rem;
+      font-size: 0.82rem;
       color: var(--bg);
       background: var(--gold);
-      padding: 2px 9px;
+      padding: 3px 11px;
       border-radius: 999px;
       font-weight: 700;
       flex-shrink: 0;
@@ -1035,12 +1035,34 @@
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
-      font-size: 0.96rem;
+      font-size: 1.05rem;
     }
     .pipe-node-meta {
       color: var(--muted);
-      font-size: 0.8rem;
-      margin-bottom: 8px;
+      font-size: 0.86rem;
+      margin-bottom: 10px;
+    }
+    /* Distinct styling for the visual "step 0" mapping card */
+    .pipe-node.pipe-node-mapping {
+      background: linear-gradient(135deg, rgba(212,175,55,0.12), rgba(212,175,55,0.04));
+      border-color: var(--gold);
+      cursor: default;
+    }
+    .pipe-node.pipe-node-mapping .pipe-node-step {
+      background: var(--surface3);
+      color: var(--gold);
+      border: 1px solid var(--gold);
+    }
+    /* Distinct styling for the visual "final" output-filter card */
+    .pipe-node.pipe-node-filter {
+      background: linear-gradient(135deg, rgba(96,165,250,0.10), rgba(96,165,250,0.03));
+      border-color: var(--blue);
+      cursor: default;
+    }
+    .pipe-node.pipe-node-filter .pipe-node-step {
+      background: var(--surface3);
+      color: var(--blue);
+      border: 1px solid var(--blue);
     }
     .pipe-node-acts {
       display: flex;
@@ -1078,6 +1100,13 @@
       stroke: var(--blue);
       stroke-width: 2;
       stroke-dasharray: 4 3;
+      pointer-events: none;
+    }
+    /* Phantom edge connecting the bookend cards to the rule-set chain */
+    .pipe-edge-phantom {
+      stroke: var(--muted);
+      stroke-dasharray: 5 4;
+      opacity: 0.6;
       pointer-events: none;
     }
 
@@ -1232,6 +1261,15 @@
       <div id="uploadProgress" class="hidden" style="margin-top:10px;color:var(--muted);font-size:0.86rem"></div>
     </div>
 
+    <div class="panel" id="homeDropzonesPanel">
+      <div class="panel-title">
+        Drop Zones
+        <span class="hint">drop a CSV onto a card to run its pipeline</span>
+        <button class="btn btn-small" style="margin-left:auto" onclick="switchTab('dropzones')">Manage →</button>
+      </div>
+      <div id="homeDropzoneGrid" class="dz-grid"></div>
+    </div>
+
     <div class="panel">
       <div class="panel-title">Dataset records <span class="hint">newest first</span></div>
       <div id="datasetList" class="dataset-list"></div>
@@ -1285,6 +1323,12 @@
             <select id="pipelineMappingSelect" onchange="onPipelineMappingChange(this.value)"
                     title="Pin a mapping set or leave on (active) to use whichever is currently active in Settings">
               <option value="">(active)</option>
+            </select>
+            <span style="width:1px;height:24px;background:var(--border);margin:0 6px"></span>
+            <strong style="font-size:0.82rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px" title="Column preset applied to the final output — hides listed columns from the saved dataset">Filter</strong>
+            <select id="pipelineFilterSelect" onchange="onPipelineFilterChange(this.value)"
+                    title="Apply a saved column preset to drop columns from the saved output">
+              <option value="">— None —</option>
             </select>
             <span style="color:var(--muted);font-size:0.78rem;margin-left:auto">
               Drag nodes · drag the right port to another node's left port to connect · click an arrow to delete it
@@ -2631,8 +2675,8 @@ let _pipeConnect = null;           // { fromId } while drawing a ghost edge
 let _pipeSaveTimer = null;
 
 // Default node size (kept in sync with .pipe-node CSS width)
-const PIPE_NODE_W = 260;
-const PIPE_NODE_H = 120;
+const PIPE_NODE_W = 320;
+const PIPE_NODE_H = 150;
 
 async function loadPipelines() {
   const r = await api('/api/pipelines');
@@ -2686,7 +2730,38 @@ function renderPipelineEditor(p) {
   if (nameEl && document.activeElement !== nameEl) nameEl.value = p.name || '';
   if (tplEl  && document.activeElement !== tplEl)  tplEl.value  = p.filenameTemplate || '';
   renderPipelineMappingSelect();
+  renderPipelineFilterSelect();
   renderPipelineCanvas();
+}
+
+// Populate the toolbar's filter dropdown — column presets that, when picked,
+// will be applied to the pipeline's final output to drop hidden columns.
+function renderPipelineFilterSelect() {
+  const sel = document.getElementById('pipelineFilterSelect');
+  if (!sel || !activePipeline) return;
+  const presets = settings.columnPresets || [];
+  const current = activePipeline.columnPresetId || '';
+  sel.innerHTML = `<option value="">— None —</option>` +
+    presets.map(cp => `<option value="${esc(cp.id)}" ${cp.id === current ? 'selected' : ''}>${esc(cp.name)} (${cp.hidden.length})</option>`).join('');
+}
+
+async function onPipelineFilterChange(value) {
+  if (!activePipeline) return;
+  const newId = value || null;
+  if ((activePipeline.columnPresetId || null) === newId) return;
+  activePipeline.columnPresetId = newId;
+  try {
+    await api(`/api/pipelines/${activePipeline.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ columnPresetId: newId }),
+    });
+    banner(newId
+      ? `Pipeline output filter set to "${(settings.columnPresets || []).find(cp => cp.id === newId)?.name || newId}"`
+      : 'Pipeline output filter cleared', 'success');
+    renderPipelineCanvas(); // re-render so the OUT bookend appears/disappears
+  } catch (err) {
+    banner(`Save failed: ${err.message}`, 'error');
+  }
 }
 
 // Populate the toolbar's mapping-set dropdown. The empty value means
@@ -2715,6 +2790,7 @@ async function onPipelineMappingChange(value) {
     banner(newId
       ? `Pipeline pinned to mapping set "${(settings.mappingSets || []).find(s => s.id === newId)?.name || newId}"`
       : 'Pipeline reverted to active mapping set', 'success');
+    renderPipelineCanvas(); // re-render so the MAP bookend updates
   } catch (err) {
     banner(`Save failed: ${err.message}`, 'error');
   }
@@ -2729,22 +2805,63 @@ function renderPipelineCanvas() {
   const nodes = Array.isArray(p.nodes) ? p.nodes : [];
   const edges = Array.isArray(p.edges) ? p.edges : [];
 
+  // ── Bookend cards: a leading "Mapping" card and (if pinned) a trailing
+  // "Filter" card. They aren't part of pipeline.nodes — they're a visual
+  // representation of the runner's pre-/post-processing so designers can see
+  // the full flow at a glance.
+  const mappingSet = p.mappingSetId
+    ? (settings.mappingSets || []).find(s => s.id === p.mappingSetId)
+    : (settings.mappingSets || []).find(s => s.id === settings.activeMappingSetId);
+  const mappingPinned = !!p.mappingSetId;
+  const mappingName   = mappingSet ? mappingSet.name : '(none)';
+  const mappingCount  = mappingSet ? Object.keys(mappingSet.mappings || {}).length : 0;
+
+  const filterPreset = p.columnPresetId
+    ? (settings.columnPresets || []).find(cp => cp.id === p.columnPresetId)
+    : null;
+
   if (!nodes.length) {
-    nodesG.innerHTML = '';
     edgesG.innerHTML = '';
+    // Even with zero rule-set steps, show the mapping card so the user sees
+    // their selected mapping set on the canvas. Hides the empty hint when
+    // there's anything to render.
+    nodesG.innerHTML = renderMappingBookend(40, 60, mappingName, mappingCount, mappingPinned)
+      + (filterPreset ? renderFilterBookend(40 + PIPE_NODE_W + 60, 60, filterPreset) : '');
     if (hint) hint.style.display = '';
     return;
   }
   if (hint) hint.style.display = 'none';
 
-  // Render edges first so they sit beneath nodes
-  edgesG.innerHTML = edges.map(e => {
+  // Order nodes for the step badge AND to figure out where the bookends go
+  let ordered = [];
+  try { ordered = topoOrder(nodes, edges); } catch(_) { ordered = nodes; }
+  const stepIndex = {};
+  ordered.forEach((n, i) => { stepIndex[n.id] = i + 1; });
+
+  // Place the mapping bookend just left of the leftmost rule-set node, vertically
+  // centered against the first ordered step (looks natural; user can ignore it).
+  const minX = Math.min(...nodes.map(n => n.x || 0));
+  const firstNode = ordered[0] || nodes[0];
+  const firstY = firstNode ? (firstNode.y || 0) : 60;
+  const mappingX = Math.max(20, minX - PIPE_NODE_W - 40);
+  const mappingY = firstY;
+
+  // Place the filter bookend just right of the rightmost rule-set node.
+  const maxX = Math.max(...nodes.map(n => (n.x || 0) + PIPE_NODE_W));
+  const lastNode = ordered[ordered.length - 1] || nodes[nodes.length - 1];
+  const lastY    = lastNode ? (lastNode.y || 0) : 60;
+  const filterX  = maxX + 40;
+  const filterY  = lastY;
+
+  // Edges (rule-set → rule-set, plus phantom edges from the mapping card to
+  // the first node, and from the last node to the filter card).
+  const realEdges = edges.map(e => {
     const from = nodes.find(n => n.id === e.from);
     const to   = nodes.find(n => n.id === e.to);
     if (!from || !to) return '';
-    const x1 = (from.x || 0) + PIPE_NODE_W;          // right edge of source
+    const x1 = (from.x || 0) + PIPE_NODE_W;
     const y1 = (from.y || 0) + PIPE_NODE_H / 2;
-    const x2 = (to.x || 0);                           // left edge of target
+    const x2 = (to.x || 0);
     const y2 = (to.y || 0) + PIPE_NODE_H / 2;
     const dx = Math.max(40, Math.abs(x2 - x1) * 0.45);
     const d  = `M${x1},${y1} C${x1 + dx},${y1} ${x2 - dx},${y2} ${x2},${y2}`;
@@ -2753,13 +2870,23 @@ function renderPipelineCanvas() {
       onclick="deletePipelineEdge('${esc(e.id)}')"></path>`;
   }).join('');
 
-  // Order nodes for the step badge
-  let ordered = [];
-  try { ordered = topoOrder(nodes, edges); } catch(_) { ordered = nodes; }
-  const stepIndex = {};
-  ordered.forEach((n, i) => { stepIndex[n.id] = i + 1; });
+  const phantomEdge = (x1, y1, x2, y2) => {
+    const dx = Math.max(40, Math.abs(x2 - x1) * 0.45);
+    const d  = `M${x1},${y1} C${x1 + dx},${y1} ${x2 - dx},${y2} ${x2},${y2}`;
+    return `<path class="pipe-edge pipe-edge-phantom" d="${d}" marker-end="url(#pipelineArrow)"></path>`;
+  };
+  const mappingEdge = phantomEdge(
+    mappingX + PIPE_NODE_W, mappingY + PIPE_NODE_H / 2,
+    (firstNode ? firstNode.x : 60), (firstNode ? firstNode.y : 60) + PIPE_NODE_H / 2,
+  );
+  const filterEdge = filterPreset ? phantomEdge(
+    (lastNode ? lastNode.x + PIPE_NODE_W : 60), (lastNode ? lastNode.y : 60) + PIPE_NODE_H / 2,
+    filterX, filterY + PIPE_NODE_H / 2,
+  ) : '';
 
-  nodesG.innerHTML = nodes.map(n => {
+  edgesG.innerHTML = mappingEdge + realEdges + filterEdge;
+
+  const ruleSetNodes = nodes.map(n => {
     const rs = (settings.ruleSets || []).find(r => r.id === n.ruleSetId);
     const label = rs ? rs.name : '(missing rule set)';
     const ruleCount = rs ? (rs.rules || []).length : 0;
@@ -2785,6 +2912,59 @@ function renderPipelineCanvas() {
               onmousedown="onPipePortMouseDown(event, '${esc(n.id)}')"></circle>
     `;
   }).join('');
+
+  nodesG.innerHTML =
+    renderMappingBookend(mappingX, mappingY, mappingName, mappingCount, mappingPinned)
+    + ruleSetNodes
+    + (filterPreset ? renderFilterBookend(filterX, filterY, filterPreset) : '');
+}
+
+// Static "Mapping" card pinned to the start of the canvas. Shows what
+// column-mapping set will run before any rule sets.
+function renderMappingBookend(x, y, mappingName, mappingCount, pinned) {
+  return `
+    <foreignObject x="${x}" y="${y}" width="${PIPE_NODE_W}" height="${PIPE_NODE_H}"
+                   style="overflow:visible">
+      <div xmlns="http://www.w3.org/1999/xhtml" class="pipe-node pipe-node-mapping">
+        <div class="pipe-node-head">
+          <span class="pipe-node-step">MAP</span>
+          <span class="pipe-node-name" title="${esc(mappingName)}">${esc(mappingName)}</span>
+        </div>
+        <div class="pipe-node-meta">
+          ${mappingCount} rename${mappingCount === 1 ? '' : 's'} · ${pinned ? 'pinned' : 'active set'}
+        </div>
+        <div style="font-size:0.78rem;color:var(--muted)">
+          Applied to the dropped CSV before step 1
+        </div>
+      </div>
+    </foreignObject>
+  `;
+}
+
+// Static "Filter" card pinned after the last rule-set node. Shows which
+// columns will be dropped from the saved output.
+function renderFilterBookend(x, y, preset) {
+  const hideCount = (preset.hidden || []).length;
+  const sample = (preset.hidden || []).slice(0, 3).join(', ');
+  const more = hideCount > 3 ? `, +${hideCount - 3} more` : '';
+  return `
+    <foreignObject x="${x}" y="${y}" width="${PIPE_NODE_W}" height="${PIPE_NODE_H}"
+                   style="overflow:visible">
+      <div xmlns="http://www.w3.org/1999/xhtml" class="pipe-node pipe-node-filter">
+        <div class="pipe-node-head">
+          <span class="pipe-node-step">OUT</span>
+          <span class="pipe-node-name" title="${esc(preset.name)}">${esc(preset.name)}</span>
+        </div>
+        <div class="pipe-node-meta">
+          drops ${hideCount} column${hideCount === 1 ? '' : 's'}
+        </div>
+        <div style="font-size:0.78rem;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+             title="${esc((preset.hidden || []).join(', '))}">
+          ${esc(sample)}${more}
+        </div>
+      </div>
+    </foreignObject>
+  `;
 }
 
 // Topological sort (Kahn's) — used purely client-side to label steps. The
@@ -3044,35 +3224,49 @@ async function loadDropzones() {
 }
 
 function renderDropzones() {
-  const grid = document.getElementById('dropzoneGrid');
-  if (!grid) return;
+  // Render into BOTH the dropzones tab grid and the home-page mirror.
+  // Each grid gets its own drag/click handlers so they operate independently
+  // (drag onto a card on the home page works the same as on the tab).
+  const grids = ['dropzoneGrid', 'homeDropzoneGrid']
+    .map(id => document.getElementById(id))
+    .filter(Boolean);
+  if (!grids.length) return;
+
+  // Hide the home-page panel entirely if there are no drop zones — keeps the
+  // datasets tab clean before any have been set up.
+  const homePanel = document.getElementById('homeDropzonesPanel');
+  if (homePanel) homePanel.style.display = dropzones.length ? '' : 'none';
+
   if (!dropzones.length) {
-    grid.innerHTML = `
-      <div class="empty-state" style="grid-column:1/-1">
-        <span class="empty-icon">🎯</span>
-        No drop zones yet. Click <strong>+ New drop zone</strong> to create one.
-      </div>`;
+    for (const grid of grids) {
+      grid.innerHTML = `
+        <div class="empty-state" style="grid-column:1/-1">
+          <span class="empty-icon">🎯</span>
+          No drop zones yet. Click <strong>+ New drop zone</strong> to create one.
+        </div>`;
+    }
     return;
   }
-  grid.innerHTML = dropzones.map(dz => renderDropZoneCard(dz)).join('');
-  // Wire drag handlers per card (event delegation would also work, but per-card
-  // handlers keep the data attribute usage straightforward)
-  for (const dz of dropzones) {
-    const card = grid.querySelector(`[data-dz-id="${dz.id}"]`);
-    if (!card) continue;
-    const drop = card.querySelector('.dz-card-drop');
-    drop.addEventListener('dragover', (e) => { e.preventDefault(); card.classList.add('drag-over'); });
-    drop.addEventListener('dragleave', () => card.classList.remove('drag-over'));
-    drop.addEventListener('drop', (e) => {
-      e.preventDefault();
-      card.classList.remove('drag-over');
-      const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
-      if (f) runDropZone(dz.id, f);
-    });
-    drop.addEventListener('click', () => {
-      const inp = card.querySelector('input[type="file"]');
-      if (inp) inp.click();
-    });
+
+  for (const grid of grids) {
+    grid.innerHTML = dropzones.map(dz => renderDropZoneCard(dz)).join('');
+    for (const dz of dropzones) {
+      const card = grid.querySelector(`[data-dz-id="${dz.id}"]`);
+      if (!card) continue;
+      const drop = card.querySelector('.dz-card-drop');
+      drop.addEventListener('dragover', (e) => { e.preventDefault(); card.classList.add('drag-over'); });
+      drop.addEventListener('dragleave', () => card.classList.remove('drag-over'));
+      drop.addEventListener('drop', (e) => {
+        e.preventDefault();
+        card.classList.remove('drag-over');
+        const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+        if (f) runDropZone(dz.id, f);
+      });
+      drop.addEventListener('click', () => {
+        const inp = card.querySelector('input[type="file"]');
+        if (inp) inp.click();
+      });
+    }
   }
 }
 
@@ -4287,14 +4481,15 @@ async function refreshAll() {
     refreshViewColumnPresetSelect();
     renderProfileApi();
     refreshViewSelectors();
+    // Drop zones now appear on the datasets (home) page too, so we always
+    // render them — the function targets both grids (and hides the home
+    // panel when there are no zones).
+    renderDropzones();
     if (!document.getElementById('tab-rulesets').classList.contains('hidden')) {
       renderRuleSets();
     }
     if (!document.getElementById('tab-pipelines').classList.contains('hidden')) {
       renderPipelines();
-    }
-    if (!document.getElementById('tab-dropzones').classList.contains('hidden')) {
-      renderDropzones();
     }
   } catch (err) {
     banner(`Refresh failed: ${err.message}`, 'error');

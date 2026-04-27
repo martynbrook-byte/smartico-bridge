@@ -552,6 +552,9 @@ async function listPipelines() {
         // null = use the active mapping set at run time. A specific id pins
         // the pipeline to that set regardless of which one is active.
         mappingSetId:     typeof r.mappingSetId === 'string' ? r.mappingSetId : null,
+        // Optional column preset applied after the rule-set chain runs —
+        // drops the listed columns from the saved output dataset.
+        columnPresetId:   typeof r.columnPresetId === 'string' ? r.columnPresetId : null,
         nodeCount:        Array.isArray(r.nodes) ? r.nodes.length : 0,
         edgeCount:        Array.isArray(r.edges) ? r.edges.length : 0,
         createdAt:        r.createdAt || null,
@@ -1805,6 +1808,8 @@ app.post('/api/pipelines', async (req, res) => {
         : '{pipelineName}',
       // Pin a specific mapping set or leave null to use the active one at run time.
       mappingSetId:     typeof body.mappingSetId === 'string' ? body.mappingSetId : null,
+      // Optional column preset applied to the final output (drops hidden columns).
+      columnPresetId:   typeof body.columnPresetId === 'string' ? body.columnPresetId : null,
       nodes:            Array.isArray(body.nodes) ? body.nodes : [],
       edges:            Array.isArray(body.edges) ? body.edges : [],
     };
@@ -1830,6 +1835,12 @@ app.patch('/api/pipelines/:id', async (req, res) => {
     if ('mappingSetId' in body) {
       record.mappingSetId = (typeof body.mappingSetId === 'string' && body.mappingSetId)
         ? body.mappingSetId
+        : null;
+    }
+    // columnPresetId: same semantics — null clears, string pins.
+    if ('columnPresetId' in body) {
+      record.columnPresetId = (typeof body.columnPresetId === 'string' && body.columnPresetId)
+        ? body.columnPresetId
         : null;
     }
     if (Array.isArray(body.nodes)) record.nodes = body.nodes;
@@ -1918,6 +1929,26 @@ app.post('/api/pipelines/:id/run', upload.single('file'), async (req, res) => {
 
     const ruleTable = buildRuleTable(allMetrics);
 
+    // 3b. Apply the optional column-preset filter — drops columns from the
+    // final output before save. The RULE/TOTALS table is built from the
+    // metrics produced during the rule-set chain so it's unaffected.
+    let columnPresetName = null;
+    if (pipeline.columnPresetId) {
+      const preset = (settings.columnPresets || []).find(cp => cp.id === pipeline.columnPresetId);
+      if (preset && Array.isArray(preset.hidden) && preset.hidden.length) {
+        const hidden = new Set(preset.hidden);
+        headers = headers.filter(h => !hidden.has(h));
+        rows = rows.map(row => {
+          const out = {};
+          for (const h of headers) out[h] = row[h];
+          return out;
+        });
+        columnPresetName = preset.name;
+      } else if (preset) {
+        columnPresetName = preset.name;
+      }
+    }
+
     // 4. Build the processed dataset record and save it. Filename template is
     // resolved against the source CSV name + pipeline name + date/time tokens.
     const filenameLabel = renderFilenameTemplate(pipeline.filenameTemplate, {
@@ -1941,6 +1972,8 @@ app.post('/api/pipelines/:id/run', upload.single('file'), async (req, res) => {
       pipelineName:    pipeline.name,
       mappingSetId:    pipeline.mappingSetId || settings.activeMappingSetId || null,
       mappingSetName:  runMappingSetName || null,
+      columnPresetId:  pipeline.columnPresetId || null,
+      columnPresetName: columnPresetName,
       ruleSetId:       null,
       ruleSetName:     ordered.length === 1 ? stepLog[0].ruleSetName : `${ordered.length} steps`,
       pipelineSteps:   stepLog,

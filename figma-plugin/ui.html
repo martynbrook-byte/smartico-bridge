@@ -860,7 +860,11 @@ window.onmessage = function(event) {
     var ceOk  = document.getElementById('createOk');
     if (ceBtn) { ceBtn.disabled = false; ceBtn.textContent = '📐 Create all as Figma elements'; }
     if (msg.ok) {
-      if (ceOk) { ceOk.textContent = '✓ Created ' + msg.count + ' element(s) on canvas'; ceOk.classList.add('show'); }
+      var errs = msg.errors && msg.errors.length;
+      var ceMsg = '✓ Created ' + msg.count + ' element(s) on canvas';
+      if (errs) ceMsg += ' · ⚠ ' + errs + ' issue(s): ' + msg.errors.slice(0,2).join('; ');
+      if (ceOk) { ceOk.textContent = ceMsg; ceOk.classList.add('show'); }
+      if (errs) console.warn('[create-elements] errors:', msg.errors);
     } else {
       showBanner('Create failed: ' + (msg.error || 'unknown error'), 'err');
     }
@@ -1045,7 +1049,10 @@ async function createRowElements() {
       var lh  = h.toLowerCase();
       var isImg = val.indexOf('http') === 0 && (
         lh.indexOf('avatar') !== -1 || lh.indexOf('image') !== -1 ||
-        val.match(/\.(jpg|jpeg|png|webp|gif)(\?|$)/i)
+        lh.indexOf('photo') !== -1  || lh.indexOf('thumb') !== -1 ||
+        lh.indexOf('logo')  !== -1  || lh.indexOf('icon')  !== -1 ||
+        val.match(/\.(jpg|jpeg|png|webp|gif|svg)(\?|$)/i) ||
+        val.match(/\/(avatar|image|photo|thumb|thumbnail|logo|icon)\//i)
       );
       columns.push({ name: h, value: val, isImage: !!isImg });
     }
@@ -1057,7 +1064,7 @@ async function createRowElements() {
   for (var j = 0; j < columns.length; j++) {
     var col = columns[j];
     if (!col.isImage || !col.value) continue;
-    var safeName = col.name.toLowerCase().replace(/\s+/g, '_');
+    var safeName = col.name.toLowerCase().replace(/[^a-z0-9_]/g, '_');
     var imgKey   = safeName + '.' + bindRowIndex;
     try {
       var proxyUrl = serverUrl + '/api/proxy-image?url=' + encodeURIComponent(col.value);
@@ -1065,9 +1072,19 @@ async function createRowElements() {
       if (resp.ok) {
         var buf = await resp.arrayBuffer();
         imageMap[imgKey] = Array.from(new Uint8Array(buf));
+      } else {
+        console.warn('[proxy] ' + resp.status + ' for', col.name, col.value);
       }
-    } catch (_) { /* proxy unreachable — node will be created as text */ }
+    } catch (fetchErr) {
+      console.warn('[proxy] fetch error for', col.name, fetchErr.message);
+    }
   }
+
+  var imgCols = columns.filter(function(c){ return c.isImage; });
+  var imgFetched = Object.keys(imageMap);
+  console.log('[create-elements] columns:', columns.map(function(c){ return c.name + (c.isImage ? '(img)':''); }));
+  console.log('[create-elements] image cols detected:', imgCols.map(function(c){ return c.name; }));
+  console.log('[create-elements] imageMap keys fetched:', imgFetched);
 
   if (ceBtn) ceBtn.textContent = '⟳ Creating…';
   parent.postMessage({ pluginMessage: {

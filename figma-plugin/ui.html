@@ -186,6 +186,16 @@
   .btn-bind:hover:not(:disabled) { background: #2dd4bf; border-color: #2dd4bf; color: #0f1a1a; }
   .btn-bind:disabled { opacity: .45; }
   .bind-ok { font-size: 10px; color: var(--teal); text-align: center; display: none; }
+  .bind-divider { border: none; border-top: 1px solid var(--border); margin: 7px 0 5px; }
+  .btn-create-elems {
+    background: var(--surface2); border: 1px solid var(--gold); color: var(--gold);
+    width: 100%; padding: 7px; font-size: 11px; font-weight: 700; border-radius: var(--radius);
+    cursor: pointer; transition: all .15s; font-family: var(--font);
+  }
+  .btn-create-elems:hover:not(:disabled) { background: #f5a62320; }
+  .btn-create-elems:disabled { opacity: .5; cursor: default; }
+  .create-ok { font-size: 10px; color: var(--teal); text-align: center; display: none; margin-top: 4px; }
+  .create-ok.show { display: block; }
 
   /* Upload CSV section */
   .upload-toggle { font-size: 10px; color: var(--muted); background: none; border: none;
@@ -280,7 +290,7 @@
     </div>
   </div>
 
-  <!-- Bind layer — shown when exactly one Figma element is selected + dataset loaded -->
+  <!-- Bind layer — shown when dataset is loaded -->
   <div class="section" id="bindSection" style="display:none">
     <span class="section-title">Bind layer to data</span>
     <div class="bind-panel">
@@ -291,11 +301,16 @@
           <span class="bind-sel-row-val" id="bindRowVal">—</span>
           <span class="bind-sel-row-label" id="bindRowSrc" style="font-size:9px"></span>
         </div>
-        <div style="font-size:10px;color:var(--muted);margin:5px 0 3px">Pick a column to bind:</div>
+        <!-- Column chips: click to rename the selected Figma layer -->
+        <div style="font-size:10px;color:var(--muted);margin:5px 0 3px" id="bindColsLabel">Pick a column to rename the selected layer:</div>
         <div class="bind-cols" id="bindCols"></div>
         <div class="bind-preview empty" id="bindPreview">#column.row</div>
         <button class="btn btn-bind" id="bindBtn" onclick="bindLayer()" disabled>Rename Layer</button>
         <div class="bind-ok" id="bindOk"></div>
+        <!-- Create elements -->
+        <hr class="bind-divider">
+        <button class="btn-create-elems" id="createElemsBtn" onclick="createRowElements()">📐 Create all as Figma elements</button>
+        <div class="create-ok" id="createOk"></div>
       </div>
     </div>
   </div>
@@ -824,6 +839,18 @@ window.onmessage = function(event) {
     return;
   }
 
+  if (msg.type === 'create-elements-result') {
+    var ceBtn = document.getElementById('createElemsBtn');
+    var ceOk  = document.getElementById('createOk');
+    if (ceBtn) { ceBtn.disabled = false; ceBtn.textContent = '📐 Create all as Figma elements'; }
+    if (msg.ok) {
+      if (ceOk) { ceOk.textContent = '✓ Created ' + msg.count + ' element(s) on canvas'; ceOk.classList.add('show'); }
+    } else {
+      showBanner('Create failed: ' + (msg.error || 'unknown error'), 'err');
+    }
+    return;
+  }
+
   if (msg.type === 'inject-result') {
     var btn = document.getElementById('injectBtn');
     btn.disabled = false;
@@ -843,10 +870,18 @@ var bindRowSource = null;  // 'data' | 'rules'
 var bindColName   = null;  // currently selected column name / key
 
 function refreshBindSection() {
-  var canBind = (figmaSel.length === 1 && activeDataset && (activeDataset.headers || []).length > 0);
-  show('bindSection', canBind);
+  // Show whenever a dataset is loaded — "create elements" works without a Figma selection.
+  var hasDataset = !!(activeDataset && (activeDataset.headers || []).length > 0);
+  show('bindSection', hasDataset);
+  if (!hasDataset) return;
   document.getElementById('bindOk').style.display = 'none';
-  if (!canBind) return;
+  // Update chips label to reflect whether renaming is available.
+  var lbl = document.getElementById('bindColsLabel');
+  if (lbl) {
+    lbl.textContent = figmaSel.length === 1
+      ? 'Pick a column to rename the selected layer:'
+      : 'Pick a column to preview its ref name:';
+  }
   renderBindRowPanel();
 }
 
@@ -947,6 +982,68 @@ function bindLayer() {
   var newName  = '#' + safeName + '.' + bindRowIndex;
   document.getElementById('bindBtn').disabled = true;
   parent.postMessage({ pluginMessage: { type: 'rename-node', nodeId: figmaSel[0].id, newName: newName } }, '*');
+}
+
+// ── Create row elements ───────────────────────────────────────────────────────
+// Creates a Figma frame containing one node per column in the selected row.
+// Text columns → TEXT node.  URL columns with avatar/image name → RECTANGLE with image fill.
+// Every node is named #colname.rowindex so it's immediately injection-ready.
+async function createRowElements() {
+  if (!activeDataset || bindRowIndex === null) return;
+
+  var ceBtn = document.getElementById('createElemsBtn');
+  var ceOk  = document.getElementById('createOk');
+  if (ceBtn) { ceBtn.disabled = true; ceBtn.textContent = '⟳ Preparing…'; }
+  if (ceOk)  { ceOk.classList.remove('show'); }
+
+  var columns  = [];   // [{ name, value, isImage }]
+  var imageMap = {};   // { 'colname.rowindex': [bytes] }
+
+  if (bindRowSource === 'rules') {
+    var rt   = (activeDataset.ruleTable || []);
+    var rRow = rt[bindRowIndex - 1] || {};
+    columns.push({ name: 'rule',   value: String(rRow['RULE']   !== undefined ? rRow['RULE']   : ''), isImage: false });
+    columns.push({ name: 'totals', value: String(rRow['TOTALS'] !== undefined ? rRow['TOTALS'] : ''), isImage: false });
+  } else {
+    var rows    = activeDataset.rows    || [];
+    var headers = activeDataset.headers || (rows[0] ? Object.keys(rows[0]) : []);
+    var dRow    = rows[bindRowIndex - 1] || {};
+    for (var i = 0; i < headers.length; i++) {
+      var h   = headers[i];
+      var val = dRow[h] !== undefined ? String(dRow[h]) : '';
+      var lh  = h.toLowerCase();
+      var isImg = val.indexOf('http') === 0 && (
+        lh.indexOf('avatar') !== -1 || lh.indexOf('image') !== -1 ||
+        val.match(/\.(jpg|jpeg|png|webp|gif)(\?|$)/i)
+      );
+      columns.push({ name: h, value: val, isImage: !!isImg });
+    }
+  }
+
+  // Fetch image bytes for URL columns
+  if (ceBtn) ceBtn.textContent = '⟳ Fetching images…';
+  for (var j = 0; j < columns.length; j++) {
+    var col = columns[j];
+    if (!col.isImage || !col.value) continue;
+    var safeName = col.name.toLowerCase().replace(/\s+/g, '_');
+    var imgKey   = safeName + '.' + bindRowIndex;
+    try {
+      var resp = await fetch(col.value);
+      if (resp.ok) {
+        var buf = await resp.arrayBuffer();
+        imageMap[imgKey] = Array.from(new Uint8Array(buf));
+      }
+    } catch (_) { /* network or CORS error — node will be created as text */ }
+  }
+
+  if (ceBtn) ceBtn.textContent = '⟳ Creating…';
+  parent.postMessage({ pluginMessage: {
+    type:     'create-row-elements',
+    columns:  columns,
+    rowIndex: bindRowIndex,
+    imageMap: imageMap,
+    label:    'Row ' + bindRowIndex + (activeDataset.label ? ' – ' + activeDataset.label : ''),
+  }}, '*');
 }
 
 // ── Upload CSV ────────────────────────────────────────────────────────────────

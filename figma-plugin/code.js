@@ -365,6 +365,132 @@ figma.ui.onmessage = async function(msg) {
     return;
   }
 
+  // ── rename-node: rename a layer to a #col.row binding ref ────────────────
+  // msg.nodeId:  Figma node ID (string)
+  // msg.newName: the new layer name, e.g. '#prize.1'
+  if (msg.type === 'rename-node') {
+    try {
+      var target = figma.getNodeById(msg.nodeId);
+      if (!target) {
+        figma.ui.postMessage({ type: 'rename-result', ok: false, error: 'Layer not found — was it deleted?' });
+        return;
+      }
+      if (!('name' in target)) {
+        figma.ui.postMessage({ type: 'rename-result', ok: false, error: 'This node type cannot be renamed.' });
+        return;
+      }
+      target.name = msg.newName;
+      figma.ui.postMessage({ type: 'rename-result', ok: true, newName: msg.newName });
+    } catch (renameErr) {
+      figma.ui.postMessage({ type: 'rename-result', ok: false, error: renameErr.message });
+    }
+    return;
+  }
+
+  // ── create-row-elements: build a frame of named text/image nodes ──────────
+  // msg.columns:  [{ name, value, isImage }]
+  // msg.imageMap: { 'colname.rowindex': [byte array] }
+  // msg.rowIndex: number (1-based)
+  // msg.label:    string — used as the container frame name
+  if (msg.type === 'create-row-elements') {
+    var columns  = msg.columns  || [];
+    var imageMap = msg.imageMap || {};
+    var rowIndex = msg.rowIndex || 1;
+    var label    = msg.label    || ('Row ' + rowIndex);
+
+    if (!columns.length) {
+      figma.ui.postMessage({ type: 'create-elements-result', ok: false, error: 'No columns to create.' });
+      return;
+    }
+
+    // Pre-load a reliable font so all text nodes render correctly.
+    var fontOk = false;
+    var fontRef = { family: 'Inter', style: 'Regular' };
+    try {
+      await figma.loadFontAsync(fontRef);
+      fontOk = true;
+    } catch (_fe) {
+      try { fontRef = { family: 'Roboto', style: 'Regular' }; await figma.loadFontAsync(fontRef); fontOk = true; } catch (_) {}
+    }
+
+    // Container: vertical auto-layout frame so elements stack neatly.
+    var frame = figma.createFrame();
+    frame.name                    = label;
+    frame.layoutMode              = 'VERTICAL';
+    frame.primaryAxisSizingMode   = 'AUTO';   // height: hug children
+    frame.counterAxisSizingMode   = 'AUTO';   // width:  hug children
+    frame.counterAxisAlignItems   = 'MIN';
+    frame.itemSpacing             = 8;
+    frame.paddingTop = frame.paddingBottom = frame.paddingLeft = frame.paddingRight = 16;
+    frame.fills                   = [];       // transparent background
+
+    var created = 0;
+    var errors  = [];
+
+    for (var ci = 0; ci < columns.length; ci++) {
+      var col      = columns[ci];
+      var safeName = String(col.name || '').toLowerCase().replace(/[^a-z0-9_]/g, '_');
+      var nodeKey  = safeName + '.' + rowIndex;
+      var imgBytes = imageMap[nodeKey] || null;
+      var nodeCreated = false;
+
+      // ── Image ──
+      if (imgBytes) {
+        try {
+          var imgNode = figma.createImage(new Uint8Array(imgBytes));
+          var rect    = figma.createRectangle();
+          rect.name   = '#' + nodeKey;
+          rect.resize(80, 80);
+          rect.fills  = [{ type: 'IMAGE', scaleMode: 'FILL', imageHash: imgNode.hash }];
+          // Circular clip for avatar columns
+          if (col.name.toLowerCase().indexOf('avatar') !== -1) {
+            rect.cornerRadius = 40;
+          }
+          frame.appendChild(rect);
+          nodeCreated = true;
+          created++;
+        } catch (imgErr) {
+          errors.push(nodeKey + ': image failed – ' + imgErr.message);
+          imgBytes = null; // fall through to text
+        }
+      }
+
+      // ── Text (or fallback when image creation failed) ──
+      if (!nodeCreated) {
+        try {
+          var txt = figma.createText();
+          txt.name = '#' + nodeKey;
+          if (fontOk) {
+            txt.fontName   = fontRef;
+            txt.fontSize   = 14;
+            txt.characters = String(col.value !== null && col.value !== undefined ? col.value : '');
+          }
+          frame.appendChild(txt);
+          created++;
+        } catch (txtErr) {
+          errors.push(nodeKey + ': text failed – ' + txtErr.message);
+        }
+      }
+    }
+
+    // Place the frame at the centre of the visible viewport.
+    figma.currentPage.appendChild(frame);
+    var vc = figma.viewport.center;
+    frame.x = Math.round(vc.x - frame.width  / 2);
+    frame.y = Math.round(vc.y - frame.height / 2);
+
+    figma.currentPage.selection = [frame];
+    figma.viewport.scrollAndZoomIntoView([frame]);
+
+    figma.ui.postMessage({
+      type:   'create-elements-result',
+      ok:     true,
+      count:  created,
+      errors: errors,
+    });
+    return;
+  }
+
   if (msg.type === 'close') {
     figma.closePlugin();
   }

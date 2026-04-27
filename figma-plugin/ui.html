@@ -1021,7 +1021,7 @@ async function runUpload(file) {
 
   try {
     var form = new FormData();
-    form.append('csv', file);
+    form.append('file', file);
 
     var res = await fetch(serverUrl + '/api/pipelines/' + encodeURIComponent(pipelineId) + '/run', {
       method: 'POST',

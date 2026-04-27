@@ -1089,16 +1089,18 @@ function toggleUpload() {
   var btn   = document.querySelector('.upload-toggle');
   panel.classList.toggle('open', uploadPanelOpen);
   if (btn) btn.textContent = (uploadPanelOpen ? '▾' : '▸') + ' Upload CSV to pipeline';
-  if (uploadPanelOpen && !uploadPipelines.length) loadUploadPipelines();
+  // Always reload the pipeline list when the panel opens so stale IDs are never shown.
+  if (uploadPanelOpen) loadUploadPipelines();
 }
 
 async function loadUploadPipelines() {
   var sel = document.getElementById('uploadPipelineSel');
+  sel.innerHTML = '<option value="">Loading…</option>';
   try {
     var j = await api('/api/pipelines');
     uploadPipelines = (j.pipelines || []).filter(function(p) { return !p.archived; });
     if (!uploadPipelines.length) {
-      sel.innerHTML = '<option value="">No pipelines found</option>';
+      sel.innerHTML = '<option value="">No pipelines — create one in the dashboard first</option>';
       return;
     }
     sel.innerHTML = uploadPipelines.map(function(p) {
@@ -1158,7 +1160,15 @@ async function runUpload(file) {
       body: form
     });
     var j = await res.json().catch(function() { return {}; });
-    if (!res.ok || !j.ok) throw new Error(j.error || ('HTTP ' + res.status));
+    if (!res.ok || !j.ok) {
+      var errMsg = j.error || ('HTTP ' + res.status);
+      if (res.status === 404 || errMsg.indexOf('ENOENT') !== -1) {
+        errMsg = 'Pipeline not found on server — it may have been lost during a redeploy. Open the dashboard and recreate it, then try again.';
+        // Refresh the pipeline list so the stale entry disappears
+        loadUploadPipelines();
+      }
+      throw new Error(errMsg);
+    }
 
     var ds = j.dataset || {};
     okEl.textContent = '✓ Processed: ' + (ds.label || ds.filename || 'dataset') +

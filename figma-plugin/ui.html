@@ -124,6 +124,29 @@
              border-top-color: var(--gold); border-radius: 50%; animation: spin .7s linear infinite; margin-right: 4px; }
   @keyframes spin { to { transform: rotate(360deg); } }
   hr { border: none; border-top: 1px solid var(--border); }
+
+  /* Processing overlay — shown during inject */
+  .processing-overlay {
+    display: none;
+    position: fixed; inset: 0;
+    background: rgba(26,26,46,0.92);
+    backdrop-filter: blur(3px);
+    z-index: 100;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+  }
+  .processing-overlay.active { display: flex; }
+  .proc-ring {
+    width: 48px; height: 48px;
+    border: 3px solid var(--border);
+    border-top-color: var(--gold);
+    border-radius: 50%;
+    animation: spin .8s linear infinite;
+  }
+  .proc-label { font-size: 12px; color: var(--text); font-weight: 600; }
+  .proc-sub   { font-size: 10px; color: var(--muted); }
 </style>
 </head>
 <body>
@@ -190,6 +213,13 @@
 
 <div class="inject-bar" id="injectBar" style="display:none">
   <button class="btn btn-primary" id="injectBtn" onclick="inject()">Inject into Figma</button>
+</div>
+
+<!-- Processing overlay — shown while inject is running -->
+<div class="processing-overlay" id="procOverlay">
+  <div class="proc-ring"></div>
+  <div class="proc-label" id="procLabel">Injecting…</div>
+  <div class="proc-sub" id="procSub"></div>
 </div>
 
 <script>
@@ -520,10 +550,32 @@ function renderRefList() {
 }
 
 // ── Inject ────────────────────────────────────────────────────────────────────
+function showProcessing(label, sub) {
+  var o = document.getElementById('procOverlay');
+  document.getElementById('procLabel').textContent = label || 'Injecting…';
+  document.getElementById('procSub').textContent   = sub   || '';
+  o.classList.add('active');
+  // Hide content sections so the overlay isn't cluttered
+  show('previewSection',  false);
+  show('selSection',      false);
+  show('refsSection',     false);
+  show('injectBar',       false);
+}
+
+function hideProcessing() {
+  document.getElementById('procOverlay').classList.remove('active');
+  // Restore sections if there's an active dataset and refs
+  if (activeDataset) {
+    show('previewSection');
+    show('selSection');
+    show('refsSection');
+    show('injectBar');
+  }
+}
+
 async function inject() {
   if (!activeDataset) { showBanner('Select a dataset first', 'err'); return; }
   if (!scannedRefs.length) {
-    // Auto-scan first
     scanRefs();
     showBanner('Scanning selection for #name.index layers… click Inject again after scan.', 'info');
     return;
@@ -531,7 +583,7 @@ async function inject() {
 
   var btn = document.getElementById('injectBtn');
   btn.disabled = true;
-  btn.textContent = '⏳ Fetching images…';
+  showProcessing('Fetching images…', '');
   hideBanner();
 
   try {
@@ -578,7 +630,7 @@ async function inject() {
     }
 
     // Fetch image bytes
-    btn.textContent = '⏳ Loading images (' + imagesToFetch.length + ')…';
+    showProcessing('Loading images…', imagesToFetch.length + ' to fetch');
     for (var f = 0; f < imagesToFetch.length; f++) {
       try {
         var res = await fetch(imagesToFetch[f].url);
@@ -589,14 +641,14 @@ async function inject() {
       } catch (_) { /* skip — plugin will leave fill unchanged */ }
     }
 
-    btn.textContent = '⏳ Injecting…';
+    showProcessing('Injecting into Figma…', scannedRefs.length + ' layer ref(s)');
     parent.postMessage({ pluginMessage: { type: 'inject-refs', values: values, imageMap: imageMap } }, '*');
-    // Re-enable on result message
+    // Re-enable on result message (inject-result handler below)
 
   } catch (e) {
+    hideProcessing();
     showBanner('Inject error: ' + e.message, 'err');
     btn.disabled = false;
-    btn.textContent = 'Inject into Figma';
   }
 }
 
@@ -650,7 +702,7 @@ window.onmessage = function(event) {
   if (msg.type === 'inject-result') {
     var btn = document.getElementById('injectBtn');
     btn.disabled = false;
-    btn.textContent = 'Inject into Figma';
+    hideProcessing();
     if (!msg.ok) { showBanner('✕ ' + msg.error, 'err'); return; }
     var errs = (msg.errors || []).length;
     var txt = '✓ Injected ' + msg.count + ' of ' + msg.total + ' layer(s)';

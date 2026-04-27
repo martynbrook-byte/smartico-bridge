@@ -1071,21 +1071,7 @@
     .pipe-toggle input:checked ~ .pipe-toggle-label { color: #5eead4; }
 
     /* ── Canvas node drag grip ── */
-    .pipe-node-grip {
-      text-align: center;
-      color: var(--border);
-      font-size: 0.75rem;
-      letter-spacing: 3px;
-      margin: -8px -10px 8px;
-      padding: 3px 0;
-      border-radius: 10px 10px 0 0;
-      background: var(--surface3);
-      border-bottom: 1px solid var(--border);
-      cursor: grab;
-      user-select: none;
-      transition: background 0.12s, color 0.12s;
-    }
-    .pipe-node-grip:hover { background: rgba(245,200,66,0.06); color: var(--muted); }
+    .pipe-node-grip { display: none; }
     .pipe-node.dragging .pipe-node-grip { cursor: grabbing; }
 
     /* RULES type lozenge on rule-set cards */
@@ -1134,16 +1120,16 @@
 
     /* Node card inside foreignObject */
     .pipe-node {
-      width: 320px;
+      width: 200px;
       background: var(--surface2);
       border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 18px 20px;
+      border-radius: 10px;
+      padding: 12px 14px;
       cursor: grab;
       box-shadow: 0 3px 10px rgba(0,0,0,0.32);
       transition: border-color 0.12s, box-shadow 0.12s;
       user-select: none;
-      font-size: 1rem;
+      font-size: 0.85rem;
     }
     .pipe-node:hover { border-color: var(--gold); }
     .pipe-node.connecting { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(96,165,250,0.2); }
@@ -1323,9 +1309,37 @@
       color: var(--muted);
       min-height: 18px;
     }
-    .dz-card-status.ok { color: var(--green); }
+    .dz-card-status.ok  { color: var(--green); }
     .dz-card-status.err { color: var(--red); }
     .dz-card-status.busy { color: var(--blue); }
+
+    /* Processing state — pulsing border + shimmer overlay on the drop target */
+    .dz-card.processing {
+      border-color: var(--blue);
+      animation: dz-pulse 1.2s ease-in-out infinite;
+    }
+    @keyframes dz-pulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(96,165,250,0.0); border-color: var(--blue); }
+      50%       { box-shadow: 0 0 0 6px rgba(96,165,250,0.18); border-color: #93c5fd; }
+    }
+    .dz-card.processing .dz-card-drop {
+      border-color: var(--blue);
+      color: var(--blue);
+      position: relative;
+      overflow: hidden;
+    }
+    .dz-card.processing .dz-card-drop::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(90deg, transparent 0%, rgba(96,165,250,0.12) 50%, transparent 100%);
+      background-size: 200% 100%;
+      animation: dz-shimmer 1.4s linear infinite;
+    }
+    @keyframes dz-shimmer {
+      from { background-position: 200% 0; }
+      to   { background-position: -200% 0; }
+    }
     .dz-card-actions { display: flex; gap: 6px; justify-content: flex-end; }
   </style>
 </head>
@@ -2869,8 +2883,8 @@ let _pipeSaveTimer = null;
 let _bookendPos = null;            // cached bookend positions from last full render
 
 // Default node size (kept in sync with .pipe-node CSS width)
-const PIPE_NODE_W = 320;
-const PIPE_NODE_H = 150;
+const PIPE_NODE_W = 200;
+const PIPE_NODE_H = 120;
 
 async function loadPipelines() {
   const r = await api('/api/pipelines');
@@ -3920,6 +3934,8 @@ function setDropZoneStatus(id, kind, text) {
   if (!s) return;
   s.className = 'dz-card-status ' + (kind || '');
   s.textContent = text;
+  // Toggle processing animation on the card itself
+  card.classList.toggle('processing', kind === 'busy');
 }
 
 // ── View tab ────────────────────────────────────────────────────────────────

@@ -185,24 +185,21 @@ figma.ui.onmessage = async function(msg) {
           return;
         }
 
-        // Variant set on INSTANCE: if the instance exposes a variant property
-        // whose name matches the column (case-insensitive), prefer that over
-        // text/image behaviour.
+        // INSTANCE with a single # prefix: smart component/variant replacement.
+        //
+        // Strategy (in priority order):
+        //  1. Find a sibling variant in the same COMPONENT_SET whose name or
+        //     variant value matches the cell value → swapComponent (most reliable).
+        //  2. Find any local component whose name matches the cell value →
+        //     swapComponent (cross-set replacement).
+        //  3. Fall back to setProperties if a matching variant property exists
+        //     (legacy behaviour — kept for backward compatibility).
+        //
+        // This replaces the old "setProperties only" approach which failed when
+        // the variant value string didn't match a property option exactly.
         if (n.type === 'INSTANCE' && (key in values)) {
-          var vp = n.variantProperties || null;
-          if (vp) {
-            var matchedProp = null;
-            for (var pk in vp) {
-              if (Object.prototype.hasOwnProperty.call(vp, pk) && pk.toLowerCase() === colName.toLowerCase()) {
-                matchedProp = pk;
-                break;
-              }
-            }
-            if (matchedProp) {
-              pending.push({ node: n, key: key, type: 'variant', propName: matchedProp });
-              return;
-            }
-          }
+          pending.push({ node: n, key: key, type: 'smart-instance', column: colName });
+          return;
         }
 
         if (n.type === 'TEXT' && (key in values)) {
@@ -260,6 +257,74 @@ figma.ui.onmessage = async function(msg) {
           } catch (setErr) {
             errors.push(item.node.name + ': variant "' + asStr + '" not available (' + setErr.message + ')');
           }
+        } else if (item.type === 'smart-instance') {
+          // Smart instance replacement: try sibling variant → global component →
+          // variant property setProperties (legacy).
+          var rawVal2 = String(values[item.key] !== null && values[item.key] !== undefined ? values[item.key] : '');
+          if (!rawVal2) { count++; continue; } // empty value — leave as-is
+          var lowerVal = rawVal2.toLowerCase();
+          var swapped = false;
+
+          // 1. Sibling variant in the same COMPONENT_SET
+          try {
+            var mainComp = item.node.mainComponent;
+            if (mainComp && mainComp.parent && mainComp.parent.type === 'COMPONENT_SET') {
+              var siblings = mainComp.parent.children;
+              for (var si = 0; si < siblings.length; si++) {
+                var sib = siblings[si];
+                if (sib.type !== 'COMPONENT') continue;
+                var sibName = String(sib.name || '').toLowerCase();
+                // Full name match
+                if (sibName === lowerVal) { item.node.swapComponent(sib); swapped = true; break; }
+                // Match the value side of "Property=Value" pairs (handles multi-property names too)
+                var parts2 = sib.name.split(',');
+                for (var pi = 0; pi < parts2.length; pi++) {
+                  var eq = parts2[pi].indexOf('=');
+                  if (eq !== -1) {
+                    var segVal = parts2[pi].slice(eq + 1).trim().toLowerCase();
+                    if (segVal === lowerVal) { item.node.swapComponent(sib); swapped = true; break; }
+                  }
+                }
+                if (swapped) break;
+              }
+            }
+          } catch (_sibErr) { /* ignore — fall through */ }
+
+          // 2. Global component lookup by name
+          if (!swapped) {
+            try {
+              var cidx = buildComponentIndex();
+              var gComp = cidx.byLowerName[lowerVal] || cidx.byLastSegment[lowerVal] || null;
+              if (gComp) { item.node.swapComponent(gComp); swapped = true; }
+            } catch (_gErr) { /* ignore */ }
+          }
+
+          // 3. Fallback: variant property setProperties (legacy)
+          if (!swapped) {
+            try {
+              var vp2 = item.node.variantProperties || null;
+              if (vp2) {
+                var matchedProp2 = null;
+                for (var pk2 in vp2) {
+                  if (Object.prototype.hasOwnProperty.call(vp2, pk2) && pk2.toLowerCase() === item.column.toLowerCase()) {
+                    matchedProp2 = pk2; break;
+                  }
+                }
+                if (matchedProp2) {
+                  var props2 = {};
+                  props2[matchedProp2] = rawVal2;
+                  item.node.setProperties(props2);
+                  swapped = true;
+                }
+              }
+            } catch (_vpErr) {
+              errors.push(item.node.name + ': setProperties failed — ' + _vpErr.message);
+            }
+          }
+
+          if (swapped) { count++; }
+          else { errors.push(item.node.name + ': no variant or component matched "' + rawVal2 + '"'); }
+
         } else if (item.type === 'swap') {
           var target = String(values[item.key] === null || values[item.key] === undefined ? '' : values[item.key]);
           if (!target) {

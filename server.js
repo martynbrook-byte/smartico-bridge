@@ -48,7 +48,15 @@ for (const dir of [DATA_DIR, DATASETS_DIR, PIPELINES_DIR, DROPZONES_DIR, UPLOADS
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 }
 if (!fs.existsSync(SETTINGS_FILE)) {
-  fs.writeFileSync(SETTINGS_FILE, JSON.stringify({ columnMappings: {}, ruleSets: [] }, null, 2));
+  // Restore from the committed seed file if one exists (recovery after accidental
+  // git-tracked deletion), otherwise boot with an empty config.
+  const seedFile = path.join(DATA_DIR, 'settings-seed.json');
+  if (fs.existsSync(seedFile)) {
+    fs.copyFileSync(seedFile, SETTINGS_FILE);
+    console.log('[boot] settings.json restored from settings-seed.json');
+  } else {
+    fs.writeFileSync(SETTINGS_FILE, JSON.stringify({ columnMappings: {}, ruleSets: [] }, null, 2));
+  }
 }
 
 // ── Middleware ───────────────────────────────────────────────────────────────
@@ -701,7 +709,10 @@ function parseCsv(filepath) {
     const rows = [];
     let headers = null;
     fs.createReadStream(filepath)
-      .pipe(csvParser())
+      // mapHeaders trims whitespace and strips BOM from every header name so
+      // that mappings typed in the UI match even when the CSV came from Excel
+      // (which often adds a UTF-8 BOM to the first column) or has trailing spaces.
+      .pipe(csvParser({ mapHeaders: ({ header }) => header.trim().replace(/^﻿/, '') }))
       .on('headers', (h) => { headers = h; })
       .on('data', (row) => rows.push(row))
       .on('end', () => resolve({ rows, headers: headers || (rows[0] ? Object.keys(rows[0]) : []) }))
@@ -711,10 +722,18 @@ function parseCsv(filepath) {
 
 function applyColumnMappings(rows, mappings) {
   if (!mappings || !Object.keys(mappings).length) return rows;
+  // Build a normalised lookup so matching is case-insensitive and
+  // whitespace-tolerant. CSV headers often have invisible leading/trailing
+  // spaces or BOM bytes; mapping keys entered by hand may differ in case.
+  const normMap = {};
+  for (const k of Object.keys(mappings)) {
+    normMap[k.trim().toLowerCase()] = mappings[k];
+  }
   return rows.map(row => {
     const out = {};
     for (const key of Object.keys(row)) {
-      const mapped = mappings[key] || key;
+      const norm   = key.trim().toLowerCase();
+      const mapped = normMap[norm] || key;  // fall back to original key if no mapping
       out[mapped] = row[key];
     }
     return out;

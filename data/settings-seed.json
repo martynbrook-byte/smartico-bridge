@@ -1,0 +1,243 @@
+{
+  "mappingSets": [
+    {
+      "id": "ms_default",
+      "name": "PID + Prize",
+      "mappings": {
+        "prize_name": "prize",
+        "user_id": "PID"
+      }
+    }
+  ],
+  "activeMappingSetId": "ms_default",
+  "columnMappings": {
+    "prize_name": "prize",
+    "user_id": "PID"
+  },
+  "ruleSets": [
+    {
+      "id": "rs_default",
+      "name": "RODA BLAZE WINNERS",
+      "description": "Migrated from legacy settings.",
+      "rules": [
+        {
+          "id": "r3",
+          "type": "sum",
+          "name": "Prize amount total",
+          "config": {
+            "column": "prize_amount"
+          }
+        },
+        {
+          "id": "r_ghjrkbjk7",
+          "type": "count",
+          "name": "Free Flight 20MT Count",
+          "config": {
+            "matchMode": "exact",
+            "column": "prize",
+            "value": "Free Flight 20MT",
+            "format": "financial"
+          }
+        },
+        {
+          "id": "r1",
+          "type": "count",
+          "name": "Free Flight 10MT count",
+          "config": {
+            "column": "prize",
+            "value": "Free Flight 10MT",
+            "matchMode": "exact"
+          }
+        },
+        {
+          "id": "r_84po9s4cs",
+          "type": "count",
+          "name": "Free Flight 5MT count",
+          "config": {
+            "matchMode": "exact",
+            "column": "prize",
+            "value": "Free Flight 5MT"
+          }
+        },
+        {
+          "id": "r2",
+          "type": "count",
+          "name": "All Free Flights",
+          "config": {
+            "column": "prize",
+            "value": "Free Flight",
+            "matchMode": "contains"
+          }
+        },
+        {
+          "id": "r_wjenm6qty",
+          "type": "count",
+          "name": "50,000 Cash Count",
+          "config": {
+            "matchMode": "exact",
+            "column": "prize",
+            "value": "50,000 Cash"
+          }
+        },
+        {
+          "id": "r_futa88oal",
+          "type": "count",
+          "name": "500 Cash Count",
+          "config": {
+            "matchMode": "exact",
+            "column": "prize",
+            "value": "500 Cash"
+          }
+        },
+        {
+          "id": "r_gfocuziti",
+          "type": "count",
+          "name": "100 Cash Count",
+          "config": {
+            "matchMode": "exact",
+            "value": "100 Cash",
+            "column": "prize"
+          }
+        },
+        {
+          "id": "r_9janawnhd",
+          "type": "count-times",
+          "name": "Count 50,000 Cash value",
+          "config": {
+            "matchMode": "exact",
+            "multiplier": 50000,
+            "column": "prize",
+            "value": "50,000 Cash",
+            "format": "financial"
+          }
+        },
+        {
+          "id": "r_ego0kdnfn",
+          "type": "count-times",
+          "name": "Count 500 Cash value",
+          "config": {
+            "matchMode": "exact",
+            "multiplier": 500,
+            "column": "prize",
+            "value": "500 Cash",
+            "format": "financial"
+          }
+        },
+        {
+          "id": "r_7pm9x7ljw",
+          "type": "count-times",
+          "name": "Count 100 Cash value",
+          "config": {
+            "matchMode": "exact",
+            "multiplier": 100,
+            "column": "prize",
+            "value": "100 Cash",
+            "format": "financial"
+          }
+        },
+        {
+          "id": "r_j2uplhta9",
+          "type": "aggregate-metrics",
+          "name": "Total Cash",
+          "config": {
+            "op": "sum",
+            "ruleIds": [
+              "r_9janawnhd",
+              "r_ego0kdnfn",
+              "r_7pm9x7ljw"
+            ],
+            "format": "financial",
+            "currencyCode": ""
+          }
+        },
+        {
+          "id": "r_g0ffmuzws",
+          "type": "extract-number",
+          "name": "Prize value",
+          "config": {
+            "sourceColumn": "prize",
+            "targetColumn": "prize_value",
+            "format": "financial",
+            "rounded": true
+          }
+        },
+        {
+          "id": "r_zfhoqswzr",
+          "type": "sort",
+          "name": "Sort",
+          "config": {
+            "direction": "desc",
+            "column": "prize_value"
+          }
+        }
+      ]
+    }
+  ],
+  "profileApi": {
+    "brandMap": {
+      "888-Mozambique": "888bets Mozambique",
+      "888bets Mozambique": "888bets Mozambique",
+      "888-Angola": "888bets Angola",
+      "888bets Angola": "888bets Angola",
+      "BetLion": "BetLion Zambia",
+      "BetLion Zambia": "BetLion Zambia"
+    },
+    "endpoints": {
+      "888bets Mozambique": "https://888africa.com/888bets-mozambique/wp-json/profiles/v1/profile-names-by-pids",
+      "888bets Angola": "https://888africa.com/888bets-mozambique/wp-json/profiles/v1/profile-names-by-pids",
+      "BetLion Zambia": "https://gamepage.betlion.co.zm/wp-json/betlion-zambia/profile-names-by-pids"
+    },
+    "defaultAvatars": {
+      "888bets Mozambique": "https://blaze.888bets.co.mz/wp-content/uploads/2025/02/Property-1Mystery.png",
+      "888bets Angola": "https://blaze.888bets.co.mz/wp-content/uploads/2025/02/Property-1Mystery.png",
+      "BetLion Zambia": "https://gamepage.betlion.co.zm/wp-content/themes/megamission/images/avatars/avatardefault.webp"
+    },
+    "pidColumn": "PID",
+    "batchSize": 1000
+  },
+  "columnPresets": [
+    {
+      "id": "cp_321e380b",
+      "name": "PID/PRIZE REMAP",
+      "hidden": [
+        "saw_template_id",
+        "spin_id",
+        "create_date",
+        "prize_amount",
+        "buyin_cost_points",
+        "saw_prize_note",
+        "label_id",
+        "saw_prize_id",
+        "crm_brand_id",
+        "user_ext_id",
+        "public_username",
+        "pnet_customer_code",
+        "acknowledge_date",
+        "lose_date",
+        "win_date",
+        "is_loss",
+        "template_name",
+        "saw_template_ui_name",
+        "saw_game_type_id",
+        "saw_buyin_type_id",
+        "jackpot_symbol",
+        "saw_game_name",
+        "price_description",
+        "saw_skin_name",
+        "saw_buyin_type_name",
+        "prize_details_json.ui_amount",
+        "prize_details_json.ignore_bonus_cap",
+        "prize_details_json.label_bonus_template_id",
+        "prize_type_name",
+        "ext_brand_id",
+        "crm_brand_name",
+        "profile_name",
+        "avatar",
+        "avatar_image",
+        "phone",
+        "prize_value",
+        "prize_value_display"
+      ]
+    }
+  ]
+}

@@ -1051,7 +1051,8 @@ async function createRowElements() {
     }
   }
 
-  // Fetch image bytes for URL columns
+  // Fetch image bytes via the bridge server proxy — bypasses CORS restrictions
+  // that block the plugin iframe from fetching avatar/image URLs directly.
   if (ceBtn) ceBtn.textContent = '⟳ Fetching images…';
   for (var j = 0; j < columns.length; j++) {
     var col = columns[j];
@@ -1059,12 +1060,13 @@ async function createRowElements() {
     var safeName = col.name.toLowerCase().replace(/\s+/g, '_');
     var imgKey   = safeName + '.' + bindRowIndex;
     try {
-      var resp = await fetch(col.value);
+      var proxyUrl = serverUrl + '/api/proxy-image?url=' + encodeURIComponent(col.value);
+      var resp = await fetch(proxyUrl);
       if (resp.ok) {
         var buf = await resp.arrayBuffer();
         imageMap[imgKey] = Array.from(new Uint8Array(buf));
       }
-    } catch (_) { /* network or CORS error — node will be created as text */ }
+    } catch (_) { /* proxy unreachable — node will be created as text */ }
   }
 
   if (ceBtn) ceBtn.textContent = '⟳ Creating…';

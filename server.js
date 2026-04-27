@@ -2183,6 +2183,34 @@ app.delete('/api/dropzones/:id', async (req, res) => {
   }
 });
 
+// ── Image proxy ──────────────────────────────────────────────────────────────
+// The Figma plugin UI iframe cannot fetch cross-origin images (CORS). This
+// endpoint fetches any image server-side (no CORS restriction) and streams it
+// back to the plugin, letting it obtain bytes for figma.createImage().
+//   GET /api/proxy-image?url=https%3A%2F%2F...
+app.get('/api/proxy-image', async (req, res) => {
+  const target = req.query.url;
+  if (!target || !/^https?:\/\//i.test(target)) {
+    return res.status(400).json({ error: 'url query param required (must start with http)' });
+  }
+  try {
+    const response = await fetch(target, {
+      headers: { 'User-Agent': 'Smartico-Bridge-Proxy/1.0' },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!response.ok) {
+      return res.status(502).json({ error: `Remote returned ${response.status}` });
+    }
+    const ct = response.headers.get('content-type') || 'application/octet-stream';
+    res.setHeader('Content-Type', ct);
+    res.setHeader('Cache-Control', 'public, max-age=300'); // 5 min cache — avatars don't change often
+    const buf = await response.arrayBuffer();
+    res.send(Buffer.from(buf));
+  } catch (err) {
+    res.status(502).json({ error: 'Proxy fetch failed: ' + err.message });
+  }
+});
+
 // Health snapshot for the Firewatch widget.
 app.get('/api/health', async (_req, res) => {
   res.setHeader('Cache-Control', 'no-store');

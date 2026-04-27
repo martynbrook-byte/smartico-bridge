@@ -3391,6 +3391,8 @@ async function savePipelineNow() {
     enrichAfterRun: !!activePipeline.enrichAfterRun,
     nodes: activePipeline.nodes || [],
     edges: activePipeline.edges || [],
+    mappingSetId: activePipeline.mappingSetId || null,
+    columnPresetId: activePipeline.columnPresetId || null,
   };
   try {
     const updated = await api(`/api/pipelines/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
@@ -3511,43 +3513,12 @@ function clearGhostEdge() {
   if (g) g.innerHTML = '';
 }
 
-// Smooth drag: move the card's DOM elements directly without a full re-render.
-// Edges are redrawn separately. Full re-render happens only on mouseup.
-function movePipeNodeDOM(nodeId, x, y) {
-  const nodesG = document.getElementById('pipelineNodes');
-  if (!nodesG) return;
-  const fo = nodesG.querySelector(`foreignObject[data-node-id="${nodeId}"]`);
-  if (fo) { fo.setAttribute('x', x); fo.setAttribute('y', y); }
-  const portIn = nodesG.querySelector(`circle[data-port-node="${nodeId}"][data-port-side="in"]`);
-  if (portIn) { portIn.setAttribute('cx', x); portIn.setAttribute('cy', y + PIPE_NODE_H / 2); }
-  const portOut = nodesG.querySelector(`circle[data-port-node="${nodeId}"][data-port-side="out"]`);
-  if (portOut) { portOut.setAttribute('cx', x + PIPE_NODE_W); portOut.setAttribute('cy', y + PIPE_NODE_H / 2); }
-  redrawEdgesOnly();
-}
-
-// Redraw only the rule-set → rule-set edges during drag (fast path; bookend phantoms stay put).
-function redrawEdgesOnly() {
-  const p = activePipeline;
-  if (!p) return;
-  const nodes = Array.isArray(p.nodes) ? p.nodes : [];
-  const edges = Array.isArray(p.edges) ? p.edges : [];
-  const edgesG = document.getElementById('pipelineEdges');
-  if (!edgesG) return;
-  const realEdges = edges.map(e => {
-    const from = nodes.find(n => n.id === e.from);
-    const to   = nodes.find(n => n.id === e.to);
-    if (!from || !to) return '';
-    const x1 = (from.x || 0) + PIPE_NODE_W;
-    const y1 = (from.y || 0) + PIPE_NODE_H / 2;
-    const x2 = (to.x || 0);
-    const y2 = (to.y || 0) + PIPE_NODE_H / 2;
-    const dx = Math.max(40, Math.abs(x2 - x1) * 0.45);
-    const d  = `M${x1},${y1} C${x1 + dx},${y1} ${x2 - dx},${y2} ${x2},${y2}`;
-    return `<path class="pipe-edge" d="${d}" marker-end="url(#pipelineArrow)"
-              onclick="deletePipelineEdge('${esc(e.id)}')"></path>`;
-  }).join('');
-  edgesG.innerHTML = realEdges;
-}
+// ── Drag rendering ───────────────────────────────────────────────────────────
+// Use requestAnimationFrame-throttled full re-renders during drag so that:
+//  • bookend cards (MAP / ENRICH / OUT) and their phantom edges stay in sync
+//  • each card moves independently (only the dragged node's x/y changes)
+//  • we get smooth 60fps rendering without DOM thrash
+let _rafDragPending = false;
 
 document.addEventListener('mousemove', (evt) => {
   if (_pipeDrag && activePipeline) {
@@ -3556,7 +3527,13 @@ document.addEventListener('mousemove', (evt) => {
       const pt = pipeCanvasPoint(evt);
       node.x = Math.max(0, pt.x - _pipeDrag.dx);
       node.y = Math.max(0, pt.y - _pipeDrag.dy);
-      movePipeNodeDOM(_pipeDrag.id, node.x, node.y); // smooth — no full re-render
+      if (!_rafDragPending) {
+        _rafDragPending = true;
+        requestAnimationFrame(() => {
+          renderPipelineCanvas();
+          _rafDragPending = false;
+        });
+      }
     }
   }
   if (_pipeConnect && activePipeline) {
@@ -3575,7 +3552,7 @@ document.addEventListener('mousemove', (evt) => {
 document.addEventListener('mouseup', () => {
   if (_pipeDrag) {
     _pipeDrag = null;
-    renderPipelineCanvas(); // full re-render on drop to restore bookend phantoms & resize
+    renderPipelineCanvas();
     queuePipelineSave();
   }
   if (_pipeConnect) {

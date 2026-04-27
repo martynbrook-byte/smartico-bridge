@@ -2866,6 +2866,7 @@ let activePipeline = null;         // full record for the open pipeline
 let _pipeDrag = null;              // { id, dx, dy } while dragging a node
 let _pipeConnect = null;           // { fromId } while drawing a ghost edge
 let _pipeSaveTimer = null;
+let _bookendPos = null;            // cached bookend positions from last full render
 
 // Default node size (kept in sync with .pipe-node CSS width)
 const PIPE_NODE_W = 320;
@@ -2940,6 +2941,27 @@ function onPipelineEnrichChange(checked) {
   activePipeline.enrichAfterRun = checked;
   const lbl = document.getElementById('pipelineEnrichLabel');
   if (lbl) lbl.textContent = checked ? 'On' : 'Off';
+
+  // When enabling ENRICH, auto-push rule nodes right if they would overlap
+  // the ENRICH bookend. The bookend position depends on minX of nodes, so we
+  // simulate it here and shift all nodes by whatever gap is needed.
+  if (checked) {
+    const nodes = activePipeline.nodes || [];
+    if (nodes.length) {
+      const minX    = Math.min(...nodes.map(n => n.x || 0));
+      const enrichGap = PIPE_NODE_W + 40;
+      const mappingX  = Math.max(20, minX - PIPE_NODE_W - 40 - enrichGap);
+      const enrichX   = mappingX + PIPE_NODE_W + 40;
+      const enrichEnd = enrichX + PIPE_NODE_W;
+      const needed    = enrichEnd + 40; // nodes must start at least here
+      if (minX < needed) {
+        const shift = needed - minX;
+        nodes.forEach(n => { n.x = (n.x || 0) + shift; });
+      }
+    }
+  }
+
+  renderPipelineCanvas();
   queuePipelineSave();
 }
 
@@ -3078,6 +3100,8 @@ function renderPipelineCanvas() {
     const mapX0 = 40;
     const enrichX0 = mapX0 + PIPE_NODE_W + 40;
     const filterX0 = mapX0 + enrichOffsetEmpty + PIPE_NODE_W + 60;
+    _bookendPos = { mapX: mapX0, mapY: 60, enrichX: enrichX0, enrichY: 60,
+                    filterX: filterX0, filterY: 60, doEnrich: doEnrichEmpty, hasFilter: !!filterPreset };
     let emptyEdges = '';
     if (doEnrichEmpty) {
       const ph = (x1, y1, x2, y2) => {
@@ -3159,6 +3183,15 @@ function renderPipelineCanvas() {
 
   edgesG.innerHTML = mappingEdge + enrichEdge + realEdges + filterEdge;
 
+  // Cache bookend positions so the drag-update path can keep them frozen while
+  // the user drags a rule-set node (prevents bookends from shifting during drag).
+  _bookendPos = {
+    mapX: mappingX, mapY: mappingY,
+    enrichX, enrichY,
+    filterX, filterY,
+    doEnrich, hasFilter: !!filterPreset,
+  };
+
   const ruleSetNodes = nodes.map(n => {
     const rs = (settings.ruleSets || []).find(r => r.id === n.ruleSetId);
     const label = rs ? rs.name : '(missing rule set)';
@@ -3190,10 +3223,12 @@ function renderPipelineCanvas() {
     `;
   }).join('');
 
+  // Rule-set nodes first (bottom z-layer), bookends on top so they're never
+  // hidden behind a rule card even when coordinates overlap.
   nodesG.innerHTML =
-    renderMappingBookend(mappingX, mappingY, mappingName, mappingCount, mappingPinned)
+    ruleSetNodes
+    + renderMappingBookend(mappingX, mappingY, mappingName, mappingCount, mappingPinned)
     + (doEnrich ? renderEnrichBookend(enrichX, enrichY) : '')
-    + ruleSetNodes
     + (filterPreset ? renderFilterBookend(filterX, filterY, filterPreset) : '');
 
   resizePipelineCanvas();
@@ -3251,6 +3286,83 @@ function renderEnrichBookend(x, y) {
 
 // Static "Mapping" card pinned to the start of the canvas. Shows what
 // column-mapping set will run before any rule sets.
+// ── Fast drag-update helpers ──────────────────────────────────────────────────
+// During drag we avoid a full renderPipelineCanvas() re-render because that
+// recalculates bookend positions relative to node positions, making every card
+// appear to move together. Instead we:
+//  1. Move just the dragged foreignObject + its port circles via setAttribute.
+//  2. Redraw all edges using the _bookendPos cached from the last full render,
+//     so bookend cards stay frozen while only the rule node moves.
+
+function applyDragUpdate(nodeId) {
+  const p = activePipeline;
+  if (!p || !_bookendPos) { renderPipelineCanvas(); return; }
+  const node = (p.nodes || []).find(n => n.id === nodeId);
+  if (!node) return;
+
+  // Move the foreignObject for the dragged node
+  const fo = document.querySelector(`#pipelineNodes foreignObject[data-node-id="${nodeId}"]`);
+  if (fo) {
+    fo.setAttribute('x', node.x || 0);
+    fo.setAttribute('y', node.y || 0);
+  }
+  // Move its port circles (sibling SVG elements, queried by data-port-node)
+  const portIn = document.querySelector(`circle[data-port-node="${nodeId}"][data-port-side="in"]`);
+  if (portIn) {
+    portIn.setAttribute('cx', node.x || 0);
+    portIn.setAttribute('cy', (node.y || 0) + PIPE_NODE_H / 2);
+  }
+  const portOut = document.querySelector(`circle[data-port-node="${nodeId}"][data-port-side="out"]`);
+  if (portOut) {
+    portOut.setAttribute('cx', (node.x || 0) + PIPE_NODE_W);
+    portOut.setAttribute('cy', (node.y || 0) + PIPE_NODE_H / 2);
+  }
+  // Redraw edges with frozen bookend positions
+  redrawEdgesForDrag(p);
+}
+
+function redrawEdgesForDrag(p) {
+  const edgesG = document.getElementById('pipelineEdges');
+  if (!edgesG || !_bookendPos) return;
+  const nodes = p.nodes || [];
+  const edges = p.edges || [];
+  const bp    = _bookendPos;
+
+  let ordered = [];
+  try { ordered = topoOrder(nodes, edges); } catch (_) { ordered = nodes; }
+  const firstNode = ordered[0] || nodes[0];
+  const lastNode  = ordered[ordered.length - 1] || nodes[nodes.length - 1];
+
+  const ph = (x1, y1, x2, y2) => {
+    const dx = Math.max(40, Math.abs(x2 - x1) * 0.45);
+    return `<path class="pipe-edge pipe-edge-phantom" d="M${x1},${y1} C${x1+dx},${y1} ${x2-dx},${y2} ${x2},${y2}" marker-end="url(#pipelineArrow)"></path>`;
+  };
+
+  const realEdges = edges.map(e => {
+    const from = nodes.find(n => n.id === e.from);
+    const to   = nodes.find(n => n.id === e.to);
+    if (!from || !to) return '';
+    const x1 = (from.x || 0) + PIPE_NODE_W, y1 = (from.y || 0) + PIPE_NODE_H / 2;
+    const x2 = to.x   || 0,                 y2 = (to.y   || 0) + PIPE_NODE_H / 2;
+    const dx = Math.max(40, Math.abs(x2 - x1) * 0.45);
+    return `<path class="pipe-edge" d="M${x1},${y1} C${x1+dx},${y1} ${x2-dx},${y2} ${x2},${y2}" marker-end="url(#pipelineArrow)" onclick="deletePipelineEdge('${esc(e.id)}')"></path>`;
+  }).join('');
+
+  const firstRuleX = firstNode ? (firstNode.x || 0) : bp.enrichX + PIPE_NODE_W + 40;
+  const firstRuleY = firstNode ? (firstNode.y || 0) + PIPE_NODE_H / 2 : bp.mapY + PIPE_NODE_H / 2;
+  const mappingEdge = bp.doEnrich
+    ? ph(bp.mapX + PIPE_NODE_W, bp.mapY + PIPE_NODE_H / 2, bp.enrichX, bp.enrichY + PIPE_NODE_H / 2)
+    : ph(bp.mapX + PIPE_NODE_W, bp.mapY + PIPE_NODE_H / 2, firstRuleX, firstRuleY);
+  const enrichEdge = bp.doEnrich
+    ? ph(bp.enrichX + PIPE_NODE_W, bp.enrichY + PIPE_NODE_H / 2, firstRuleX, firstRuleY)
+    : '';
+  const filterEdge = (bp.hasFilter && lastNode)
+    ? ph((lastNode.x || 0) + PIPE_NODE_W, (lastNode.y || 0) + PIPE_NODE_H / 2, bp.filterX, bp.filterY + PIPE_NODE_H / 2)
+    : '';
+
+  edgesG.innerHTML = mappingEdge + enrichEdge + realEdges + filterEdge;
+}
+
 function renderMappingBookend(x, y, mappingName, mappingCount, pinned) {
   return `
     <foreignObject x="${x}" y="${y}" width="${PIPE_NODE_W}" height="${PIPE_NODE_H}"
@@ -3514,10 +3626,9 @@ function clearGhostEdge() {
 }
 
 // ── Drag rendering ───────────────────────────────────────────────────────────
-// Use requestAnimationFrame-throttled full re-renders during drag so that:
-//  • bookend cards (MAP / ENRICH / OUT) and their phantom edges stay in sync
-//  • each card moves independently (only the dragged node's x/y changes)
-//  • we get smooth 60fps rendering without DOM thrash
+// During drag we use applyDragUpdate() (direct DOM setAttribute + edge redraw)
+// rather than a full renderPipelineCanvas(). This keeps bookend cards frozen in
+// place — they only reposition on a full render (mouseup), not on every frame.
 let _rafDragPending = false;
 
 document.addEventListener('mousemove', (evt) => {
@@ -3530,7 +3641,7 @@ document.addEventListener('mousemove', (evt) => {
       if (!_rafDragPending) {
         _rafDragPending = true;
         requestAnimationFrame(() => {
-          renderPipelineCanvas();
+          applyDragUpdate(_pipeDrag && _pipeDrag.id);
           _rafDragPending = false;
         });
       }

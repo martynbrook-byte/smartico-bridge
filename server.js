@@ -1483,6 +1483,36 @@ app.get('/api/settings', async (_req, res) => {
   res.json(await readSettings());
 });
 
+// Export full settings as a downloadable JSON file — use as a manual backup
+// before committing so you can restore without rebuilding rules/mappings.
+app.get('/api/settings/export', async (_req, res) => {
+  try {
+    const s    = await readSettings();
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-');
+    res.setHeader('Content-Disposition', `attachment; filename="smartico-settings-${stamp}.json"`);
+    res.setHeader('Content-Type', 'application/json');
+    res.send(JSON.stringify(s, null, 2));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Import settings from a JSON file upload — restores rules, mappings, presets.
+// Also writes a fresh seed file so the next cold deploy starts with this snapshot.
+app.post('/api/settings/import', express.json({ limit: '2mb' }), async (req, res) => {
+  try {
+    const body = req.body;
+    if (!body || typeof body !== 'object') return res.status(400).json({ error: 'Expected JSON body' });
+    const saved = await writeSettings(body);
+    // Keep the seed in sync so cold-start deploys get this version too.
+    const seedFile = path.join(DATA_DIR, 'settings-seed.json');
+    await fsp.writeFile(seedFile, JSON.stringify(saved, null, 2));
+    res.json({ ok: true, ruleSets: (saved.ruleSets || []).length, mappingSets: (saved.mappingSets || []).length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/api/settings', async (req, res) => {
   try {
     const current  = await readSettings();
@@ -2157,30 +2187,63 @@ app.delete('/api/dropzones/:id', async (req, res) => {
 app.get('/api/health', async (_req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   try {
-    const [datasets, settings] = await Promise.all([listDatasets(), readSettings()]);
-    const latest = datasets[0] || null;
+    const [datasets, settings, pipelines, dropzones] = await Promise.all([
+      listDatasets(), readSettings(), listPipelines(), listDropZones(),
+    ]);
+    const processed = datasets.filter(d => d.isProcessed);
+    const latest    = datasets[0] || null;
+    const latestProcessed = processed[0] || null;
+
+    // Recent processed datasets (last 5) for the widget list
+    const recentProcessed = processed.slice(0, 5).map(d => ({
+      id:          d.id,
+      label:       d.label || d.filename,
+      rowCount:    d.rowCount,
+      uploadedAt:  d.uploadedAt,
+      pipelineName: d.pipelineName || null,
+      headers:     (d.headers || []).length,
+    }));
+
     res.json({
       ok: true,
       service: 'smartico-bridge',
       uptimeSec: Math.round(process.uptime()),
       datasets: {
-        total:  datasets.length,
+        total:     datasets.length,
+        processed: processed.length,
         latest: latest
           ? {
-              id:         latest.id,
-              filename:    latest.filename,
-              label:       latest.label || null,
+              id:          latest.id,
+              label:       latest.label || latest.filename,
               uploadedAt:  latest.uploadedAt,
               rowCount:    latest.rowCount,
-              summary:     latest.summary || null,
               isProcessed: latest.isProcessed || false,
-              maxRows:     latest.maxRows ?? null,
               ruleSetName: latest.ruleSetName || null,
+              pipelineName: latest.pipelineName || null,
             }
           : null,
+        latestProcessed: latestProcessed
+          ? {
+              id:          latestProcessed.id,
+              label:       latestProcessed.label || latestProcessed.filename,
+              uploadedAt:  latestProcessed.uploadedAt,
+              rowCount:    latestProcessed.rowCount,
+              pipelineName: latestProcessed.pipelineName || null,
+              headers:     (latestProcessed.headers || []).length,
+            }
+          : null,
+        recentProcessed,
+      },
+      pipelines: {
+        total: pipelines.length,
+        names: pipelines.slice(0, 5).map(p => p.name),
+      },
+      dropzones: {
+        total: dropzones.length,
       },
       ruleSets: {
         total: (settings.ruleSets || []).length,
+        names: (settings.ruleSets || []).map(r => r.name),
       },
       checkedAt: new Date().toISOString(),
     });

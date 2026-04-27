@@ -1657,6 +1657,32 @@
 
   <!-- ═══ Settings ═══ -->
   <section id="tab-settings" class="tab-panel hidden">
+
+    <!-- Backup / Restore ─────────────────────────────────────────────────── -->
+    <div class="panel" style="border-color:#f5a62355">
+      <div class="panel-title" style="color:var(--gold)">
+        💾 Settings backup &amp; restore
+        <span class="hint" style="color:var(--muted)">Export before committing · import to recover rules &amp; mappings</span>
+      </div>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <a class="btn btn-primary" href="/api/settings/export" download
+           title="Downloads settings.json with all your rules, mappings and presets">
+          ⬇ Export settings.json
+        </a>
+        <label class="btn" style="cursor:pointer" title="Restore rules &amp; mappings from a previously exported file">
+          ⬆ Import settings.json
+          <input type="file" accept=".json,application/json" style="display:none" onchange="importSettings(event)">
+        </label>
+        <span id="importStatus" style="font-size:0.82rem;color:var(--muted)"></span>
+      </div>
+      <div style="font-size:0.8rem;color:var(--muted);margin-top:10px;line-height:1.6">
+        <strong style="color:var(--text)">Tip — permanent fix:</strong>
+        Add a <strong>Railway Volume</strong> mounted at <code>/app/data</code> and set the env var
+        <code>DATA_DIR=/app/data</code>. All rules, mappings, pipelines and datasets will survive
+        every future deploy without any manual backup step.
+      </div>
+    </div>
+
     <div class="panel">
       <div class="panel-title">
         Column mappings
@@ -1822,6 +1848,31 @@ async function api(path, opts = {}) {
 async function loadSettings() {
   settings = await api('/api/settings');
   return settings;
+}
+
+async function importSettings(evt) {
+  const file = evt.target.files && evt.target.files[0];
+  if (!file) return;
+  const status = document.getElementById('importStatus');
+  status.textContent = 'Reading…';
+  status.style.color = 'var(--muted)';
+  try {
+    const text = await file.text();
+    const json = JSON.parse(text);
+    const r = await api('/api/settings/import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(json),
+    });
+    await refreshAll();
+    status.textContent = `✓ Restored — ${r.ruleSets} rule set(s), ${r.mappingSets} mapping set(s)`;
+    status.style.color = 'var(--success, #22c55e)';
+  } catch (e) {
+    status.textContent = '✕ Import failed: ' + e.message;
+    status.style.color = 'var(--danger)';
+  }
+  // Reset file input so the same file can be re-imported if needed
+  evt.target.value = '';
 }
 async function loadDatasets() {
   const r = await api('/api/datasets');

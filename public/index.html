@@ -1510,8 +1510,8 @@
             <!-- NAME CONVENTION -->
             <div class="pipe-tb-section pipe-tb-name">
               <span class="pipe-tb-label" title="Template for the output dataset name. Click tokens to insert.">🏷 Name Convention</span>
-              <input id="pipelineFilenameTpl" type="text" placeholder="{dropZoneName}-{iteration}"
-                     onblur="onPipelineFilenameTplBlur()">
+              <input id="pipelineFilenameTpl" type="text" placeholder="{dropZoneName} - {iteration} {date}"
+                     oninput="updateTplPreview()" onblur="onPipelineFilenameTplBlur()">
               <div class="pipe-token-row">
                 <span class="pipe-token-hint">Insert:</span>
                 <button class="pipe-token-chip" onclick="insertTplToken('{pipelineName}')">{pipelineName}</button>
@@ -1521,6 +1521,8 @@
                 <button class="pipe-token-chip" onclick="insertTplToken('{time}')">{time}</button>
                 <button class="pipe-token-chip" onclick="insertTplToken('{sourceFilename}')">{sourceFilename}</button>
               </div>
+              <div id="tplPreview" style="font-size:0.72rem;color:var(--muted);font-family:'SF Mono',Consolas,monospace;
+                   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:2px 0;min-height:1.2em"></div>
             </div>
 
             <span class="pipe-tb-hint">Grab handle to drag cards · right port → left port to connect · click arrow to delete</span>
@@ -2928,6 +2930,7 @@ function renderPipelineEditor(p) {
   }
   renderPipelineMappingSelect();
   renderPipelineFilterSelect();
+  updateTplPreview();
   renderPipelineCanvas();
 }
 
@@ -2940,6 +2943,33 @@ function onPipelineEnrichChange(checked) {
   queuePipelineSave();
 }
 
+// Live preview of the filename template using the current pipeline name + sample values
+function updateTplPreview() {
+  const inp  = document.getElementById('pipelineFilenameTpl');
+  const prev = document.getElementById('tplPreview');
+  if (!inp || !prev) return;
+  const tpl = inp.value || inp.placeholder;
+  const now  = new Date();
+  const pad  = n => String(n).padStart(2, '0');
+  const date = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`;
+  const time = `${pad(now.getHours())}-${pad(now.getMinutes())}`;
+  const vars = {
+    pipelinename:   activePipeline ? (activePipeline.name || 'Pipeline') : 'Pipeline',
+    sourcefilename: 'winners-export',
+    dropzonename:   'Daily Winners',
+    iteration:      '001',
+    date,
+    time,
+  };
+  const resolved = tpl.replace(/\{([a-zA-Z]+)\}/gi, (whole, key) => {
+    const v = vars[key.toLowerCase()];
+    return v !== undefined ? v : whole;
+  });
+  const hasUnresolved = /\{[^}]+\}/.test(resolved);
+  prev.textContent = `→ ${resolved}`;
+  prev.style.color = hasUnresolved ? 'var(--red)' : 'var(--green)';
+}
+
 // Insert a template token at the cursor position in the filename template input
 function insertTplToken(token) {
   const inp = document.getElementById('pipelineFilenameTpl');
@@ -2949,6 +2979,7 @@ function insertTplToken(token) {
   inp.value = inp.value.slice(0, start) + token + inp.value.slice(end);
   inp.focus();
   inp.setSelectionRange(start + token.length, start + token.length);
+  updateTplPreview();
   if (activePipeline) {
     activePipeline.filenameTemplate = inp.value;
     queuePipelineSave();
@@ -3304,7 +3335,7 @@ async function createPipeline() {
   try {
     const created = await api('/api/pipelines', {
       method: 'POST',
-      body: JSON.stringify({ name: 'New pipeline', nodes: [], edges: [], filenameTemplate: '{pipelineName}' }),
+      body: JSON.stringify({ name: 'New pipeline', nodes: [], edges: [], filenameTemplate: '{dropZoneName} - {iteration} {date}' }),
     });
     activePipeline = created.pipeline || created; // server wraps in { pipeline: … }
     await loadPipelines();

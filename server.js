@@ -1816,7 +1816,7 @@ app.post('/api/pipelines', async (req, res) => {
       description:      typeof body.description === 'string' ? body.description : '',
       filenameTemplate: typeof body.filenameTemplate === 'string' && body.filenameTemplate.trim()
         ? body.filenameTemplate.trim()
-        : '{pipelineName}',
+        : '{dropZoneName} - {iteration} {date}',
       // Pin a specific mapping set or leave null to use the active one at run time.
       mappingSetId:     typeof body.mappingSetId === 'string' ? body.mappingSetId : null,
       // Optional column preset applied to the final output (drops hidden columns).

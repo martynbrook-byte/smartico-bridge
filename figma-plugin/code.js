@@ -788,9 +788,16 @@ figma.ui.onmessage = async function(msg) {
           if (def.children && def.children.length) {
             for (var gci = 0; gci < def.children.length; gci++) {
               try {
-                // skipPosition=true → child created with correct properties but
-                // no position yet; avoids the double-offset bug described above.
-                var gch = await restoreNode(def.children[gci], gParent, true);
+                // Restore children WITHOUT skipPosition so they land at their
+                // stored group-relative coordinates in gParent's space.
+                // Figma guarantees that min(child.x in group space) = 0 and
+                // min(child.y in group space) = 0 — so the group's bounding box
+                // top-left will sit at (0,0) in the parent after figma.group().
+                // We then move the whole group (+ children) to its stored position
+                // in a single applyPositionAndTransform call below.
+                // This avoids the bounding-box drift that occurred when children
+                // were repositioned one-by-one after grouping.
+                var gch = await restoreNode(def.children[gci], gParent, false);
                 if (gch) gChildren.push(gch);
               } catch(_) {}
             }
@@ -798,13 +805,8 @@ figma.ui.onmessage = async function(msg) {
           var grpNode;
           if (gChildren.length > 0) {
             grpNode = figma.group(gChildren, gParent);
-            // Children are now inside the group. Apply each child's stored position
-            // exactly once, in the group's coordinate space. For rotated/flipped
-            // children the stored relativeTransform pivot is already group-relative
-            // (it was captured while the child lived inside the group).
-            for (var gri = 0; gri < gChildren.length && gri < def.children.length; gri++) {
-              try { applyPositionAndTransform(gChildren[gri], def.children[gri]); } catch(_) {}
-            }
+            // No per-child repositioning needed — children are already at the
+            // correct relative positions. Moving the group below carries them all.
           } else {
             // No children — fall back to a transparent frame
             grpNode = figma.createFrame();
@@ -815,8 +817,6 @@ figma.ui.onmessage = async function(msg) {
           if (typeof def.opacity   === 'number') { try { grpNode.opacity   = def.opacity;   } catch(_) {} }
           if (typeof def.blendMode === 'string') { try { grpNode.blendMode = def.blendMode; } catch(_) {} }
           if (def.visible === false)              { try { grpNode.visible   = false;          } catch(_) {} }
-          // Position the group itself — but only if the caller hasn't reserved
-          // that step for itself (e.g. an outer GROUP that will re-apply later).
           if (!skipPosition) applyPositionAndTransform(grpNode, def);
           return grpNode; // early return — children already handled
         }

@@ -514,6 +514,10 @@ figma.ui.onmessage = async function(msg) {
       // Full 2×3 affine matrix — the only way to capture flip (negative scale)
       // alongside rotation. We use this at restore time to recover both.
       try { out.relativeTransform = safeJson(node.relativeTransform); } catch(_) {}
+      // Page-space transform — used at restore time to place root nodes correctly
+      // even when they were originally inside a section or nested frame
+      // (relativeTransform is parent-relative, absoluteTransform is page-relative).
+      try { out.absoluteTransform = safeJson(node.absoluteTransform); } catch(_) {}
 
       // ── Visibility & blend ────────────────────────────────────────────────
       try { out.visible   = node.visible;   } catch(_) {}
@@ -997,20 +1001,50 @@ figma.ui.onmessage = async function(msg) {
 
     var restored = [];
     var vc = figma.viewport.center;
+
+    // Compute centroid of all root nodes using their saved absoluteTransform
+    // pivots (tx = col[2]). This correctly handles nodes that were inside
+    // sections or frames — their relativeTransform is parent-relative, but
+    // absoluteTransform is always page-space.
+    var sumAX = 0, sumAY = 0, countA = 0;
+    for (var pi = 0; pi < tree.length; pi++) {
+      var pat = tree[pi].absoluteTransform;
+      if (pat && pat[0] && pat[1]) {
+        sumAX += pat[0][2];
+        sumAY += pat[1][2];
+        countA++;
+      }
+    }
+    var anchorX = countA ? sumAX / countA : Math.round(vc.x);
+    var anchorY = countA ? sumAY / countA : Math.round(vc.y);
+    // Shift centroid to viewport centre so the whole group lands in view.
+    var layoutOffsetX = Math.round(vc.x) - anchorX;
+    var layoutOffsetY = Math.round(vc.y) - anchorY;
+
     for (var ri = 0; ri < tree.length; ri++) {
       var rn = await restoreNode(tree[ri], null);
       if (rn) {
-        var vtx = Math.round(vc.x) + ri * 24;
-        var vty = Math.round(vc.y) + ri * 24;
-        try {
-          // Update tx/ty in the existing relativeTransform so rotation/flip are
-          // preserved while placing the node at viewport centre.
-          // Setting node.x on a rotated node moves the bounding-box edge, not the
-          // transform pivot — those differ under rotation, causing position error.
-          var curRt = rn.relativeTransform;
-          rn.relativeTransform = [[curRt[0][0], curRt[0][1], vtx], [curRt[1][0], curRt[1][1], vty]];
-        } catch(_) {
-          try { rn.x = vtx; rn.y = vty; } catch(_) {}
+        var srcAt = tree[ri].absoluteTransform;
+        if (srcAt && srcAt[0] && srcAt[1]) {
+          // Place using page-space pivot + layout offset so relative positions
+          // between nodes are fully preserved and rotation/flip matrices are kept.
+          var vtx = srcAt[0][2] + layoutOffsetX;
+          var vty = srcAt[1][2] + layoutOffsetY;
+          try {
+            rn.relativeTransform = [[srcAt[0][0], srcAt[0][1], vtx], [srcAt[1][0], srcAt[1][1], vty]];
+          } catch(_) {
+            try { rn.x = vtx; rn.y = vty; } catch(_) {}
+          }
+        } else {
+          // Fallback — no absoluteTransform data, stagger from viewport centre.
+          var vtx2 = Math.round(vc.x) + ri * 24;
+          var vty2 = Math.round(vc.y) + ri * 24;
+          try {
+            var curRt = rn.relativeTransform;
+            rn.relativeTransform = [[curRt[0][0], curRt[0][1], vtx2], [curRt[1][0], curRt[1][1], vty2]];
+          } catch(_) {
+            try { rn.x = vtx2; rn.y = vty2; } catch(_) {}
+          }
         }
         restored.push(rn);
       }

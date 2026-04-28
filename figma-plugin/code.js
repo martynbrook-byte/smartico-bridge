@@ -723,9 +723,69 @@ figma.ui.onmessage = async function(msg) {
 
     var restoreErrors = [];
 
+    // Helper: apply position + rotation/flip to a node using the stored transform.
+    // For rotated/flipped nodes we must use the stored pivot (rt[0][2], rt[1][2])
+    // not def.x/def.y — def.x is the bounding-box origin, which differs from
+    // the transform pivot when the node is rotated.
+    function applyPositionAndTransform(node, def) {
+      if (def.relativeTransform) {
+        var rt  = def.relativeTransform;
+        var rta = rt[0][0], rtb = rt[0][1], rtc = rt[1][0], rtd = rt[1][1];
+        var hasRotOrFlip = Math.abs(rtb) > 0.001 || Math.abs(rtc) > 0.001 || (rta * rtd - rtb * rtc) < 0;
+        if (hasRotOrFlip) {
+          // Use stored pivot (rt[0][2]/rt[1][2]) — NOT def.x/def.y — as tx/ty.
+          try {
+            node.relativeTransform = [[rta, rtb, rt[0][2]], [rtc, rtd, rt[1][2]]];
+            return;
+          } catch(_) {
+            // Setter unavailable (e.g. auto-layout child) — fall through
+            try { if (typeof def.rotation === 'number' && def.rotation !== 0) node.rotation = def.rotation; } catch(_) {}
+          }
+        }
+      } else if (typeof def.rotation === 'number' && def.rotation !== 0) {
+        try { node.rotation = def.rotation; } catch(_) {}
+      }
+      // Plain position (no rotation/flip, or fallback from above)
+      try { if (typeof def.x === 'number') node.x = def.x; } catch(_) {}
+      try { if (typeof def.y === 'number') node.y = def.y; } catch(_) {}
+    }
+
     async function restoreNode(def, parent) {
       var node;
       try {
+        // ── GROUP: special-case — figma.group() needs existing nodes ─────────
+        // Create children in the parent first, then wrap them. Groups don't
+        // have their own coordinate space, so children's stored x/y are already
+        // in the parent's coordinate space.
+        if (def.type === 'GROUP') {
+          var gParent = parent || figma.currentPage;
+          var gChildren = [];
+          if (def.children && def.children.length) {
+            for (var gci = 0; gci < def.children.length; gci++) {
+              try {
+                var gch = await restoreNode(def.children[gci], gParent);
+                if (gch) gChildren.push(gch);
+              } catch(_) {}
+            }
+          }
+          var grpNode;
+          if (gChildren.length > 0) {
+            grpNode = figma.group(gChildren, gParent);
+          } else {
+            // No children — fall back to transparent frame
+            grpNode = figma.createFrame();
+            grpNode.fills = [];
+            gParent.appendChild(grpNode);
+          }
+          grpNode.name = def.name || 'Group';
+          // Restore opacity/blendMode/visibility
+          if (typeof def.opacity   === 'number') { try { grpNode.opacity   = def.opacity;   } catch(_) {} }
+          if (typeof def.blendMode === 'string') { try { grpNode.blendMode = def.blendMode; } catch(_) {} }
+          if (def.visible === false)              { try { grpNode.visible   = false;          } catch(_) {} }
+          applyPositionAndTransform(grpNode, def);
+          return grpNode; // early return — children already handled
+        }
+
         // ── Create the right node type ────────────────────────────────────
         if (def.type === 'INSTANCE' && def.componentId) {
           try {
@@ -741,9 +801,6 @@ figma.ui.onmessage = async function(msg) {
           } else if (def.type === 'SECTION') {
             // Sections are page-level only; createSection() places on current page
             node = figma.createSection();
-          } else if (def.type === 'GROUP') {
-            // Groups need at least one child; create a frame as a stand-in
-            node = figma.createFrame();
           } else if (def.type === 'TEXT') {
             node = figma.createText();
           } else if (def.type === 'RECTANGLE') {
@@ -897,40 +954,7 @@ figma.ui.onmessage = async function(msg) {
         }
 
         // ── Position + rotation + flip ─────────────────────────────────────
-        // The stored relativeTransform 2×3 matrix captures rotation AND flip
-        // (negative determinant = flip). We keep the rotation/flip components
-        // from the matrix but use def.x / def.y for translation so that
-        // restored nodes land at their original relative position within their
-        // parent (root nodes get overridden to viewport centre by the caller).
-        if (def.relativeTransform) {
-          var rt  = def.relativeTransform;
-          var rta = rt[0][0], rtb = rt[0][1], rtc = rt[1][0], rtd = rt[1][1];
-          var hasRotOrFlip = Math.abs(rtb) > 0.001 || Math.abs(rtc) > 0.001 || (rta * rtd - rtb * rtc) < 0;
-          if (hasRotOrFlip) {
-            var tx = typeof def.x === 'number' ? def.x : rt[0][2];
-            var ty = typeof def.y === 'number' ? def.y : rt[1][2];
-            try {
-              node.relativeTransform = [[rta, rtb, tx], [rtc, rtd, ty]];
-            } catch(_) {
-              // relativeTransform setter not available (e.g. auto-layout child) —
-              // fall back to rotation property alone
-              try { if (typeof def.rotation === 'number' && def.rotation !== 0) node.rotation = def.rotation; } catch(_) {}
-              try { if (typeof def.x === 'number') node.x = def.x; } catch(_) {}
-              try { if (typeof def.y === 'number') node.y = def.y; } catch(_) {}
-            }
-          } else {
-            // No rotation or flip — plain position
-            try { if (typeof def.x === 'number') node.x = def.x; } catch(_) {}
-            try { if (typeof def.y === 'number') node.y = def.y; } catch(_) {}
-          }
-        } else {
-          // No transform stored — apply rotation property + position
-          if (typeof def.rotation === 'number' && def.rotation !== 0) {
-            try { node.rotation = def.rotation; } catch(_) {}
-          }
-          try { if (typeof def.x === 'number') node.x = def.x; } catch(_) {}
-          try { if (typeof def.y === 'number') node.y = def.y; } catch(_) {}
-        }
+        applyPositionAndTransform(node, def);
 
       } catch (re) {
         restoreErrors.push((def.name || '?') + ': ' + re.message);

@@ -494,8 +494,6 @@ figma.ui.onmessage = async function(msg) {
   }
 
   // ── save-asset: serialise the current selection into a portable tree ─────
-  // The UI will POST the tree to /api/assets. We do the serialisation here
-  // (inside the plugin sandbox) because only code.js can access figma nodes.
   if (msg.type === 'save-asset') {
     var sel = figma.currentPage.selection;
     if (!sel.length) {
@@ -503,49 +501,158 @@ figma.ui.onmessage = async function(msg) {
       return;
     }
 
+    function safeJson(v) { try { return JSON.parse(JSON.stringify(v)); } catch(_) { return null; } }
+
     function serializeNode(node) {
-      var out = {
-        type:  node.type,
-        name:  node.name,
-      };
-      // Geometry
-      if ('x' in node) { out.x = Math.round(node.x); out.y = Math.round(node.y); }
-      if ('width'  in node) out.width  = Math.round(node.width);
-      if ('height' in node) out.height = Math.round(node.height);
-      // Visual
-      if ('fills'   in node) { try { out.fills   = JSON.parse(JSON.stringify(node.fills));   } catch(_) {} }
-      if ('strokes' in node) { try { out.strokes = JSON.parse(JSON.stringify(node.strokes)); } catch(_) {} }
-      if ('opacity' in node) out.opacity = node.opacity;
-      if ('cornerRadius' in node && typeof node.cornerRadius === 'number') out.cornerRadius = node.cornerRadius;
-      // Auto-layout
+      var out = { type: node.type, name: node.name };
+
+      // ── Geometry ──────────────────────────────────────────────────────────
+      try { out.x = node.x; out.y = node.y; } catch(_) {}
+      try { out.width  = node.width;  } catch(_) {}
+      try { out.height = node.height; } catch(_) {}
+      try { out.rotation = node.rotation; } catch(_) {}
+
+      // ── Visibility & blend ────────────────────────────────────────────────
+      try { out.visible   = node.visible;   } catch(_) {}
+      try { out.opacity   = node.opacity;   } catch(_) {}
+      try { out.blendMode = node.blendMode; } catch(_) {}
+      try { out.locked    = node.locked;    } catch(_) {}
+
+      // ── Fills, strokes, effects ───────────────────────────────────────────
+      try { out.fills = safeJson(node.fills) || []; } catch(_) {}
+      try { out.strokes = safeJson(node.strokes) || []; } catch(_) {}
+      try { out.strokeWeight = node.strokeWeight; } catch(_) {}
+      try { out.strokeAlign  = node.strokeAlign;  } catch(_) {}
+      try { out.strokeCap    = node.strokeCap;    } catch(_) {}
+      try { out.strokeJoin   = node.strokeJoin;   } catch(_) {}
+      try { out.dashPattern  = safeJson(node.dashPattern); } catch(_) {}
+      try { out.effects = safeJson(node.effects) || []; } catch(_) {}
+
+      // ── Corner radius ─────────────────────────────────────────────────────
+      try {
+        if (typeof node.cornerRadius === 'number') {
+          out.cornerRadius = node.cornerRadius;
+        } else {
+          // Mixed — store all four corners
+          out.topLeftRadius     = node.topLeftRadius;
+          out.topRightRadius    = node.topRightRadius;
+          out.bottomLeftRadius  = node.bottomLeftRadius;
+          out.bottomRightRadius = node.bottomRightRadius;
+        }
+      } catch(_) {}
+
+      // ── Constraints ───────────────────────────────────────────────────────
+      try { out.constraints = { horizontal: node.constraints.horizontal, vertical: node.constraints.vertical }; } catch(_) {}
+
+      // ── Auto-layout (frames) ──────────────────────────────────────────────
       if ('layoutMode' in node) {
-        out.layoutMode            = node.layoutMode;
-        out.itemSpacing           = node.itemSpacing || 0;
-        out.paddingTop            = node.paddingTop || 0;
-        out.paddingBottom         = node.paddingBottom || 0;
-        out.paddingLeft           = node.paddingLeft || 0;
-        out.paddingRight          = node.paddingRight || 0;
-        out.primaryAxisSizingMode = node.primaryAxisSizingMode;
-        out.counterAxisSizingMode = node.counterAxisSizingMode;
-        out.primaryAxisAlignItems = node.primaryAxisAlignItems;
-        out.counterAxisAlignItems = node.counterAxisAlignItems;
-      }
-      // Text
-      if (node.type === 'TEXT') {
-        out.characters = node.characters || '';
         try {
-          out.fontSize   = node.fontSize;
-          out.fontName   = { family: node.fontName.family, style: node.fontName.style };
-          out.textAlignHorizontal = node.textAlignHorizontal;
+          out.layoutMode             = node.layoutMode;
+          out.itemSpacing            = node.itemSpacing;
+          out.paddingTop             = node.paddingTop;
+          out.paddingBottom          = node.paddingBottom;
+          out.paddingLeft            = node.paddingLeft;
+          out.paddingRight           = node.paddingRight;
+          out.primaryAxisSizingMode  = node.primaryAxisSizingMode;
+          out.counterAxisSizingMode  = node.counterAxisSizingMode;
+          out.primaryAxisAlignItems  = node.primaryAxisAlignItems;
+          out.counterAxisAlignItems  = node.counterAxisAlignItems;
+          out.layoutWrap             = node.layoutWrap;
+          out.clipsContent           = node.clipsContent;
         } catch(_) {}
       }
-      // Children
-      if ('children' in node && node.children.length) {
-        out.children = [];
-        for (var ci = 0; ci < node.children.length; ci++) {
-          try { out.children.push(serializeNode(node.children[ci])); } catch(_) {}
+
+      // ── Shape-specific ────────────────────────────────────────────────────
+      if (node.type === 'POLYGON' || node.type === 'STAR') {
+        try { out.pointCount = node.pointCount; } catch(_) {}
+      }
+      if (node.type === 'STAR') {
+        try { out.innerRadius = node.innerRadius; } catch(_) {}
+      }
+      if (node.type === 'VECTOR') {
+        try { out.vectorPaths = safeJson(node.vectorPaths); } catch(_) {}
+        try { out.vectorNetwork = safeJson(node.vectorNetwork); } catch(_) {}
+      }
+      if (node.type === 'BOOLEAN_OPERATION') {
+        try { out.booleanOperation = node.booleanOperation; } catch(_) {}
+      }
+
+      // ── Component instance ────────────────────────────────────────────────
+      // Store the component ID so restore can find and instantiate it if
+      // the component still exists in this file.
+      if (node.type === 'INSTANCE') {
+        try {
+          var mc = node.mainComponent;
+          out.componentId   = mc ? mc.id   : null;
+          out.componentName = mc ? mc.name : null;
+        } catch(_) {}
+      }
+
+      // ── Text — full styled-segment capture ────────────────────────────────
+      if (node.type === 'TEXT') {
+        try { out.characters = node.characters || ''; } catch(_) {}
+        try { out.textAlignHorizontal = node.textAlignHorizontal; } catch(_) {}
+        try { out.textAlignVertical   = node.textAlignVertical;   } catch(_) {}
+        try { out.textAutoResize      = node.textAutoResize;      } catch(_) {}
+        try { out.paragraphSpacing    = node.paragraphSpacing;    } catch(_) {}
+
+        // Capture styled segments — this preserves per-character font, size,
+        // weight, colour, decoration, letter-spacing and line-height even when
+        // they differ across the text node.
+        try {
+          var segs = node.getStyledTextSegments([
+            'fontName', 'fontSize', 'fontWeight', 'fills',
+            'textDecoration', 'textCase', 'letterSpacing', 'lineHeight',
+          ]);
+          out.textSegments = segs.map(function(s) {
+            return {
+              start:         s.start,
+              end:           s.end,
+              characters:    s.characters,
+              fontName:      s.fontName  ? { family: s.fontName.family, style: s.fontName.style } : null,
+              fontSize:      s.fontSize,
+              fontWeight:    s.fontWeight,
+              fills:         safeJson(s.fills) || [],
+              textDecoration:s.textDecoration,
+              textCase:      s.textCase,
+              letterSpacing: safeJson(s.letterSpacing),
+              lineHeight:    safeJson(s.lineHeight),
+            };
+          });
+          // Also store the primary font/size for use as the node-level default
+          if (segs.length > 0 && segs[0].fontName) {
+            out.fontName = { family: segs[0].fontName.family, style: segs[0].fontName.style };
+            out.fontSize = segs[0].fontSize;
+          }
+        } catch(_) {
+          // Fallback: try reading the whole-node properties
+          try {
+            var fn = node.fontName;
+            if (fn && typeof fn === 'object' && fn.family) {
+              out.fontName = { family: fn.family, style: fn.style };
+            }
+          } catch(_) {}
+          try {
+            var fs = node.fontSize;
+            if (typeof fs === 'number') out.fontSize = fs;
+          } catch(_) {}
         }
       }
+
+      // ── Children ──────────────────────────────────────────────────────────
+      // Don't descend into INSTANCE children — we'll handle those at restore
+      // time by creating a real instance from the component.
+      if ('children' in node && node.type !== 'INSTANCE') {
+        try {
+          if (node.children.length) {
+            out.children = [];
+            for (var ci = 0; ci < node.children.length; ci++) {
+              try { out.children.push(serializeNode(node.children[ci])); } catch(_) {}
+            }
+          }
+        } catch(_) {}
+      }
+
       return out;
     }
 
@@ -556,31 +663,19 @@ figma.ui.onmessage = async function(msg) {
     }
 
     if (!nodes.length) {
-      figma.ui.postMessage({
-        type:  'save-asset-result',
-        ok:    false,
-        error: 'Could not serialise any node' + (serErrors.length ? ': ' + serErrors[0] : ''),
-      });
+      figma.ui.postMessage({ type: 'save-asset-result', ok: false,
+        error: 'Could not serialise any node' + (serErrors.length ? ': ' + serErrors[0] : '') });
       return;
     }
 
-    var assetName = msg.name || (sel.length === 1 ? sel[0].name : 'Selection (' + sel.length + ' nodes)');
+    var assetName = sel.length === 1 ? sel[0].name : 'Selection (' + sel.length + ' nodes)';
     try {
-      figma.ui.postMessage({
-        type:      'save-asset-result',
-        ok:        true,
-        name:      assetName,
-        assetType: sel.length === 1 ? sel[0].type : 'GROUP',
-        nodeCount: nodes.length,
-        nodes:     nodes,
-      });
+      figma.ui.postMessage({ type: 'save-asset-result', ok: true,
+        name: assetName, assetType: sel.length === 1 ? sel[0].type : 'GROUP',
+        nodeCount: nodes.length, nodes: nodes });
     } catch (pmErr) {
-      // postMessage can fail if the payload exceeds Figma's message size limit.
-      figma.ui.postMessage({
-        type:  'save-asset-result',
-        ok:    false,
-        error: 'Serialised data too large to transfer (' + pmErr.message + '). Try selecting fewer / simpler nodes.',
-      });
+      figma.ui.postMessage({ type: 'save-asset-result', ok: false,
+        error: 'Payload too large for postMessage — select fewer/simpler nodes (' + pmErr.message + ')' });
     }
     return;
   }
@@ -593,27 +688,34 @@ figma.ui.onmessage = async function(msg) {
       return;
     }
 
-    // Pre-load all fonts that appear in the tree
-    function collectFonts(nodes, set) {
+    // Collect every unique font referenced in the tree (including segments)
+    // so we can pre-load them all before touching any text node.
+    var fontMap = {};
+    function collectFonts(nodes) {
       for (var i = 0; i < nodes.length; i++) {
         var n = nodes[i];
-        if (n.type === 'TEXT' && n.fontName) {
-          set.add(n.fontName.family + '|' + n.fontName.style);
+        if (n.type === 'TEXT') {
+          if (n.textSegments) {
+            for (var si2 = 0; si2 < n.textSegments.length; si2++) {
+              var sf = n.textSegments[si2].fontName;
+              if (sf && sf.family) fontMap[sf.family + '::' + sf.style] = sf;
+            }
+          }
+          if (n.fontName && n.fontName.family) fontMap[n.fontName.family + '::' + n.fontName.style] = n.fontName;
         }
-        if (n.children) collectFonts(n.children, set);
+        if (n.children) collectFonts(n.children);
       }
     }
-    var fontSet = new Set();
-    collectFonts(tree, fontSet);
-    var fontRef = { family: 'Inter', style: 'Regular' };
-    try {
-      await figma.loadFontAsync(fontRef);
-    } catch(_) {
-      try { fontRef = { family: 'Roboto', style: 'Regular' }; await figma.loadFontAsync(fontRef); } catch(_) {}
+    collectFonts(tree);
+
+    // Always pre-load a fallback font
+    var fallbackFont = { family: 'Inter', style: 'Regular' };
+    try { await figma.loadFontAsync(fallbackFont); } catch(_) {
+      try { fallbackFont = { family: 'Roboto', style: 'Regular' }; await figma.loadFontAsync(fallbackFont); } catch(_) {}
     }
-    for (var fk of fontSet) {
-      var parts = fk.split('|');
-      try { await figma.loadFontAsync({ family: parts[0], style: parts[1] }); } catch(_) {}
+    var fontKeys = Object.keys(fontMap);
+    for (var fki = 0; fki < fontKeys.length; fki++) {
+      try { await figma.loadFontAsync(fontMap[fontKeys[fki]]); } catch(_) {}
     }
 
     var restoreErrors = [];
@@ -621,64 +723,162 @@ figma.ui.onmessage = async function(msg) {
     async function restoreNode(def, parent) {
       var node;
       try {
-        if (def.type === 'FRAME' || def.type === 'GROUP' || def.type === 'COMPONENT') {
-          node = figma.createFrame();
-        } else if (def.type === 'TEXT') {
-          node = figma.createText();
-        } else if (def.type === 'RECTANGLE') {
-          node = figma.createRectangle();
-        } else if (def.type === 'ELLIPSE') {
-          node = figma.createEllipse();
-        } else {
-          node = figma.createFrame(); // fallback container
+        // ── Create the right node type ────────────────────────────────────
+        if (def.type === 'INSTANCE' && def.componentId) {
+          try {
+            var master = figma.getNodeById(def.componentId);
+            if (master && master.type === 'COMPONENT') {
+              node = master.createInstance();
+            }
+          } catch(_) {}
+        }
+        if (!node) {
+          if (def.type === 'FRAME' || def.type === 'COMPONENT' || def.type === 'COMPONENT_SET' || def.type === 'INSTANCE') {
+            node = figma.createFrame();
+          } else if (def.type === 'GROUP') {
+            // Groups need at least one child; create a frame as a stand-in
+            node = figma.createFrame();
+          } else if (def.type === 'TEXT') {
+            node = figma.createText();
+          } else if (def.type === 'RECTANGLE') {
+            node = figma.createRectangle();
+          } else if (def.type === 'ELLIPSE') {
+            node = figma.createEllipse();
+          } else if (def.type === 'POLYGON') {
+            node = figma.createPolygon();
+          } else if (def.type === 'STAR') {
+            node = figma.createStar();
+          } else if (def.type === 'LINE') {
+            node = figma.createLine();
+          } else if (def.type === 'VECTOR') {
+            node = figma.createVector();
+          } else if (def.type === 'BOOLEAN_OPERATION') {
+            node = figma.createFrame(); // visual approximation
+          } else {
+            node = figma.createFrame();
+          }
         }
 
-        node.name = def.name || 'Restored node';
-        if (def.width && def.height && node.type !== 'TEXT') {
-          node.resize(def.width, def.height);
-        }
-        if (def.fills   && 'fills'   in node) { try { node.fills   = def.fills;   } catch(_) {} }
-        if (def.strokes && 'strokes' in node) { try { node.strokes = def.strokes; } catch(_) {} }
-        if (typeof def.opacity === 'number' && 'opacity' in node) node.opacity = def.opacity;
-        if (typeof def.cornerRadius === 'number' && 'cornerRadius' in node) node.cornerRadius = def.cornerRadius;
+        node.name = def.name || 'Restored';
 
-        if (def.layoutMode && 'layoutMode' in node) {
-          node.layoutMode            = def.layoutMode;
-          if (def.itemSpacing   != null) node.itemSpacing   = def.itemSpacing;
-          if (def.paddingTop    != null) node.paddingTop    = def.paddingTop;
-          if (def.paddingBottom != null) node.paddingBottom = def.paddingBottom;
-          if (def.paddingLeft   != null) node.paddingLeft   = def.paddingLeft;
-          if (def.paddingRight  != null) node.paddingRight  = def.paddingRight;
-          if (def.primaryAxisSizingMode) node.primaryAxisSizingMode = def.primaryAxisSizingMode;
-          if (def.counterAxisSizingMode) node.counterAxisSizingMode = def.counterAxisSizingMode;
-          if (def.primaryAxisAlignItems) node.primaryAxisAlignItems = def.primaryAxisAlignItems;
-          if (def.counterAxisAlignItems) node.counterAxisAlignItems = def.counterAxisAlignItems;
+        // ── Append early so geometry/layout resolve relative to parent ─────
+        if (parent) { parent.appendChild(node); } else { figma.currentPage.appendChild(node); }
+
+        // ── Size (before layout so children can fill correctly) ───────────
+        if (def.type !== 'TEXT' && def.type !== 'LINE' && def.width > 0 && def.height > 0) {
+          try { node.resize(def.width, def.height); } catch(_) {}
         }
 
+        // ── Visual ────────────────────────────────────────────────────────
+        if (def.fills   != null && 'fills'   in node) { try { node.fills   = def.fills;   } catch(_) {} }
+        if (def.strokes != null && 'strokes' in node) { try { node.strokes = def.strokes; } catch(_) {} }
+        if (def.strokeWeight != null && 'strokeWeight' in node) { try { node.strokeWeight = def.strokeWeight; } catch(_) {} }
+        if (def.strokeAlign  != null && 'strokeAlign'  in node) { try { node.strokeAlign  = def.strokeAlign;  } catch(_) {} }
+        if (def.effects != null && 'effects' in node && def.effects.length) { try { node.effects = def.effects; } catch(_) {} }
+        if (typeof def.opacity   === 'number' && 'opacity'   in node) { try { node.opacity   = def.opacity;   } catch(_) {} }
+        if (typeof def.blendMode === 'string' && 'blendMode' in node) { try { node.blendMode = def.blendMode; } catch(_) {} }
+        if (def.visible === false && 'visible' in node)                { try { node.visible   = false;         } catch(_) {} }
+
+        // ── Corner radius ─────────────────────────────────────────────────
+        if (typeof def.cornerRadius === 'number' && 'cornerRadius' in node) {
+          try { node.cornerRadius = def.cornerRadius; } catch(_) {}
+        } else if (def.topLeftRadius != null && 'topLeftRadius' in node) {
+          try {
+            node.topLeftRadius     = def.topLeftRadius     || 0;
+            node.topRightRadius    = def.topRightRadius    || 0;
+            node.bottomLeftRadius  = def.bottomLeftRadius  || 0;
+            node.bottomRightRadius = def.bottomRightRadius || 0;
+          } catch(_) {}
+        }
+
+        // ── Auto-layout ───────────────────────────────────────────────────
+        if (def.layoutMode && def.layoutMode !== 'NONE' && 'layoutMode' in node) {
+          try {
+            node.layoutMode = def.layoutMode;
+            if (def.itemSpacing    != null) node.itemSpacing    = def.itemSpacing;
+            if (def.paddingTop     != null) node.paddingTop     = def.paddingTop;
+            if (def.paddingBottom  != null) node.paddingBottom  = def.paddingBottom;
+            if (def.paddingLeft    != null) node.paddingLeft    = def.paddingLeft;
+            if (def.paddingRight   != null) node.paddingRight   = def.paddingRight;
+            if (def.primaryAxisSizingMode)  node.primaryAxisSizingMode  = def.primaryAxisSizingMode;
+            if (def.counterAxisSizingMode)  node.counterAxisSizingMode  = def.counterAxisSizingMode;
+            if (def.primaryAxisAlignItems)  node.primaryAxisAlignItems  = def.primaryAxisAlignItems;
+            if (def.counterAxisAlignItems)  node.counterAxisAlignItems  = def.counterAxisAlignItems;
+          } catch(_) {}
+        }
+
+        // ── Shape-specific ────────────────────────────────────────────────
+        if ((def.type === 'POLYGON' || def.type === 'STAR') && def.pointCount) {
+          try { node.pointCount = def.pointCount; } catch(_) {}
+        }
+        if (def.type === 'STAR' && def.innerRadius != null) {
+          try { node.innerRadius = def.innerRadius; } catch(_) {}
+        }
+        if (def.type === 'VECTOR' && def.vectorPaths && def.vectorPaths.length) {
+          try { node.vectorPaths = def.vectorPaths; } catch(_) {}
+        }
+
+        // ── Text ──────────────────────────────────────────────────────────
         if (def.type === 'TEXT') {
-          var fn = (def.fontName && def.fontName.family) ? def.fontName : fontRef;
-          try { node.fontName = fn; } catch(_) { node.fontName = fontRef; }
-          if (def.fontSize)  node.fontSize  = def.fontSize;
-          node.characters = def.characters || '';
-          if (def.textAlignHorizontal) node.textAlignHorizontal = def.textAlignHorizontal;
+          // Determine the primary font (first segment's or node-level fallback)
+          var primaryFont = (def.fontName && def.fontName.family) ? def.fontName : fallbackFont;
+          var primarySize = (typeof def.fontSize === 'number' && def.fontSize > 0) ? def.fontSize : 14;
+
+          // Must set font BEFORE characters
+          try { node.fontName = primaryFont; } catch(_) { try { node.fontName = fallbackFont; } catch(_) {} }
+          try { node.fontSize = primarySize; } catch(_) {}
+          try { node.characters = def.characters || ''; } catch(_) {}
+
+          // Apply per-segment styling when the text has mixed fonts/sizes
+          if (def.textSegments && def.textSegments.length > 1) {
+            for (var sgi = 0; sgi < def.textSegments.length; sgi++) {
+              var seg = def.textSegments[sgi];
+              if (seg.start >= seg.end) continue;
+              try {
+                if (seg.fontName && seg.fontName.family) {
+                  node.setRangeFontName(seg.start, seg.end, seg.fontName);
+                }
+              } catch(_) {}
+              try {
+                if (typeof seg.fontSize === 'number' && seg.fontSize > 0) {
+                  node.setRangeFontSize(seg.start, seg.end, seg.fontSize);
+                }
+              } catch(_) {}
+              try {
+                if (seg.fills && seg.fills.length) {
+                  node.setRangeFills(seg.start, seg.end, seg.fills);
+                }
+              } catch(_) {}
+              try {
+                if (seg.letterSpacing) node.setRangeLetterSpacing(seg.start, seg.end, seg.letterSpacing);
+              } catch(_) {}
+              try {
+                if (seg.lineHeight) node.setRangeLineHeight(seg.start, seg.end, seg.lineHeight);
+              } catch(_) {}
+              try {
+                if (seg.textDecoration) node.setRangeTextDecoration(seg.start, seg.end, seg.textDecoration);
+              } catch(_) {}
+              try {
+                if (seg.textCase) node.setRangeTextCase(seg.start, seg.end, seg.textCase);
+              } catch(_) {}
+            }
+          }
+
+          try { if (def.textAlignHorizontal) node.textAlignHorizontal = def.textAlignHorizontal; } catch(_) {}
+          try { if (def.textAlignVertical)   node.textAlignVertical   = def.textAlignVertical;   } catch(_) {}
+          try { if (def.textAutoResize)      node.textAutoResize      = def.textAutoResize;      } catch(_) {}
         }
 
-        if (parent) {
-          parent.appendChild(node);
-        } else {
-          figma.currentPage.appendChild(node);
-        }
-
-        // Restore children recursively
-        if (def.children && def.children.length && 'children' in node) {
+        // ── Children (skip for INSTANCE — the component handles its own children) ──
+        if (def.children && def.children.length && 'children' in node && node.type !== 'INSTANCE') {
           for (var ci = 0; ci < def.children.length; ci++) {
             await restoreNode(def.children[ci], node);
           }
         }
 
-        // Set position after children (auto-layout frames size to children)
-        if (typeof def.x === 'number') node.x = def.x;
-        if (typeof def.y === 'number') node.y = def.y;
+        // ── Position (after children so auto-layout has sized the frame) ──
+        try { if (typeof def.x === 'number') node.x = def.x; } catch(_) {}
+        try { if (typeof def.y === 'number') node.y = def.y; } catch(_) {}
 
       } catch (re) {
         restoreErrors.push((def.name || '?') + ': ' + re.message);
@@ -687,13 +887,11 @@ figma.ui.onmessage = async function(msg) {
     }
 
     var restored = [];
-    var offsetX = Math.round(figma.viewport.center.x);
-    var offsetY = Math.round(figma.viewport.center.y);
+    var vc = figma.viewport.center;
     for (var ri = 0; ri < tree.length; ri++) {
       var rn = await restoreNode(tree[ri], null);
       if (rn) {
-        rn.x = offsetX + ri * 24;
-        rn.y = offsetY + ri * 24;
+        try { rn.x = Math.round(vc.x) + ri * 24; rn.y = Math.round(vc.y) + ri * 24; } catch(_) {}
         restored.push(rn);
       }
     }
@@ -703,12 +901,8 @@ figma.ui.onmessage = async function(msg) {
       figma.viewport.scrollAndZoomIntoView(restored);
     }
 
-    figma.ui.postMessage({
-      type:   'restore-asset-result',
-      ok:     true,
-      count:  restored.length,
-      errors: restoreErrors,
-    });
+    figma.ui.postMessage({ type: 'restore-asset-result', ok: true,
+      count: restored.length, errors: restoreErrors });
     return;
   }
 

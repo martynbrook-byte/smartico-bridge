@@ -593,15 +593,29 @@ figma.ui.onmessage = async function(msg) {
 
       // ── Text — full styled-segment capture ────────────────────────────────
       if (node.type === 'TEXT') {
-        try { out.characters = node.characters || ''; } catch(_) {}
-        try { out.textAlignHorizontal = node.textAlignHorizontal; } catch(_) {}
-        try { out.textAlignVertical   = node.textAlignVertical;   } catch(_) {}
-        try { out.textAutoResize      = node.textAutoResize;      } catch(_) {}
-        try { out.paragraphSpacing    = node.paragraphSpacing;    } catch(_) {}
+        try { out.characters          = node.characters || '';       } catch(_) {}
+        try { out.textAlignHorizontal = node.textAlignHorizontal;   } catch(_) {}
+        try { out.textAlignVertical   = node.textAlignVertical;     } catch(_) {}
+        try { out.textAutoResize      = node.textAutoResize;        } catch(_) {}
+        try { out.paragraphSpacing    = node.paragraphSpacing;      } catch(_) {}
+        try { out.paragraphIndent     = node.paragraphIndent;       } catch(_) {}
+        // Node-level text style — used as the whole-node default AND as a
+        // fallback when getStyledTextSegments is unavailable.
+        try {
+          var ntc = node.textCase;
+          if (ntc && ntc !== figma.mixed) out.textCase = ntc;
+        } catch(_) {}
+        try {
+          var nls = node.letterSpacing;
+          if (nls && nls !== figma.mixed) out.letterSpacing = safeJson(nls);
+        } catch(_) {}
+        try {
+          var nlh = node.lineHeight;
+          if (nlh && nlh !== figma.mixed) out.lineHeight = safeJson(nlh);
+        } catch(_) {}
 
-        // Capture styled segments — this preserves per-character font, size,
-        // weight, colour, decoration, letter-spacing and line-height even when
-        // they differ across the text node.
+        // Per-character segments — preserves mixed fonts, sizes, colours,
+        // textCase (all-caps etc.), letter-spacing and line-height.
         try {
           var segs = node.getStyledTextSegments([
             'fontName', 'fontSize', 'fontWeight', 'fills',
@@ -609,36 +623,31 @@ figma.ui.onmessage = async function(msg) {
           ]);
           out.textSegments = segs.map(function(s) {
             return {
-              start:         s.start,
-              end:           s.end,
-              characters:    s.characters,
-              fontName:      s.fontName  ? { family: s.fontName.family, style: s.fontName.style } : null,
-              fontSize:      s.fontSize,
-              fontWeight:    s.fontWeight,
-              fills:         safeJson(s.fills) || [],
-              textDecoration:s.textDecoration,
-              textCase:      s.textCase,
-              letterSpacing: safeJson(s.letterSpacing),
-              lineHeight:    safeJson(s.lineHeight),
+              start:          s.start,
+              end:            s.end,
+              characters:     s.characters,
+              fontName:       s.fontName  ? { family: s.fontName.family, style: s.fontName.style } : null,
+              fontSize:       s.fontSize,
+              fontWeight:     s.fontWeight,
+              fills:          safeJson(s.fills) || [],
+              textDecoration: s.textDecoration,
+              textCase:       s.textCase,
+              letterSpacing:  safeJson(s.letterSpacing),
+              lineHeight:     safeJson(s.lineHeight),
             };
           });
-          // Also store the primary font/size for use as the node-level default
+          // Primary font/size → node-level defaults
           if (segs.length > 0 && segs[0].fontName) {
             out.fontName = { family: segs[0].fontName.family, style: segs[0].fontName.style };
             out.fontSize = segs[0].fontSize;
           }
         } catch(_) {
-          // Fallback: try reading the whole-node properties
+          // Fallback if getStyledTextSegments unavailable
           try {
             var fn = node.fontName;
-            if (fn && typeof fn === 'object' && fn.family) {
-              out.fontName = { family: fn.family, style: fn.style };
-            }
+            if (fn && typeof fn === 'object' && fn.family) out.fontName = { family: fn.family, style: fn.style };
           } catch(_) {}
-          try {
-            var fs = node.fontSize;
-            if (typeof fs === 'number') out.fontSize = fs;
-          } catch(_) {}
+          try { var fs = node.fontSize; if (typeof fs === 'number') out.fontSize = fs; } catch(_) {}
         }
       }
 
@@ -750,20 +759,34 @@ figma.ui.onmessage = async function(msg) {
       try { if (typeof def.y === 'number') node.y = def.y; } catch(_) {}
     }
 
-    async function restoreNode(def, parent) {
+    // restoreNode(def, parent, skipPosition)
+    //   skipPosition — when true the caller will position this node after grouping;
+    //   we must NOT call applyPositionAndTransform here so the group can place
+    //   children without any pre-applied offset causing double-counting.
+    async function restoreNode(def, parent, skipPosition) {
       var node;
       try {
-        // ── GROUP: special-case — figma.group() needs existing nodes ─────────
-        // Create children in the parent first, then wrap them. Groups don't
-        // have their own coordinate space, so children's stored x/y are already
-        // in the parent's coordinate space.
+        // ── GROUP: special-case — figma.group() needs pre-existing nodes ─────
+        //
+        // The double-counting trap:
+        //   1. restoreNode(child, gParent) places child at childDef.x/y in gParent
+        //   2. figma.group() absorbs min(children bbox) → becomes the group's x/y,
+        //      child position within group resets to 0
+        //   3. Re-apply childDef.x/y now adds the offset AGAIN → 2× error
+        //
+        // Fix: create children with skipPosition=true (no position applied).
+        // All children land at Figma's default (0,0-ish) in gParent.
+        // After figma.group(), children are inside the group still near (0,0).
+        // THEN apply each child's stored position once — correctly in group space.
         if (def.type === 'GROUP') {
           var gParent = parent || figma.currentPage;
           var gChildren = [];
           if (def.children && def.children.length) {
             for (var gci = 0; gci < def.children.length; gci++) {
               try {
-                var gch = await restoreNode(def.children[gci], gParent);
+                // skipPosition=true → child created with correct properties but
+                // no position yet; avoids the double-offset bug described above.
+                var gch = await restoreNode(def.children[gci], gParent, true);
                 if (gch) gChildren.push(gch);
               } catch(_) {}
             }
@@ -771,25 +794,26 @@ figma.ui.onmessage = async function(msg) {
           var grpNode;
           if (gChildren.length > 0) {
             grpNode = figma.group(gChildren, gParent);
-            // figma.group() repositions each child so the group's bounding box
-            // becomes the new origin — this wipes the stored intra-group offsets.
-            // Re-apply each child's stored position NOW that they're inside the group
-            // so their positions are correctly relative to the group's coordinate space.
+            // Children are now inside the group. Apply each child's stored position
+            // exactly once, in the group's coordinate space. For rotated/flipped
+            // children the stored relativeTransform pivot is already group-relative
+            // (it was captured while the child lived inside the group).
             for (var gri = 0; gri < gChildren.length && gri < def.children.length; gri++) {
               try { applyPositionAndTransform(gChildren[gri], def.children[gri]); } catch(_) {}
             }
           } else {
-            // No children — fall back to transparent frame
+            // No children — fall back to a transparent frame
             grpNode = figma.createFrame();
             grpNode.fills = [];
             gParent.appendChild(grpNode);
           }
           grpNode.name = def.name || 'Group';
-          // Restore opacity/blendMode/visibility
           if (typeof def.opacity   === 'number') { try { grpNode.opacity   = def.opacity;   } catch(_) {} }
           if (typeof def.blendMode === 'string') { try { grpNode.blendMode = def.blendMode; } catch(_) {} }
           if (def.visible === false)              { try { grpNode.visible   = false;          } catch(_) {} }
-          applyPositionAndTransform(grpNode, def);
+          // Position the group itself — but only if the caller hasn't reserved
+          // that step for itself (e.g. an outer GROUP that will re-apply later).
+          if (!skipPosition) applyPositionAndTransform(grpNode, def);
           return grpNode; // early return — children already handled
         }
 
@@ -839,17 +863,27 @@ figma.ui.onmessage = async function(msg) {
           parent.appendChild(node);
         }
 
-        // ── Size (before layout so children can fill correctly) ───────────
-        // VECTOR: set paths first — they define shape geometry, resize scales them.
-        // Other nodes: resize immediately.
+        // ── Size ─────────────────────────────────────────────────────────
+        // VECTOR: set paths first (they establish the geometry), then resize.
+        // INSTANCE: disable proportional lock so both axes scale independently.
+        // Others: resize immediately, with resizeWithoutConstraints as fallback.
         if (def.type === 'VECTOR') {
           if (def.vectorPaths && def.vectorPaths.length) {
             try { node.vectorPaths = def.vectorPaths; } catch(_) {}
           }
           if (def.width > 0 && def.height > 0) {
-            try { node.resize(def.width, def.height); } catch(_) {}
+            try { node.resize(def.width, def.height); } catch(_) {
+              try { node.resizeWithoutConstraints(def.width, def.height); } catch(_) {}
+            }
           }
         } else if (def.type !== 'TEXT' && def.type !== 'LINE' && def.width > 0 && def.height > 0) {
+          if (def.type === 'INSTANCE') {
+            // Components may have constrainProportions=true or fixed sizing;
+            // clear both so the explicit width × height is honoured exactly.
+            try { node.constrainProportions = false; } catch(_) {}
+            try { node.primaryAxisSizingMode  = 'FIXED'; } catch(_) {}
+            try { node.counterAxisSizingMode  = 'FIXED'; } catch(_) {}
+          }
           try { node.resize(def.width, def.height); } catch(_) {
             try { node.resizeWithoutConstraints(def.width, def.height); } catch(_) {}
           }
@@ -904,47 +938,37 @@ figma.ui.onmessage = async function(msg) {
 
         // ── Text ──────────────────────────────────────────────────────────
         if (def.type === 'TEXT') {
-          // Determine the primary font (first segment's or node-level fallback)
+          // Primary font/size must be set BEFORE characters
           var primaryFont = (def.fontName && def.fontName.family) ? def.fontName : fallbackFont;
           var primarySize = (typeof def.fontSize === 'number' && def.fontSize > 0) ? def.fontSize : 14;
-
-          // Must set font BEFORE characters
           try { node.fontName = primaryFont; } catch(_) { try { node.fontName = fallbackFont; } catch(_) {} }
           try { node.fontSize = primarySize; } catch(_) {}
           try { node.characters = def.characters || ''; } catch(_) {}
 
-          // Apply per-segment styling when the text has mixed fonts/sizes
-          if (def.textSegments && def.textSegments.length > 1) {
+          // Node-level text style properties — applied before per-segment overrides
+          // so they act as the default for the whole node.
+          // textCase (UPPER/LOWER/TITLE/ORIGINAL) must be set even for single-style
+          // text — this is the all-caps / small-caps transform.
+          try { if (def.textCase)       node.textCase       = def.textCase;       } catch(_) {}
+          try { if (def.letterSpacing)  node.letterSpacing  = def.letterSpacing;  } catch(_) {}
+          try { if (def.lineHeight)     node.lineHeight     = def.lineHeight;     } catch(_) {}
+          try { if (def.paragraphSpacing != null) node.paragraphSpacing = def.paragraphSpacing; } catch(_) {}
+          try { if (def.paragraphIndent  != null) node.paragraphIndent  = def.paragraphIndent;  } catch(_) {}
+
+          // Per-segment overrides — covers mixed fonts, sizes, colours, textCase etc.
+          // Run for ANY number of segments (>= 1), not just mixed (> 1).
+          if (def.textSegments && def.textSegments.length >= 1) {
             for (var sgi = 0; sgi < def.textSegments.length; sgi++) {
               var seg = def.textSegments[sgi];
               if (seg.start >= seg.end) continue;
-              try {
-                if (seg.fontName && seg.fontName.family) {
-                  node.setRangeFontName(seg.start, seg.end, seg.fontName);
-                }
-              } catch(_) {}
-              try {
-                if (typeof seg.fontSize === 'number' && seg.fontSize > 0) {
-                  node.setRangeFontSize(seg.start, seg.end, seg.fontSize);
-                }
-              } catch(_) {}
-              try {
-                if (seg.fills && seg.fills.length) {
-                  node.setRangeFills(seg.start, seg.end, seg.fills);
-                }
-              } catch(_) {}
-              try {
-                if (seg.letterSpacing) node.setRangeLetterSpacing(seg.start, seg.end, seg.letterSpacing);
-              } catch(_) {}
-              try {
-                if (seg.lineHeight) node.setRangeLineHeight(seg.start, seg.end, seg.lineHeight);
-              } catch(_) {}
-              try {
-                if (seg.textDecoration) node.setRangeTextDecoration(seg.start, seg.end, seg.textDecoration);
-              } catch(_) {}
-              try {
-                if (seg.textCase) node.setRangeTextCase(seg.start, seg.end, seg.textCase);
-              } catch(_) {}
+              try { if (seg.fontName && seg.fontName.family) node.setRangeFontName(seg.start, seg.end, seg.fontName); } catch(_) {}
+              try { if (typeof seg.fontSize === 'number' && seg.fontSize > 0) node.setRangeFontSize(seg.start, seg.end, seg.fontSize); } catch(_) {}
+              try { if (seg.fills && seg.fills.length) node.setRangeFills(seg.start, seg.end, seg.fills); } catch(_) {}
+              // textCase — null-check, not truthiness, so 'ORIGINAL' (falsy?) still applies
+              try { if (seg.textCase      != null) node.setRangeTextCase(seg.start, seg.end, seg.textCase); } catch(_) {}
+              try { if (seg.letterSpacing != null) node.setRangeLetterSpacing(seg.start, seg.end, seg.letterSpacing); } catch(_) {}
+              try { if (seg.lineHeight    != null) node.setRangeLineHeight(seg.start, seg.end, seg.lineHeight); } catch(_) {}
+              try { if (seg.textDecoration)        node.setRangeTextDecoration(seg.start, seg.end, seg.textDecoration); } catch(_) {}
             }
           }
 
@@ -961,7 +985,9 @@ figma.ui.onmessage = async function(msg) {
         }
 
         // ── Position + rotation + flip ─────────────────────────────────────
-        applyPositionAndTransform(node, def);
+        // Skip when called from a GROUP parent — it will apply position after
+        // figma.group() so children land correctly in the group's coordinate space.
+        if (!skipPosition) applyPositionAndTransform(node, def);
 
       } catch (re) {
         restoreErrors.push((def.name || '?') + ': ' + re.message);

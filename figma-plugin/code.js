@@ -511,6 +511,9 @@ figma.ui.onmessage = async function(msg) {
       try { out.width  = node.width;  } catch(_) {}
       try { out.height = node.height; } catch(_) {}
       try { out.rotation = node.rotation; } catch(_) {}
+      // Full 2×3 affine matrix — the only way to capture flip (negative scale)
+      // alongside rotation. We use this at restore time to recover both.
+      try { out.relativeTransform = safeJson(node.relativeTransform); } catch(_) {}
 
       // ── Visibility & blend ────────────────────────────────────────────────
       try { out.visible   = node.visible;   } catch(_) {}
@@ -735,6 +738,9 @@ figma.ui.onmessage = async function(msg) {
         if (!node) {
           if (def.type === 'FRAME' || def.type === 'COMPONENT' || def.type === 'COMPONENT_SET' || def.type === 'INSTANCE') {
             node = figma.createFrame();
+          } else if (def.type === 'SECTION') {
+            // Sections are page-level only; createSection() places on current page
+            node = figma.createSection();
           } else if (def.type === 'GROUP') {
             // Groups need at least one child; create a frame as a stand-in
             node = figma.createFrame();
@@ -762,11 +768,27 @@ figma.ui.onmessage = async function(msg) {
         node.name = def.name || 'Restored';
 
         // ── Append early so geometry/layout resolve relative to parent ─────
-        if (parent) { parent.appendChild(node); } else { figma.currentPage.appendChild(node); }
+        // SectionNodes are always page-level — they cannot be children of frames.
+        if (def.type === 'SECTION' || !parent) {
+          figma.currentPage.appendChild(node);
+        } else {
+          parent.appendChild(node);
+        }
 
         // ── Size (before layout so children can fill correctly) ───────────
-        if (def.type !== 'TEXT' && def.type !== 'LINE' && def.width > 0 && def.height > 0) {
-          try { node.resize(def.width, def.height); } catch(_) {}
+        // VECTOR: set paths first — they define shape geometry, resize scales them.
+        // Other nodes: resize immediately.
+        if (def.type === 'VECTOR') {
+          if (def.vectorPaths && def.vectorPaths.length) {
+            try { node.vectorPaths = def.vectorPaths; } catch(_) {}
+          }
+          if (def.width > 0 && def.height > 0) {
+            try { node.resize(def.width, def.height); } catch(_) {}
+          }
+        } else if (def.type !== 'TEXT' && def.type !== 'LINE' && def.width > 0 && def.height > 0) {
+          try { node.resize(def.width, def.height); } catch(_) {
+            try { node.resizeWithoutConstraints(def.width, def.height); } catch(_) {}
+          }
         }
 
         // ── Visual ────────────────────────────────────────────────────────
@@ -814,9 +836,7 @@ figma.ui.onmessage = async function(msg) {
         if (def.type === 'STAR' && def.innerRadius != null) {
           try { node.innerRadius = def.innerRadius; } catch(_) {}
         }
-        if (def.type === 'VECTOR' && def.vectorPaths && def.vectorPaths.length) {
-          try { node.vectorPaths = def.vectorPaths; } catch(_) {}
-        }
+        // VECTOR paths were already applied in the size block above.
 
         // ── Text ──────────────────────────────────────────────────────────
         if (def.type === 'TEXT') {
@@ -876,9 +896,41 @@ figma.ui.onmessage = async function(msg) {
           }
         }
 
-        // ── Position (after children so auto-layout has sized the frame) ──
-        try { if (typeof def.x === 'number') node.x = def.x; } catch(_) {}
-        try { if (typeof def.y === 'number') node.y = def.y; } catch(_) {}
+        // ── Position + rotation + flip ─────────────────────────────────────
+        // The stored relativeTransform 2×3 matrix captures rotation AND flip
+        // (negative determinant = flip). We keep the rotation/flip components
+        // from the matrix but use def.x / def.y for translation so that
+        // restored nodes land at their original relative position within their
+        // parent (root nodes get overridden to viewport centre by the caller).
+        if (def.relativeTransform) {
+          var rt  = def.relativeTransform;
+          var rta = rt[0][0], rtb = rt[0][1], rtc = rt[1][0], rtd = rt[1][1];
+          var hasRotOrFlip = Math.abs(rtb) > 0.001 || Math.abs(rtc) > 0.001 || (rta * rtd - rtb * rtc) < 0;
+          if (hasRotOrFlip) {
+            var tx = typeof def.x === 'number' ? def.x : rt[0][2];
+            var ty = typeof def.y === 'number' ? def.y : rt[1][2];
+            try {
+              node.relativeTransform = [[rta, rtb, tx], [rtc, rtd, ty]];
+            } catch(_) {
+              // relativeTransform setter not available (e.g. auto-layout child) —
+              // fall back to rotation property alone
+              try { if (typeof def.rotation === 'number' && def.rotation !== 0) node.rotation = def.rotation; } catch(_) {}
+              try { if (typeof def.x === 'number') node.x = def.x; } catch(_) {}
+              try { if (typeof def.y === 'number') node.y = def.y; } catch(_) {}
+            }
+          } else {
+            // No rotation or flip — plain position
+            try { if (typeof def.x === 'number') node.x = def.x; } catch(_) {}
+            try { if (typeof def.y === 'number') node.y = def.y; } catch(_) {}
+          }
+        } else {
+          // No transform stored — apply rotation property + position
+          if (typeof def.rotation === 'number' && def.rotation !== 0) {
+            try { node.rotation = def.rotation; } catch(_) {}
+          }
+          try { if (typeof def.x === 'number') node.x = def.x; } catch(_) {}
+          try { if (typeof def.y === 'number') node.y = def.y; } catch(_) {}
+        }
 
       } catch (re) {
         restoreErrors.push((def.name || '?') + ': ' + re.message);

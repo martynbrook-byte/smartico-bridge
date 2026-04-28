@@ -771,6 +771,13 @@ figma.ui.onmessage = async function(msg) {
           var grpNode;
           if (gChildren.length > 0) {
             grpNode = figma.group(gChildren, gParent);
+            // figma.group() repositions each child so the group's bounding box
+            // becomes the new origin — this wipes the stored intra-group offsets.
+            // Re-apply each child's stored position NOW that they're inside the group
+            // so their positions are correctly relative to the group's coordinate space.
+            for (var gri = 0; gri < gChildren.length && gri < def.children.length; gri++) {
+              try { applyPositionAndTransform(gChildren[gri], def.children[gri]); } catch(_) {}
+            }
           } else {
             // No children — fall back to transparent frame
             grpNode = figma.createFrame();
@@ -967,7 +974,18 @@ figma.ui.onmessage = async function(msg) {
     for (var ri = 0; ri < tree.length; ri++) {
       var rn = await restoreNode(tree[ri], null);
       if (rn) {
-        try { rn.x = Math.round(vc.x) + ri * 24; rn.y = Math.round(vc.y) + ri * 24; } catch(_) {}
+        var vtx = Math.round(vc.x) + ri * 24;
+        var vty = Math.round(vc.y) + ri * 24;
+        try {
+          // Update tx/ty in the existing relativeTransform so rotation/flip are
+          // preserved while placing the node at viewport centre.
+          // Setting node.x on a rotated node moves the bounding-box edge, not the
+          // transform pivot — those differ under rotation, causing position error.
+          var curRt = rn.relativeTransform;
+          rn.relativeTransform = [[curRt[0][0], curRt[0][1], vtx], [curRt[1][0], curRt[1][1], vty]];
+        } catch(_) {
+          try { rn.x = vtx; rn.y = vty; } catch(_) {}
+        }
         restored.push(rn);
       }
     }

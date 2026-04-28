@@ -331,6 +331,28 @@
     </div>
   </div>
 
+  <!-- Asset library -->
+  <div class="section" id="assetSection">
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+      <span class="section-title" style="flex:1">Asset library</span>
+      <button class="btn btn-sm" onclick="toggleAssets()" id="assetToggleBtn">▸ Show</button>
+    </div>
+    <div id="assetPanel" style="display:none">
+      <button class="btn btn-primary" style="width:100%;margin-bottom:6px" onclick="saveAsset()">
+        💾 Save selection to library
+      </button>
+      <div id="assetNameRow" style="display:none;margin-bottom:6px">
+        <input type="text" id="assetNameInput" placeholder="Asset name…" style="width:100%">
+        <div style="display:flex;gap:4px;margin-top:4px">
+          <button class="btn btn-primary btn-sm" style="flex:1" onclick="confirmSaveAsset()">Save</button>
+          <button class="btn btn-sm" style="flex:1" onclick="cancelSaveAsset()">Cancel</button>
+        </div>
+      </div>
+      <div id="assetList" style="display:flex;flex-direction:column;gap:4px"></div>
+      <div id="assetBanner" style="font-size:10px;margin-top:4px;color:var(--muted)"></div>
+    </div>
+  </div>
+
   <!-- Refs found in selection -->
   <div class="section" id="refsSection" style="display:none">
     <span class="section-title">Layer refs found</span>
@@ -881,6 +903,29 @@ window.onmessage = function(event) {
     if (errs) txt += ' · ⚠ ' + errs + ' warning(s)';
     showBanner(txt, errs ? 'info' : 'ok');
   }
+
+  if (msg.type === 'save-asset-result') {
+    if (!msg.ok) {
+      setAssetBanner('✕ ' + (msg.error || 'Could not serialise selection'));
+      return;
+    }
+    // Store the serialised data then prompt for a name
+    _pendingAssetNodes = { name: msg.name, assetType: msg.assetType, nodeCount: msg.nodeCount, nodes: msg.nodes };
+    var nameEl = document.getElementById('assetNameInput');
+    if (nameEl) nameEl.value = msg.name || '';
+    var row = document.getElementById('assetNameRow');
+    if (row) row.style.display = '';
+    setAssetBanner('Name this asset then click Save.');
+  }
+
+  if (msg.type === 'restore-asset-result') {
+    if (!msg.ok) {
+      setAssetBanner('✕ Restore failed: ' + (msg.error || 'unknown'));
+      return;
+    }
+    var warnPart = msg.errors && msg.errors.length ? ' · ⚠ ' + msg.errors.length + ' issue(s)' : '';
+    setAssetBanner('✓ Restored ' + msg.count + ' node(s)' + warnPart);
+  }
 };
 
 // ── Bind layer ────────────────────────────────────────────────────────────────
@@ -1094,6 +1139,116 @@ async function createRowElements() {
     imageMap: imageMap,
     label:    'Row ' + bindRowIndex + (activeDataset.label ? ' – ' + activeDataset.label : ''),
   }}, '*');
+}
+
+// ── Asset library ─────────────────────────────────────────────────────────────
+var assetPanelOpen  = false;
+var savedAssets     = [];
+var _pendingAssetNodes = null; // serialised tree waiting for a name
+
+function toggleAssets() {
+  assetPanelOpen = !assetPanelOpen;
+  var panel = document.getElementById('assetPanel');
+  var btn   = document.getElementById('assetToggleBtn');
+  if (panel) panel.style.display = assetPanelOpen ? '' : 'none';
+  if (btn)   btn.textContent = (assetPanelOpen ? '▾' : '▸') + ' ' + (assetPanelOpen ? 'Hide' : 'Show');
+  if (assetPanelOpen) loadAssets();
+}
+
+async function loadAssets() {
+  try {
+    var data = await api('/api/assets');
+    savedAssets = data.assets || [];
+    renderAssets();
+  } catch (e) {
+    setAssetBanner('Could not load assets: ' + e.message);
+  }
+}
+
+function renderAssets() {
+  var list = document.getElementById('assetList');
+  if (!list) return;
+  if (!savedAssets.length) {
+    list.innerHTML = '<div style="font-size:10px;color:var(--muted)">No saved assets yet.</div>';
+    return;
+  }
+  list.innerHTML = savedAssets.map(function(a) {
+    return '<div style="display:flex;align-items:center;gap:6px;padding:4px 6px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius)">' +
+      '<span style="flex:1;font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(a.name) + '">' + esc(a.name) + '</span>' +
+      '<span style="font-size:9px;color:var(--muted)">' + (a.nodeCount || 1) + ' node(s)</span>' +
+      '<button class="btn btn-sm" onclick="restoreAsset(\'' + esc(a.id) + '\')">↩ Restore</button>' +
+      '<button class="btn btn-sm" style="color:var(--red)" onclick="deleteAsset(\'' + esc(a.id) + '\')" title="Delete">✕</button>' +
+    '</div>';
+  }).join('');
+}
+
+function setAssetBanner(msg) {
+  var el = document.getElementById('assetBanner');
+  if (el) el.textContent = msg;
+}
+
+function saveAsset() {
+  // Ask code.js to serialise the current selection; we'll receive save-asset-result
+  _pendingAssetNodes = null;
+  parent.postMessage({ pluginMessage: { type: 'save-asset' } }, '*');
+  setAssetBanner('Serialising selection…');
+}
+
+function cancelSaveAsset() {
+  _pendingAssetNodes = null;
+  var row = document.getElementById('assetNameRow');
+  if (row) row.style.display = 'none';
+  setAssetBanner('');
+}
+
+async function confirmSaveAsset() {
+  if (!_pendingAssetNodes) return;
+  var nameEl = document.getElementById('assetNameInput');
+  var name   = (nameEl && nameEl.value.trim()) || _pendingAssetNodes.name || 'Untitled';
+  try {
+    setAssetBanner('Saving…');
+    await api('/api/assets', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name:      name,
+        type:      _pendingAssetNodes.assetType || 'FRAME',
+        nodeCount: _pendingAssetNodes.nodeCount  || 1,
+        nodes:     _pendingAssetNodes.nodes,
+      }),
+    });
+    _pendingAssetNodes = null;
+    var row = document.getElementById('assetNameRow');
+    if (row) row.style.display = 'none';
+    setAssetBanner('✓ Saved to library');
+    await loadAssets();
+  } catch (e) {
+    setAssetBanner('Save failed: ' + e.message);
+  }
+}
+
+async function restoreAsset(id) {
+  try {
+    setAssetBanner('Loading asset…');
+    var data = await api('/api/assets/' + id);
+    if (!data || !data.nodes) throw new Error('Empty asset');
+    parent.postMessage({ pluginMessage: { type: 'restore-asset', nodes: data.nodes } }, '*');
+    setAssetBanner('Restoring…');
+  } catch (e) {
+    setAssetBanner('Restore failed: ' + e.message);
+  }
+}
+
+async function deleteAsset(id) {
+  if (!confirm('Delete this asset from the library?')) return;
+  try {
+    await api('/api/assets/' + id, { method: 'DELETE' });
+    savedAssets = savedAssets.filter(function(a) { return a.id !== id; });
+    renderAssets();
+    setAssetBanner('Deleted.');
+  } catch (e) {
+    setAssetBanner('Delete failed: ' + e.message);
+  }
 }
 
 // ── Upload CSV ────────────────────────────────────────────────────────────────

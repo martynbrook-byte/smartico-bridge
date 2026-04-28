@@ -1411,24 +1411,27 @@
       </div>
     </div>
 
-    <div class="panel">
-      <div class="panel-title">Upload CSV <span class="hint">Smartico winners export → parsed &amp; mapped on upload</span></div>
-      <div class="drop-zone" id="dropZone" onclick="document.getElementById('fileInput').click()">
-        <span class="dz-icon">📥</span>
-        <div><strong>Drop a .csv here</strong> or click to browse</div>
-        <div class="dz-hint">Max 20MB · Applies current column mappings</div>
-        <input type="file" id="fileInput" accept=".csv" class="hidden" onchange="handleFileChosen(event)">
-      </div>
-      <div id="uploadProgress" class="hidden" style="margin-top:10px;color:var(--muted);font-size:0.86rem"></div>
-    </div>
-
     <div class="panel" id="homeDropzonesPanel">
       <div class="panel-title">
         Drop Zones
-        <span class="hint">drop a CSV onto a card to run its pipeline</span>
+        <span class="hint">drop a CSV onto a card to run its pipeline, or use the Quick Upload card</span>
         <button class="btn btn-small" style="margin-left:auto" onclick="switchTab('dropzones')">Manage →</button>
       </div>
-      <div id="homeDropzoneGrid" class="dz-grid"></div>
+      <div id="homeDropzoneGrid" class="dz-grid">
+        <!-- Quick Upload card is always first; pipeline dropzones are appended by renderDropzones() -->
+        <div class="dz-card" id="quickUploadCard">
+          <div class="dz-card-head">
+            <span class="dz-card-name" style="font-weight:600;color:var(--gold)">⚡ Quick Upload</span>
+          </div>
+          <div style="font-size:0.78rem;color:var(--muted);padding:0 2px 6px">No pipeline · applies active column mappings only</div>
+          <div class="dz-card-drop" id="dropZone" onclick="document.getElementById('fileInput').click()">
+            <div style="font-size:1.4rem">📥</div>
+            <div><strong>Drop a .csv here</strong> or click to browse</div>
+            <input type="file" id="fileInput" accept=".csv" class="hidden" onchange="handleFileChosen(event)">
+          </div>
+          <div id="uploadProgress" class="dz-card-status" style="display:none"></div>
+        </div>
+      </div>
     </div>
 
     <div class="panel">
@@ -1448,6 +1451,17 @@
           Create one on the left to start building rules.
         </div>
         <div id="rulesetEditor" class="ruleset-editor hidden"></div>
+      </div>
+    </div>
+    <!-- Column mappings live here so designers can cross-reference rules & renames -->
+    <div class="panel" style="margin-top:16px">
+      <div class="panel-title">
+        Column mappings
+        <span class="hint">Saved sets of original → friendly renames · the active set runs at upload time</span>
+      </div>
+      <div class="mapping-sets-layout">
+        <aside class="mapping-sets-sidebar" id="mappingSetsSidebar"></aside>
+        <div id="mappingSetEditor"></div>
       </div>
     </div>
   </section>
@@ -1517,6 +1531,27 @@
                       title="Apply a saved column preset to drop columns from the saved output">
                 <option value="">— None —</option>
               </select>
+            </div>
+
+            <div class="pipe-tb-sep"></div>
+
+            <!-- DROP ZONE -->
+            <div class="pipe-tb-section">
+              <span class="pipe-tb-label" title="Show this pipeline as a drop-zone card on the homepage and in the Figma plugin">🎯 Dropzone</span>
+              <label class="pipe-toggle">
+                <input type="checkbox" id="pipelineDropzoneCheck" onchange="onPipelineDropzoneChange(this.checked)">
+                <span class="pipe-toggle-track"></span>
+                <span class="pipe-toggle-label" id="pipelineDropzoneLabel">Off</span>
+              </label>
+            </div>
+
+            <div class="pipe-tb-sep"></div>
+
+            <!-- OUTPUT ROW LIMIT -->
+            <div class="pipe-tb-section">
+              <span class="pipe-tb-label" title="Maximum rows sent to the Figma plugin (blank = unlimited)">📤 Output rows</span>
+              <input type="number" id="pipelineOutputRowLimit" min="1" max="9999" placeholder="Unlimited"
+                     style="width:90px" onblur="onPipelineOutputRowLimitBlur()">
             </div>
 
             <div class="pipe-tb-sep"></div>
@@ -1680,17 +1715,6 @@
         Add a <strong>Railway Volume</strong> mounted at <code>/app/data</code> and set the env var
         <code>DATA_DIR=/app/data</code>. All rules, mappings, pipelines and datasets will survive
         every future deploy without any manual backup step.
-      </div>
-    </div>
-
-    <div class="panel">
-      <div class="panel-title">
-        Column mappings
-        <span class="hint">Saved sets of original → friendly renames · the active set runs at upload time</span>
-      </div>
-      <div class="mapping-sets-layout">
-        <aside class="mapping-sets-sidebar" id="mappingSetsSidebar"></aside>
-        <div id="mappingSetEditor"></div>
       </div>
     </div>
 
@@ -2994,11 +3018,21 @@ function renderPipelineEditor(p) {
   const tplEl     = document.getElementById('pipelineFilenameTpl');
   const enrichEl  = document.getElementById('pipelineEnrichCheck');
   const enrichLbl = document.getElementById('pipelineEnrichLabel');
+  const dzEl      = document.getElementById('pipelineDropzoneCheck');
+  const dzLbl     = document.getElementById('pipelineDropzoneLabel');
+  const rowLimEl  = document.getElementById('pipelineOutputRowLimit');
   if (nameEl   && document.activeElement !== nameEl)   nameEl.value    = p.name || '';
   if (tplEl    && document.activeElement !== tplEl)    tplEl.value     = p.filenameTemplate || '';
   if (enrichEl) {
     enrichEl.checked = !!p.enrichAfterRun;
     if (enrichLbl) enrichLbl.textContent = enrichEl.checked ? 'On' : 'Off';
+  }
+  if (dzEl) {
+    dzEl.checked = !!p.isDropzone;
+    if (dzLbl) dzLbl.textContent = dzEl.checked ? 'On' : 'Off';
+  }
+  if (rowLimEl && document.activeElement !== rowLimEl) {
+    rowLimEl.value = p.outputRowLimit ? String(p.outputRowLimit) : '';
   }
   renderPipelineMappingSelect();
   renderPipelineFilterSelect();
@@ -3012,9 +3046,30 @@ function onPipelineEnrichChange(checked) {
   activePipeline.enrichAfterRun = checked;
   const lbl = document.getElementById('pipelineEnrichLabel');
   if (lbl) lbl.textContent = checked ? 'On' : 'Off';
-
   renderPipelineCanvas();
   queuePipelineSave();
+}
+
+// Dropzone toggle — makes this pipeline appear on the homepage & Figma dropdown
+function onPipelineDropzoneChange(checked) {
+  if (!activePipeline) return;
+  activePipeline.isDropzone = checked;
+  const lbl = document.getElementById('pipelineDropzoneLabel');
+  if (lbl) lbl.textContent = checked ? 'On' : 'Off';
+  queuePipelineSave();
+  renderDropzones(); // immediately refresh the home-page panel
+}
+
+// Output row limit — caps rows sent to the Figma plugin
+function onPipelineOutputRowLimitBlur() {
+  if (!activePipeline) return;
+  const inp = document.getElementById('pipelineOutputRowLimit');
+  if (!inp) return;
+  const n = parseInt(inp.value, 10);
+  activePipeline.outputRowLimit = (Number.isFinite(n) && n > 0) ? n : null;
+  inp.value = activePipeline.outputRowLimit ? String(activePipeline.outputRowLimit) : '';
+  queuePipelineSave();
+  renderPipelineCanvas(); // refresh OUT card label
 }
 
 // Live preview of the filename template using the current pipeline name + sample values
@@ -3462,6 +3517,9 @@ function renderFilterBookend(x, y, preset) {
   const hideCount = (preset.hidden || []).length;
   const sample = (preset.hidden || []).slice(0, 3).join(', ');
   const more = hideCount > 3 ? `, +${hideCount - 3} more` : '';
+  const rowLimitLine = activePipeline && activePipeline.outputRowLimit
+    ? `<div style="font-size:0.78rem;color:var(--gold);margin-top:2px">📤 Max ${activePipeline.outputRowLimit} rows → Figma</div>`
+    : '<div style="font-size:0.78rem;color:var(--muted);margin-top:2px">📤 All rows → Figma</div>';
   return `
     <foreignObject x="${x}" y="${y}" width="${PIPE_NODE_W}" height="${PIPE_NODE_H}"
                    data-bookend-id="filter" style="overflow:visible;cursor:grab">
@@ -3479,6 +3537,7 @@ function renderFilterBookend(x, y, preset) {
              title="${esc((preset.hidden || []).join(', '))}">
           ${esc(sample)}${more}
         </div>
+        ${rowLimitLine}
       </div>
     </foreignObject>
   `;
@@ -3573,14 +3632,16 @@ async function savePipelineNow() {
   if (!activePipeline) return;
   const id = activePipeline.id;
   const body = {
-    name: activePipeline.name,
-    filenameTemplate: activePipeline.filenameTemplate,
-    enrichAfterRun: !!activePipeline.enrichAfterRun,
-    nodes: activePipeline.nodes || [],
-    edges: activePipeline.edges || [],
-    mappingSetId: activePipeline.mappingSetId || null,
-    columnPresetId: activePipeline.columnPresetId || null,
-    bookends: activePipeline.bookends || null,
+    name:            activePipeline.name,
+    filenameTemplate:activePipeline.filenameTemplate,
+    enrichAfterRun:  !!activePipeline.enrichAfterRun,
+    isDropzone:      !!activePipeline.isDropzone,
+    outputRowLimit:  activePipeline.outputRowLimit || null,
+    nodes:           activePipeline.nodes || [],
+    edges:           activePipeline.edges || [],
+    mappingSetId:    activePipeline.mappingSetId || null,
+    columnPresetId:  activePipeline.columnPresetId || null,
+    bookends:        activePipeline.bookends || null,
   };
   try {
     const updated = await api(`/api/pipelines/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
@@ -3795,49 +3856,107 @@ async function loadDropzones() {
 }
 
 function renderDropzones() {
-  // Render into BOTH the dropzones tab grid and the home-page mirror.
-  // Each grid gets its own drag/click handlers so they operate independently
-  // (drag onto a card on the home page works the same as on the tab).
-  const grids = ['dropzoneGrid', 'homeDropzoneGrid']
-    .map(id => document.getElementById(id))
-    .filter(Boolean);
-  if (!grids.length) return;
+  // Pipelines flagged as dropzones appear as lightweight cards alongside
+  // the standard dropzone cards. They share the same visual style but use
+  // the pipeline-run endpoint directly (no separate dropzone record needed).
+  const pipelineDropzones = pipelines.filter(p => p.isDropzone);
 
-  // Hide the home-page panel entirely if there are no drop zones — keeps the
-  // datasets tab clean before any have been set up.
-  const homePanel = document.getElementById('homeDropzonesPanel');
-  if (homePanel) homePanel.style.display = dropzones.length ? '' : 'none';
-
-  if (!dropzones.length) {
-    for (const grid of grids) {
-      grid.innerHTML = `
+  // ── Tab grid (standard drop zones only) ──────────────────────────────────
+  const tabGrid = document.getElementById('dropzoneGrid');
+  if (tabGrid) {
+    if (!dropzones.length) {
+      tabGrid.innerHTML = `
         <div class="empty-state" style="grid-column:1/-1">
           <span class="empty-icon">🎯</span>
           No drop zones yet. Click <strong>+ New drop zone</strong> to create one.
         </div>`;
+    } else {
+      tabGrid.innerHTML = dropzones.map(dz => renderDropZoneCard(dz)).join('');
+      for (const dz of dropzones) {
+        const card = tabGrid.querySelector(`[data-dz-id="${dz.id}"]`);
+        if (!card) continue;
+        const drop = card.querySelector('.dz-card-drop');
+        drop.addEventListener('dragover', (e) => { e.preventDefault(); card.classList.add('drag-over'); });
+        drop.addEventListener('dragleave', () => card.classList.remove('drag-over'));
+        drop.addEventListener('drop', (e) => {
+          e.preventDefault(); card.classList.remove('drag-over');
+          const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+          if (f) runDropZone(dz.id, f);
+        });
+        drop.addEventListener('click', () => { const inp = card.querySelector('input[type="file"]'); if (inp) inp.click(); });
+      }
     }
-    return;
   }
 
-  for (const grid of grids) {
-    grid.innerHTML = dropzones.map(dz => renderDropZoneCard(dz)).join('');
-    for (const dz of dropzones) {
-      const card = grid.querySelector(`[data-dz-id="${dz.id}"]`);
-      if (!card) continue;
+  // ── Home-page grid (Quick Upload card + pipeline dropzones) ──────────────
+  const homeGrid = document.getElementById('homeDropzoneGrid');
+  if (homeGrid) {
+    // Keep the Quick Upload card (first child) and replace everything after it.
+    const quickCard = document.getElementById('quickUploadCard');
+    homeGrid.innerHTML = '';
+    if (quickCard) homeGrid.appendChild(quickCard);
+
+    // Append pipeline-based dropzone cards
+    for (const p of pipelineDropzones) {
+      const status = _dzStatus['pipe_' + p.id] || { kind: '', text: 'Ready' };
+      const rowLimitHint = p.outputRowLimit ? ` · max ${p.outputRowLimit} rows` : '';
+      const card = document.createElement('div');
+      card.className = 'dz-card';
+      card.dataset.pipelineDzId = p.id;
+      card.innerHTML = `
+        <div class="dz-card-head">
+          <span class="dz-card-name" style="font-weight:600">${esc(p.name)}</span>
+        </div>
+        <div style="font-size:0.78rem;color:var(--muted);padding:0 2px 6px">${p.nodeCount} step(s)${rowLimitHint}</div>
+        <div class="dz-card-drop">
+          <div style="font-size:1.4rem">📥</div>
+          <div><strong>Drop a CSV here</strong> or click to browse</div>
+          <input type="file" accept=".csv" class="hidden">
+        </div>
+        <div class="dz-card-status ${status.kind}">${esc(status.text)}</div>`;
       const drop = card.querySelector('.dz-card-drop');
+      const fileInp = card.querySelector('input[type="file"]');
       drop.addEventListener('dragover', (e) => { e.preventDefault(); card.classList.add('drag-over'); });
       drop.addEventListener('dragleave', () => card.classList.remove('drag-over'));
       drop.addEventListener('drop', (e) => {
-        e.preventDefault();
-        card.classList.remove('drag-over');
+        e.preventDefault(); card.classList.remove('drag-over');
         const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
-        if (f) runDropZone(dz.id, f);
+        if (f) runPipelineDropzone(p.id, f, card);
       });
-      drop.addEventListener('click', () => {
-        const inp = card.querySelector('input[type="file"]');
-        if (inp) inp.click();
+      drop.addEventListener('click', () => fileInp.click());
+      fileInp.addEventListener('change', () => {
+        if (fileInp.files[0]) { runPipelineDropzone(p.id, fileInp.files[0], card); fileInp.value = ''; }
       });
+      homeGrid.appendChild(card);
     }
+  }
+
+  // Always show the home panel (Quick Upload is always there)
+  const homePanel = document.getElementById('homeDropzonesPanel');
+  if (homePanel) homePanel.style.display = '';
+}
+
+// Run a pipeline directly from a homepage dropzone card (no dropzone record needed).
+async function runPipelineDropzone(pipelineId, file, card) {
+  const statusEl = card && card.querySelector('.dz-card-status');
+  const setStatus = (msg, cls) => {
+    if (!statusEl) return;
+    statusEl.textContent = msg;
+    statusEl.className = 'dz-card-status ' + (cls || '');
+  };
+  setStatus('⟳ Processing…', 'running');
+  try {
+    const form = new FormData();
+    form.append('file', file);
+    const resp = await fetch(`/api/pipelines/${pipelineId}/run`, { method: 'POST', body: form });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || 'Run failed');
+    setStatus(`✓ Done — ${data.rowCount || '?'} rows`, 'success');
+    await loadDatasets();
+    renderDatasets();
+    renderStats();
+  } catch (err) {
+    setStatus('✕ ' + err.message, 'error');
   }
 }
 

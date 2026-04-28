@@ -413,15 +413,17 @@ figma.ui.onmessage = async function(msg) {
       try { fontRef = { family: 'Roboto', style: 'Regular' }; await figma.loadFontAsync(fontRef); fontOk = true; } catch (_) {}
     }
 
-    // Container: vertical auto-layout frame so elements stack neatly.
+    // Container: horizontal auto-layout frame — columns flow left-to-right.
     var frame = figma.createFrame();
     frame.name                    = label;
-    frame.layoutMode              = 'VERTICAL';
-    frame.primaryAxisSizingMode   = 'AUTO';   // height: hug children
-    frame.counterAxisSizingMode   = 'AUTO';   // width:  hug children
-    frame.counterAxisAlignItems   = 'MIN';
-    frame.itemSpacing             = 8;
-    frame.paddingTop = frame.paddingBottom = frame.paddingLeft = frame.paddingRight = 16;
+    frame.layoutMode              = 'HORIZONTAL';
+    frame.primaryAxisSizingMode   = 'AUTO';   // width:  hug children
+    frame.counterAxisSizingMode   = 'AUTO';   // height: hug children
+    frame.counterAxisAlignItems   = 'CENTER'; // vertically centre images & text
+    frame.primaryAxisAlignItems   = 'MIN';
+    frame.itemSpacing             = 16;
+    frame.paddingTop = frame.paddingBottom = 16;
+    frame.paddingLeft = frame.paddingRight = 20;
     frame.fills                   = [];       // transparent background
 
     var created = 0;
@@ -487,6 +489,205 @@ figma.ui.onmessage = async function(msg) {
       ok:     true,
       count:  created,
       errors: errors,
+    });
+    return;
+  }
+
+  // ── save-asset: serialise the current selection into a portable tree ─────
+  // The UI will POST the tree to /api/assets. We do the serialisation here
+  // (inside the plugin sandbox) because only code.js can access figma nodes.
+  if (msg.type === 'save-asset') {
+    var sel = figma.currentPage.selection;
+    if (!sel.length) {
+      figma.ui.postMessage({ type: 'save-asset-result', ok: false, error: 'Nothing selected' });
+      return;
+    }
+
+    function serializeNode(node) {
+      var out = {
+        type:  node.type,
+        name:  node.name,
+      };
+      // Geometry
+      if ('x' in node) { out.x = Math.round(node.x); out.y = Math.round(node.y); }
+      if ('width'  in node) out.width  = Math.round(node.width);
+      if ('height' in node) out.height = Math.round(node.height);
+      // Visual
+      if ('fills'   in node) { try { out.fills   = JSON.parse(JSON.stringify(node.fills));   } catch(_) {} }
+      if ('strokes' in node) { try { out.strokes = JSON.parse(JSON.stringify(node.strokes)); } catch(_) {} }
+      if ('opacity' in node) out.opacity = node.opacity;
+      if ('cornerRadius' in node && typeof node.cornerRadius === 'number') out.cornerRadius = node.cornerRadius;
+      // Auto-layout
+      if ('layoutMode' in node) {
+        out.layoutMode            = node.layoutMode;
+        out.itemSpacing           = node.itemSpacing || 0;
+        out.paddingTop            = node.paddingTop || 0;
+        out.paddingBottom         = node.paddingBottom || 0;
+        out.paddingLeft           = node.paddingLeft || 0;
+        out.paddingRight          = node.paddingRight || 0;
+        out.primaryAxisSizingMode = node.primaryAxisSizingMode;
+        out.counterAxisSizingMode = node.counterAxisSizingMode;
+        out.primaryAxisAlignItems = node.primaryAxisAlignItems;
+        out.counterAxisAlignItems = node.counterAxisAlignItems;
+      }
+      // Text
+      if (node.type === 'TEXT') {
+        out.characters = node.characters || '';
+        try {
+          out.fontSize   = node.fontSize;
+          out.fontName   = { family: node.fontName.family, style: node.fontName.style };
+          out.textAlignHorizontal = node.textAlignHorizontal;
+        } catch(_) {}
+      }
+      // Children
+      if ('children' in node && node.children.length) {
+        out.children = [];
+        for (var ci = 0; ci < node.children.length; ci++) {
+          try { out.children.push(serializeNode(node.children[ci])); } catch(_) {}
+        }
+      }
+      return out;
+    }
+
+    var nodes = [];
+    for (var si = 0; si < sel.length; si++) {
+      try { nodes.push(serializeNode(sel[si])); } catch(_) {}
+    }
+    var assetName = msg.name || (sel.length === 1 ? sel[0].name : 'Selection (' + sel.length + ' nodes)');
+    figma.ui.postMessage({
+      type:      'save-asset-result',
+      ok:        true,
+      name:      assetName,
+      assetType: sel.length === 1 ? sel[0].type : 'GROUP',
+      nodeCount: nodes.length,
+      nodes:     nodes,
+    });
+    return;
+  }
+
+  // ── restore-asset: rebuild a serialised node tree onto the canvas ──────────
+  if (msg.type === 'restore-asset') {
+    var tree = msg.nodes || [];
+    if (!tree.length) {
+      figma.ui.postMessage({ type: 'restore-asset-result', ok: false, error: 'No node data' });
+      return;
+    }
+
+    // Pre-load all fonts that appear in the tree
+    function collectFonts(nodes, set) {
+      for (var i = 0; i < nodes.length; i++) {
+        var n = nodes[i];
+        if (n.type === 'TEXT' && n.fontName) {
+          set.add(n.fontName.family + '|' + n.fontName.style);
+        }
+        if (n.children) collectFonts(n.children, set);
+      }
+    }
+    var fontSet = new Set();
+    collectFonts(tree, fontSet);
+    var fontRef = { family: 'Inter', style: 'Regular' };
+    try {
+      await figma.loadFontAsync(fontRef);
+    } catch(_) {
+      try { fontRef = { family: 'Roboto', style: 'Regular' }; await figma.loadFontAsync(fontRef); } catch(_) {}
+    }
+    for (var fk of fontSet) {
+      var parts = fk.split('|');
+      try { await figma.loadFontAsync({ family: parts[0], style: parts[1] }); } catch(_) {}
+    }
+
+    var restoreErrors = [];
+
+    async function restoreNode(def, parent) {
+      var node;
+      try {
+        if (def.type === 'FRAME' || def.type === 'GROUP' || def.type === 'COMPONENT') {
+          node = figma.createFrame();
+        } else if (def.type === 'TEXT') {
+          node = figma.createText();
+        } else if (def.type === 'RECTANGLE') {
+          node = figma.createRectangle();
+        } else if (def.type === 'ELLIPSE') {
+          node = figma.createEllipse();
+        } else {
+          node = figma.createFrame(); // fallback container
+        }
+
+        node.name = def.name || 'Restored node';
+        if (def.width && def.height && node.type !== 'TEXT') {
+          node.resize(def.width, def.height);
+        }
+        if (def.fills   && 'fills'   in node) { try { node.fills   = def.fills;   } catch(_) {} }
+        if (def.strokes && 'strokes' in node) { try { node.strokes = def.strokes; } catch(_) {} }
+        if (typeof def.opacity === 'number' && 'opacity' in node) node.opacity = def.opacity;
+        if (typeof def.cornerRadius === 'number' && 'cornerRadius' in node) node.cornerRadius = def.cornerRadius;
+
+        if (def.layoutMode && 'layoutMode' in node) {
+          node.layoutMode            = def.layoutMode;
+          if (def.itemSpacing   != null) node.itemSpacing   = def.itemSpacing;
+          if (def.paddingTop    != null) node.paddingTop    = def.paddingTop;
+          if (def.paddingBottom != null) node.paddingBottom = def.paddingBottom;
+          if (def.paddingLeft   != null) node.paddingLeft   = def.paddingLeft;
+          if (def.paddingRight  != null) node.paddingRight  = def.paddingRight;
+          if (def.primaryAxisSizingMode) node.primaryAxisSizingMode = def.primaryAxisSizingMode;
+          if (def.counterAxisSizingMode) node.counterAxisSizingMode = def.counterAxisSizingMode;
+          if (def.primaryAxisAlignItems) node.primaryAxisAlignItems = def.primaryAxisAlignItems;
+          if (def.counterAxisAlignItems) node.counterAxisAlignItems = def.counterAxisAlignItems;
+        }
+
+        if (def.type === 'TEXT') {
+          var fn = (def.fontName && def.fontName.family) ? def.fontName : fontRef;
+          try { node.fontName = fn; } catch(_) { node.fontName = fontRef; }
+          if (def.fontSize)  node.fontSize  = def.fontSize;
+          node.characters = def.characters || '';
+          if (def.textAlignHorizontal) node.textAlignHorizontal = def.textAlignHorizontal;
+        }
+
+        if (parent) {
+          parent.appendChild(node);
+        } else {
+          figma.currentPage.appendChild(node);
+        }
+
+        // Restore children recursively
+        if (def.children && def.children.length && 'children' in node) {
+          for (var ci = 0; ci < def.children.length; ci++) {
+            await restoreNode(def.children[ci], node);
+          }
+        }
+
+        // Set position after children (auto-layout frames size to children)
+        if (typeof def.x === 'number') node.x = def.x;
+        if (typeof def.y === 'number') node.y = def.y;
+
+      } catch (re) {
+        restoreErrors.push((def.name || '?') + ': ' + re.message);
+      }
+      return node;
+    }
+
+    var restored = [];
+    var offsetX = Math.round(figma.viewport.center.x);
+    var offsetY = Math.round(figma.viewport.center.y);
+    for (var ri = 0; ri < tree.length; ri++) {
+      var rn = await restoreNode(tree[ri], null);
+      if (rn) {
+        rn.x = offsetX + ri * 24;
+        rn.y = offsetY + ri * 24;
+        restored.push(rn);
+      }
+    }
+
+    if (restored.length) {
+      figma.currentPage.selection = restored;
+      figma.viewport.scrollAndZoomIntoView(restored);
+    }
+
+    figma.ui.postMessage({
+      type:   'restore-asset-result',
+      ok:     true,
+      count:  restored.length,
+      errors: restoreErrors,
     });
     return;
   }

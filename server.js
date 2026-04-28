@@ -40,11 +40,12 @@ const DATA_DIR  = process.env.DATA_DIR || path.join(__dirname, 'data');
 const DATASETS_DIR  = path.join(DATA_DIR, 'datasets');
 const PIPELINES_DIR = path.join(DATA_DIR, 'pipelines');
 const DROPZONES_DIR = path.join(DATA_DIR, 'dropzones');
+const ASSETS_DIR    = path.join(DATA_DIR, 'assets');
 const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
 const UPLOADS_DIR = path.join(__dirname, 'uploads');
 
 // ── Bootstrap folders & files ────────────────────────────────────────────────
-for (const dir of [DATA_DIR, DATASETS_DIR, PIPELINES_DIR, DROPZONES_DIR, UPLOADS_DIR]) {
+for (const dir of [DATA_DIR, DATASETS_DIR, PIPELINES_DIR, DROPZONES_DIR, ASSETS_DIR, UPLOADS_DIR]) {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 }
 if (!fs.existsSync(SETTINGS_FILE)) {
@@ -557,12 +558,15 @@ async function listPipelines() {
         name:             r.name || 'Untitled pipeline',
         description:      r.description || '',
         filenameTemplate: r.filenameTemplate || '{pipelineName}',
-        // null = use the active mapping set at run time. A specific id pins
-        // the pipeline to that set regardless of which one is active.
         mappingSetId:     typeof r.mappingSetId === 'string' ? r.mappingSetId : null,
-        // Optional column preset applied after the rule-set chain runs —
-        // drops the listed columns from the saved output dataset.
         columnPresetId:   typeof r.columnPresetId === 'string' ? r.columnPresetId : null,
+        // When true the pipeline appears as a drop-zone card on the homepage
+        // and in the Figma plugin pipeline dropdown.
+        isDropzone:       !!r.isDropzone,
+        // Max rows sent to the Figma plugin (null = unlimited).
+        outputRowLimit:   Number.isFinite(Number(r.outputRowLimit)) && Number(r.outputRowLimit) > 0
+          ? Math.floor(Number(r.outputRowLimit))
+          : null,
         nodeCount:        Array.isArray(r.nodes) ? r.nodes.length : 0,
         edgeCount:        Array.isArray(r.edges) ? r.edges.length : 0,
         createdAt:        r.createdAt || null,
@@ -1487,11 +1491,15 @@ app.get('/api/settings', async (_req, res) => {
 // before committing so you can restore without rebuilding rules/mappings.
 app.get('/api/settings/export', async (_req, res) => {
   try {
-    const s    = await readSettings();
+    const [s, pipelines] = await Promise.all([readSettings(), listPipelines()]);
+    // Fetch full pipeline records (including nodes/edges) for the export
+    const fullPipelines = await Promise.all(
+      pipelines.map(p => getPipeline(p.id).catch(() => null))
+    ).then(ps => ps.filter(Boolean));
     const stamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-');
-    res.setHeader('Content-Disposition', `attachment; filename="smartico-settings-${stamp}.json"`);
+    res.setHeader('Content-Disposition', `attachment; filename="smartico-backup-${stamp}.json"`);
     res.setHeader('Content-Type', 'application/json');
-    res.send(JSON.stringify(s, null, 2));
+    res.send(JSON.stringify({ settings: s, pipelines: fullPipelines }, null, 2));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1499,15 +1507,34 @@ app.get('/api/settings/export', async (_req, res) => {
 
 // Import settings from a JSON file upload — restores rules, mappings, presets.
 // Also writes a fresh seed file so the next cold deploy starts with this snapshot.
-app.post('/api/settings/import', express.json({ limit: '2mb' }), async (req, res) => {
+app.post('/api/settings/import', express.json({ limit: '10mb' }), async (req, res) => {
   try {
     const body = req.body;
     if (!body || typeof body !== 'object') return res.status(400).json({ error: 'Expected JSON body' });
-    const saved = await writeSettings(body);
-    // Keep the seed in sync so cold-start deploys get this version too.
+
+    // Support both old format (bare settings object) and new format ({ settings, pipelines }).
+    const settingsPayload  = body.settings || body;
+    const pipelinesPayload = Array.isArray(body.pipelines) ? body.pipelines : [];
+
+    const saved = await writeSettings(settingsPayload);
+    // Keep the seed in sync so cold-start deploys get this snapshot.
     const seedFile = path.join(DATA_DIR, 'settings-seed.json');
     await fsp.writeFile(seedFile, JSON.stringify(saved, null, 2));
-    res.json({ ok: true, ruleSets: (saved.ruleSets || []).length, mappingSets: (saved.mappingSets || []).length });
+
+    // Restore pipelines — write each one back to its file.
+    let restoredPipelines = 0;
+    for (const p of pipelinesPayload) {
+      if (!p || !p.id) continue;
+      await savePipeline(p);
+      restoredPipelines++;
+    }
+
+    res.json({
+      ok:               true,
+      ruleSets:         (saved.ruleSets || []).length,
+      mappingSets:      (saved.mappingSets || []).length,
+      restoredPipelines,
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1870,8 +1897,13 @@ app.post('/api/pipelines', async (req, res) => {
       mappingSetId:     typeof body.mappingSetId === 'string' ? body.mappingSetId : null,
       // Optional column preset applied to the final output (drops hidden columns).
       columnPresetId:   typeof body.columnPresetId === 'string' ? body.columnPresetId : null,
-      // Whether to run player-profile enrichment between mapping and rule steps.
       enrichAfterRun:   !!body.enrichAfterRun,
+      // Show this pipeline as a dropzone card on the homepage / Figma dropdown.
+      isDropzone:       !!body.isDropzone,
+      // Cap rows sent to the Figma plugin (null = unlimited).
+      outputRowLimit:   Number.isFinite(Number(body.outputRowLimit)) && Number(body.outputRowLimit) > 0
+        ? Math.floor(Number(body.outputRowLimit))
+        : null,
       nodes:            Array.isArray(body.nodes) ? body.nodes : [],
       edges:            Array.isArray(body.edges) ? body.edges : [],
     };
@@ -1908,7 +1940,11 @@ app.patch('/api/pipelines/:id', async (req, res) => {
     if (Array.isArray(body.nodes)) record.nodes = body.nodes;
     if (Array.isArray(body.edges)) record.edges = body.edges;
     if ('enrichAfterRun' in body) record.enrichAfterRun = !!body.enrichAfterRun;
-    // bookends: positions for MAP, ENRICH, OUT cards stored per-pipeline
+    if ('isDropzone' in body)     record.isDropzone = !!body.isDropzone;
+    if ('outputRowLimit' in body) {
+      const n = Number(body.outputRowLimit);
+      record.outputRowLimit = (Number.isFinite(n) && n > 0) ? Math.floor(n) : null;
+    }
     if (body.bookends && typeof body.bookends === 'object') record.bookends = body.bookends;
     await savePipeline(record);
     res.json({ pipeline: record });
@@ -2180,6 +2216,69 @@ app.delete('/api/dropzones/:id', async (req, res) => {
   } catch (err) {
     const status = err.code === 'ENOENT' ? 404 : 500;
     res.status(status).json({ error: err.message });
+  }
+});
+
+// ── Asset library ────────────────────────────────────────────────────────────
+// Stores serialised Figma node trees so designers can save selections from the
+// plugin and restore them onto the canvas later.
+//   GET    /api/assets          — list all saved assets (metadata only)
+//   POST   /api/assets          — save a new asset (full node tree in body)
+//   GET    /api/assets/:id      — fetch a single asset with full node data
+//   DELETE /api/assets/:id      — delete an asset
+
+app.get('/api/assets', async (_req, res) => {
+  try {
+    const files = (await fsp.readdir(ASSETS_DIR)).filter(f => f.endsWith('.json'));
+    const list = [];
+    for (const f of files) {
+      try {
+        const raw = await fsp.readFile(path.join(ASSETS_DIR, f), 'utf8');
+        const r = JSON.parse(raw);
+        list.push({ id: r.id, name: r.name, type: r.type, nodeCount: r.nodeCount || 1, savedAt: r.savedAt });
+      } catch (_) {}
+    }
+    list.sort((a, b) => String(b.savedAt || '').localeCompare(String(a.savedAt || '')));
+    res.json({ assets: list });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/assets', express.json({ limit: '20mb' }), async (req, res) => {
+  try {
+    const body = req.body || {};
+    if (!body.nodes) return res.status(400).json({ error: 'nodes is required' });
+    const record = {
+      id:        crypto.randomUUID(),
+      name:      typeof body.name === 'string' && body.name.trim() ? body.name.trim() : 'Untitled asset',
+      type:      typeof body.type === 'string' ? body.type : 'FRAME',
+      nodeCount: typeof body.nodeCount === 'number' ? body.nodeCount : 1,
+      nodes:     body.nodes,
+      savedAt:   new Date().toISOString(),
+    };
+    await fsp.writeFile(path.join(ASSETS_DIR, `${record.id}.json`), JSON.stringify(record, null, 2));
+    res.json({ asset: { id: record.id, name: record.name, type: record.type, nodeCount: record.nodeCount, savedAt: record.savedAt } });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/assets/:id', async (req, res) => {
+  try {
+    const raw = await fsp.readFile(path.join(ASSETS_DIR, `${req.params.id}.json`), 'utf8');
+    res.json(JSON.parse(raw));
+  } catch (err) {
+    res.status(err.code === 'ENOENT' ? 404 : 500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/assets/:id', async (req, res) => {
+  try {
+    await fsp.unlink(path.join(ASSETS_DIR, `${req.params.id}.json`));
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(err.code === 'ENOENT' ? 404 : 500).json({ error: err.message });
   }
 });
 

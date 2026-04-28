@@ -551,6 +551,14 @@ figma.ui.onmessage = async function(msg) {
       // ── Constraints ───────────────────────────────────────────────────────
       try { out.constraints = { horizontal: node.constraints.horizontal, vertical: node.constraints.vertical }; } catch(_) {}
 
+      // ── Auto-layout child properties ──────────────────────────────────────
+      // layoutPositioning = 'ABSOLUTE' means this child is manually placed inside
+      // an auto-layout parent. Without restoring it, absolute children land in the
+      // auto-layout flow and get wrong positions/sizes.
+      try { if ('layoutPositioning' in node) out.layoutPositioning = node.layoutPositioning; } catch(_) {}
+      try { if ('layoutAlign'       in node) out.layoutAlign       = node.layoutAlign;       } catch(_) {}
+      try { if ('layoutGrow'        in node) out.layoutGrow        = node.layoutGrow;        } catch(_) {}
+
       // ── Auto-layout (frames) ──────────────────────────────────────────────
       if ('layoutMode' in node) {
         try {
@@ -915,7 +923,22 @@ figma.ui.onmessage = async function(msg) {
           } catch(_) {}
         }
 
-        // ── Auto-layout ───────────────────────────────────────────────────
+        // ── Auto-layout child role ────────────────────────────────────────
+        // MUST be set BEFORE position — 'ABSOLUTE' opts the child out of the
+        // parent's auto-layout flow so the manual x/y below takes effect.
+        // Without this, absolute-positioned children land in the flow and
+        // get wrong positions and sizes.
+        if (def.layoutPositioning != null && 'layoutPositioning' in node) {
+          try { node.layoutPositioning = def.layoutPositioning; } catch(_) {}
+        }
+        if (def.layoutAlign != null && 'layoutAlign' in node) {
+          try { node.layoutAlign = def.layoutAlign; } catch(_) {}
+        }
+        if (def.layoutGrow != null && 'layoutGrow' in node) {
+          try { node.layoutGrow = def.layoutGrow; } catch(_) {}
+        }
+
+        // ── Auto-layout (frame-level) ─────────────────────────────────────
         if (def.layoutMode && def.layoutMode !== 'NONE' && 'layoutMode' in node) {
           try {
             node.layoutMode = def.layoutMode;
@@ -929,6 +952,10 @@ figma.ui.onmessage = async function(msg) {
             if (def.primaryAxisAlignItems)  node.primaryAxisAlignItems  = def.primaryAxisAlignItems;
             if (def.counterAxisAlignItems)  node.counterAxisAlignItems  = def.counterAxisAlignItems;
           } catch(_) {}
+        }
+        // clipsContent applies to all frames regardless of layoutMode
+        if (def.clipsContent != null && 'clipsContent' in node) {
+          try { node.clipsContent = def.clipsContent; } catch(_) {}
         }
 
         // ── Shape-specific ────────────────────────────────────────────────

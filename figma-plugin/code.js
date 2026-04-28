@@ -792,29 +792,41 @@ figma.ui.onmessage = async function(msg) {
         // THEN apply each child's stored position once — correctly in group space.
         if (def.type === 'GROUP') {
           var gParent = parent || figma.currentPage;
-          var gChildren = [];
+          var gChildNodes = [];
+          var gChildDefs  = [];
           if (def.children && def.children.length) {
             for (var gci = 0; gci < def.children.length; gci++) {
               try {
-                // Restore children WITHOUT skipPosition so they land at their
-                // stored group-relative coordinates in gParent's space.
-                // Figma guarantees that min(child.x in group space) = 0 and
-                // min(child.y in group space) = 0 — so the group's bounding box
-                // top-left will sit at (0,0) in the parent after figma.group().
-                // We then move the whole group (+ children) to its stored position
-                // in a single applyPositionAndTransform call below.
-                // This avoids the bounding-box drift that occurred when children
-                // were repositioned one-by-one after grouping.
-                var gch = await restoreNode(def.children[gci], gParent, false);
-                if (gch) gChildren.push(gch);
+                // skipPosition=true: children are created but NOT yet positioned.
+                //
+                // Why: the stored relativeTransform/x/y values for each child are
+                // in GROUP-LOCAL coordinate space.  If we applied them while the
+                // child is still in gParent (before figma.group()), we would be
+                // interpreting group-local coordinates in gParent's coordinate
+                // system — wrong when the group is rotated or the parent is not
+                // the page.
+                //
+                // After figma.group() the children live inside the group's own
+                // (possibly rotated) coordinate system, so applyPositionAndTransform
+                // below will place each one correctly.
+                var gch = await restoreNode(def.children[gci], gParent, true);
+                if (gch) { gChildNodes.push(gch); gChildDefs.push(def.children[gci]); }
               } catch(_) {}
             }
           }
           var grpNode;
-          if (gChildren.length > 0) {
-            grpNode = figma.group(gChildren, gParent);
-            // No per-child repositioning needed — children are already at the
-            // correct relative positions. Moving the group below carries them all.
+          if (gChildNodes.length > 0) {
+            grpNode = figma.group(gChildNodes, gParent);
+            // Children are now inside grpNode's local coordinate system.
+            // Apply their stored group-relative positions in two passes:
+            // the first pass positions everything; the second pass corrects
+            // any bounding-box drift that Figma may have introduced while
+            // repositioning children one-by-one in pass 1.
+            for (var gpass = 0; gpass < 2; gpass++) {
+              for (var gpi = 0; gpi < gChildNodes.length; gpi++) {
+                try { applyPositionAndTransform(gChildNodes[gpi], gChildDefs[gpi]); } catch(_) {}
+              }
+            }
           } else {
             // No children — fall back to a transparent frame
             grpNode = figma.createFrame();

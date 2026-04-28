@@ -3,411 +3,581 @@
 <head>
 <meta charset="UTF-8">
 <title>Smartico Bridge</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;900&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg: #1a1a2e; --surface: #16213e; --surface2: #0f3460;
-    --gold: #f5a623; --teal: #14b8a6; --red: #ef4444;
-    --text: #e2e8f0; --muted: #94a3b8; --border: #334155;
-    --radius: 6px; --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --pink:  #f2c8f2;
+    --blue:  #ccd8f8;
+    --lime:  #d8edb8;
+    --bg:    #ede9f8;
+    --text:  #1a1030;
+    --muted: rgba(0,0,0,0.42);
+    --white: rgba(255,255,255,0.68);
+    --white-strong: rgba(255,255,255,0.88);
+    --border: rgba(0,0,0,0.13);
+    --radius-xl: 22px;
+    --radius: 12px;
+    --radius-sm: 8px;
+    --font: 'Nunito', -apple-system, sans-serif;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { background: var(--bg); color: var(--text); font-family: var(--font);
-         font-size: 12px; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
-
-  .header { background: var(--surface); border-bottom: 1px solid var(--border);
-            padding: 9px 12px; display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
-  .header-logo { font-size: 15px; }
-  .header-title { font-weight: 700; font-size: 13px; color: var(--gold); flex: 1; }
-  .status { font-size: 10px; padding: 2px 7px; border-radius: 10px;
-            background: #14b8a615; border: 1px solid #14b8a633; color: var(--teal); }
-  .status.off { background: #ef444415; border-color: #ef444433; color: var(--red); }
-
-  .body { flex: 1; overflow-y: auto; padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; }
-  .body::-webkit-scrollbar { width: 4px; }
-  .body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
-
-  .section { display: flex; flex-direction: column; gap: 5px; }
-  .section-title { font-size: 10px; font-weight: 600; text-transform: uppercase;
-                   letter-spacing: .08em; color: var(--muted); }
-
-  label { font-size: 11px; color: var(--muted); display: block; margin-bottom: 2px; }
-  input[type="text"], select {
-    width: 100%; background: var(--surface); border: 1px solid var(--border);
-    border-radius: var(--radius); color: var(--text); padding: 5px 8px;
-    font-size: 11px; font-family: var(--font); outline: none; transition: border-color .15s;
-  }
-  input:focus, select:focus { border-color: var(--gold); }
-  select option { background: var(--surface2); }
-
-  .btn { border: 1px solid var(--border); border-radius: var(--radius);
-         background: var(--surface); color: var(--text); padding: 5px 10px;
-         font-size: 11px; font-family: var(--font); cursor: pointer; transition: all .15s; white-space: nowrap; }
-  .btn:hover:not(:disabled) { border-color: var(--gold); color: var(--gold); }
-  .btn:disabled { opacity: .5; cursor: default; }
-  .btn-primary { background: var(--gold); border-color: var(--gold); color: #0f0f1a; font-weight: 700; }
-  .btn-primary:hover:not(:disabled) { background: #f7b84b; border-color: #f7b84b; color: #0f0f1a; }
-  .btn-ghost { background: transparent; }
-  .btn-sm { padding: 3px 8px; font-size: 10px; }
-  .btn-row { display: flex; gap: 6px; align-items: center; }
-
-  /* Dataset cards */
-  .ds-card { background: var(--surface); border: 1px solid var(--border);
-             border-radius: var(--radius); padding: 8px 10px; cursor: pointer; transition: all .15s; }
-  .ds-card:hover { border-color: var(--gold); }
-  .ds-card.sel { border-color: var(--gold); background: #f5a62310; }
-  .ds-name { font-weight: 600; font-size: 11px; }
-  .ds-meta { font-size: 10px; color: var(--muted); margin-top: 3px; display: flex; gap: 8px; flex-wrap: wrap; }
-  .ds-chip { background: var(--surface2); border-radius: 4px; padding: 1px 5px; }
-  .ds-chip.proc { background: #14b8a615; color: var(--teal); border: 1px solid #14b8a633; }
-
-  /* Preview table */
-  .tbl-wrap { overflow: auto; border: 1px solid var(--border); border-radius: var(--radius); max-height: 160px; }
-  .tbl-wrap::-webkit-scrollbar { height: 4px; width: 4px; }
-  .tbl-wrap::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
-  table { width: 100%; border-collapse: collapse; font-size: 10px; }
-  th { background: var(--surface2); color: var(--muted); font-weight: 600;
-       padding: 4px 7px; text-align: left; position: sticky; top: 0;
-       white-space: nowrap; border-bottom: 1px solid var(--border); }
-  td { padding: 3px 7px; border-bottom: 1px solid #1e293b;
-       max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .av-thumb { width: 18px; height: 18px; border-radius: 50%; object-fit: cover; vertical-align: middle; }
-  /* Clickable data rows */
-  tbody tr { cursor: pointer; transition: background .1s; }
-  tbody tr:hover { background: rgba(245,200,66,0.06); }
-  tbody tr.row-sel { background: rgba(245,200,66,0.13); }
-  tbody tr.row-sel td:first-child { box-shadow: inset 2px 0 0 var(--gold); }
-
-  /* Selection box */
-  .sel-box { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
-             padding: 7px 10px; font-size: 10px; color: var(--muted);
-             display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-  .sel-box.none { border-style: dashed; }
-  .sel-name { color: var(--text); font-weight: 600; font-size: 11px; }
-
-  /* Ref list */
-  .ref-list { display: flex; flex-direction: column; gap: 6px; }
-  .ref-tag { background: var(--surface2); border: 1px solid var(--border); border-radius: 4px;
-             padding: 2px 7px; font-size: 10px; font-family: monospace; color: var(--teal); }
-  .ref-tag.miss { color: var(--red); border-color: #ef444433; }
-
-  /* Ref groups (per containing frame) */
-  .ref-group { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
-  .ref-group-head { display: flex; align-items: center; gap: 6px; padding: 5px 8px;
-                    cursor: pointer; user-select: none; border-radius: var(--radius); }
-  .ref-group-head:hover { background: #0f346030; }
-  .ref-group-caret { display: inline-block; width: 10px; font-size: 10px; color: var(--muted);
-                     transition: transform .15s; }
-  .ref-group.open > .ref-group-head .ref-group-caret { transform: rotate(90deg); }
-  .ref-group-name { flex: 1; font-size: 11px; font-weight: 600; color: var(--text);
-                    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .ref-group-type { font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
-  .ref-group-count { background: var(--surface2); border-radius: 10px; padding: 1px 7px;
-                     font-size: 10px; color: var(--muted); border: 1px solid var(--border); }
-  .ref-group-body { padding: 0 8px 8px 22px; display: none; flex-wrap: wrap; gap: 4px; }
-  .ref-group.open > .ref-group-body { display: flex; }
-
-  /* Inject bar */
-  .inject-bar { position: sticky; bottom: 0; background: var(--bg);
-                border-top: 1px solid var(--border); padding: 8px 12px; flex-shrink: 0; }
-  .inject-bar .btn-primary { width: 100%; padding: 8px; font-size: 12px; }
-
-  /* Banners */
-  .banner { font-size: 10px; padding: 5px 8px; border-radius: var(--radius); display: none; }
-  .banner.ok  { background: #14b8a615; border: 1px solid #14b8a633; color: var(--teal); display: block; }
-  .banner.err { background: #ef444415; border: 1px solid #ef444433; color: var(--red); display: block; }
-  .banner.info{ background: #f5a62315; border: 1px solid #f5a62333; color: var(--gold); display: block; }
-
-  /* Settings drawer */
-  .settings-drawer { display: none; flex-direction: column; gap: 6px; }
-  .settings-drawer.open { display: flex; }
-  .stg-toggle { font-size: 10px; color: var(--muted); background: none; border: none;
-                cursor: pointer; padding: 0; text-decoration: underline; font-family: var(--font); align-self: flex-start; }
-  .stg-toggle:hover { color: var(--text); }
-
-  .empty { color: var(--muted); font-size: 11px; padding: 12px 0; text-align: center; }
-  .spinner { display: inline-block; width: 10px; height: 10px; border: 2px solid var(--border);
-             border-top-color: var(--gold); border-radius: 50%; animation: spin .7s linear infinite; margin-right: 4px; }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  hr { border: none; border-top: 1px solid var(--border); }
-
-  /* Processing overlay — shown during inject */
-  .processing-overlay {
-    display: none;
-    position: fixed; inset: 0;
-    background: rgba(26,26,46,0.92);
-    backdrop-filter: blur(3px);
-    z-index: 100;
+  body {
+    background: var(--bg);
+    font-family: var(--font);
+    font-size: 12px;
+    color: var(--text);
+    padding: 10px;
+    display: flex;
     flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 16px;
+    gap: 10px;
+    min-height: 100vh;
+    overflow-x: hidden;
   }
-  .processing-overlay.active { display: flex; }
-  .proc-ring {
-    width: 48px; height: 48px;
-    border: 3px solid var(--border);
-    border-top-color: var(--gold);
-    border-radius: 50%;
-    animation: spin .8s linear infinite;
-  }
-  .proc-label { font-size: 12px; color: var(--text); font-weight: 600; }
-  .proc-sub   { font-size: 10px; color: var(--muted); }
 
-  /* Bind layer panel */
+  /* ── Accordion panels ───────────────────────────────────────────────── */
+  .panel { border-radius: var(--radius-xl); transition: box-shadow .2s; }
+  .panel-pink  { background: var(--pink);  }
+  .panel-blue  { background: var(--blue);  }
+  .panel-lime  { background: var(--lime);  }
+
+  .panel-hd {
+    padding: 16px 18px 14px;
+    cursor: pointer;
+    user-select: none;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .panel-hd:hover { opacity: .92; }
+
+  .panel-hd-text { flex: 1; }
+  .panel-app-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--muted);
+    letter-spacing: .04em;
+    margin-bottom: 2px;
+  }
+  .panel-title {
+    font-size: 24px;
+    font-weight: 900;
+    line-height: 1.08;
+    color: var(--text);
+  }
+  .panel-subtitle {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--muted);
+    margin-top: 2px;
+  }
+  .panel-caret {
+    font-size: 13px;
+    color: var(--muted);
+    margin-top: 6px;
+    transition: transform .2s;
+  }
+  .panel.open .panel-caret { transform: rotate(90deg); }
+
+  .panel-body {
+    padding: 0 16px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+    overflow: hidden;
+  }
+  .panel-body.hidden { display: none; }
+
+  /* ── Status pill ────────────────────────────────────────────────────── */
+  .status-row { display: flex; align-items: center; gap: 5px; }
+  .status-dot { width: 7px; height: 7px; border-radius: 50%; background: #9ca3af; flex-shrink: 0; }
+  .status-dot.ok { background: #22c55e; }
+  .status-dot.err { background: #ef4444; }
+  #connStatus { font-size: 10px; color: var(--muted); }
+
+  /* ── Light-theme controls ───────────────────────────────────────────── */
+  .select-wrap { position: relative; }
+  .select-wrap::after {
+    content: '▾';
+    position: absolute; right: 12px; top: 50%;
+    transform: translateY(-50%);
+    pointer-events: none;
+    color: var(--muted); font-size: 14px;
+  }
+  select, input[type="text"] {
+    width: 100%;
+    background: var(--white);
+    border: 1.5px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text);
+    padding: 8px 32px 8px 12px;
+    font-size: 11px;
+    font-family: var(--font);
+    font-weight: 700;
+    letter-spacing: .03em;
+    outline: none;
+    appearance: none;
+    cursor: pointer;
+    transition: border-color .15s;
+  }
+  select:focus, input[type="text"]:focus { border-color: rgba(0,0,0,.3); }
+  input[type="text"] { padding-right: 12px; text-transform: none; font-weight: 600; }
+  select option { background: #fff; font-weight: 600; }
+
+  /* ── Buttons ────────────────────────────────────────────────────────── */
+  .btn {
+    border: 1.5px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--white);
+    color: var(--text);
+    padding: 8px 14px;
+    font-size: 11px;
+    font-family: var(--font);
+    font-weight: 700;
+    cursor: pointer;
+    transition: all .15s;
+    white-space: nowrap;
+  }
+  .btn:hover:not(:disabled) { background: var(--white-strong); }
+  .btn:disabled { opacity: .5; cursor: default; }
+  .btn-primary {
+    background: rgba(0,0,0,.82);
+    border-color: transparent;
+    color: #fff;
+  }
+  .btn-primary:hover:not(:disabled) { background: rgba(0,0,0,.95); }
+  .btn-sm { padding: 4px 9px; font-size: 10px; border-radius: var(--radius-sm); }
+  .btn-row { display: flex; gap: 6px; align-items: center; }
+  .btn-full { width: 100%; justify-content: center; }
+
+  /* ── Drop zone ──────────────────────────────────────────────────────── */
+  .drop-zone {
+    border: 2px dashed rgba(0,0,0,.18);
+    border-radius: var(--radius);
+    padding: 16px 12px;
+    text-align: center;
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--muted);
+    background: rgba(255,255,255,.35);
+    transition: all .15s;
+    line-height: 1.5;
+  }
+  .drop-zone:hover, .drop-zone.over {
+    border-color: rgba(0,0,0,.35);
+    color: var(--text);
+    background: rgba(255,255,255,.55);
+  }
+  .drop-zone.busy { border-color: rgba(0,0,0,.2); color: var(--muted); cursor: default; }
+
+  /* ── Dataset cards ──────────────────────────────────────────────────── */
+  .ds-card {
+    background: var(--white);
+    border: 1.5px solid var(--border);
+    border-radius: var(--radius);
+    padding: 9px 11px;
+    cursor: pointer;
+    transition: all .15s;
+  }
+  .ds-card:hover { border-color: rgba(0,0,0,.28); background: var(--white-strong); }
+  .ds-card.sel   { border-color: rgba(0,0,0,.36); background: var(--white-strong); }
+  .ds-name { font-weight: 800; font-size: 11px; }
+  .ds-meta { font-size: 10px; color: var(--muted); margin-top: 3px; display: flex; gap: 8px; flex-wrap: wrap; }
+  .ds-chip { background: rgba(0,0,0,.07); border-radius: 4px; padding: 1px 5px; }
+  .ds-chip.proc { background: #d1fae5; color: #065f46; }
+
+  /* ── Preview table ──────────────────────────────────────────────────── */
+  .tbl-wrap {
+    overflow: auto;
+    border: 1.5px solid var(--border);
+    border-radius: var(--radius);
+    max-height: 150px;
+    background: rgba(255,255,255,.6);
+  }
+  .tbl-wrap::-webkit-scrollbar { height: 4px; width: 4px; }
+  .tbl-wrap::-webkit-scrollbar-thumb { background: rgba(0,0,0,.15); border-radius: 2px; }
+  table { width: 100%; border-collapse: collapse; font-size: 10px; }
+  th {
+    background: rgba(0,0,0,.06);
+    color: var(--muted);
+    font-weight: 700;
+    padding: 4px 7px;
+    text-align: left;
+    position: sticky;
+    top: 0;
+    white-space: nowrap;
+    border-bottom: 1.5px solid var(--border);
+  }
+  td {
+    padding: 3px 7px;
+    border-bottom: 1px solid rgba(0,0,0,.06);
+    max-width: 110px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .av-thumb { width: 18px; height: 18px; border-radius: 50%; object-fit: cover; vertical-align: middle; }
+  tbody tr { cursor: pointer; transition: background .1s; }
+  tbody tr:hover { background: rgba(0,0,0,.04); }
+  tbody tr.row-sel { background: rgba(0,0,0,.07); }
+  tbody tr.row-sel td:first-child { box-shadow: inset 2px 0 0 rgba(0,0,0,.4); }
+
+  /* ── Selection box ──────────────────────────────────────────────────── */
+  .sel-box {
+    background: var(--white);
+    border: 1.5px solid var(--border);
+    border-radius: var(--radius);
+    padding: 7px 11px;
+    font-size: 10px;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .sel-box.none { border-style: dashed; }
+  .sel-name { color: var(--text); font-weight: 700; font-size: 11px; }
+
+  /* ── Bind panel ─────────────────────────────────────────────────────── */
   .bind-panel {
-    background: var(--surface); border: 1px solid var(--border);
-    border-radius: var(--radius); padding: 8px 10px;
-    display: flex; flex-direction: column; gap: 7px;
+    background: var(--white);
+    border: 1.5px solid var(--border);
+    border-radius: var(--radius);
+    padding: 9px 11px;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
   }
   .bind-hint { font-size: 10px; color: var(--muted); text-align: center; padding: 4px 0; }
   .bind-sel-row {
     display: flex; align-items: center; gap: 6px;
-    background: var(--surface2); border-radius: 4px; padding: 4px 8px;
+    background: rgba(0,0,0,.06); border-radius: 6px; padding: 4px 8px;
   }
   .bind-sel-row-label { font-size: 10px; color: var(--muted); flex-shrink: 0; }
-  .bind-sel-row-val   { font-size: 11px; color: var(--gold); font-weight: 600; flex: 1; }
-  /* Column chips */
-  .bind-cols { display: flex; flex-wrap: wrap; gap: 6px; max-height: 200px; overflow-y: auto; }
+  .bind-sel-row-val   { font-size: 11px; color: var(--text); font-weight: 700; flex: 1; }
+  .bind-cols { display: flex; flex-wrap: wrap; gap: 5px; max-height: 180px; overflow-y: auto; }
   .bind-col-chip {
-    background: var(--surface2); border: 1px solid var(--border);
-    border-radius: 4px; padding: 2px 7px; font-size: 10px;
-    cursor: pointer; transition: all .12s; white-space: nowrap;
+    background: rgba(0,0,0,.07); border: 1.5px solid rgba(0,0,0,.1);
+    border-radius: 6px; padding: 2px 7px; font-size: 10px; font-family: var(--font);
+    cursor: pointer; transition: all .12s; white-space: nowrap; font-weight: 600;
   }
-  .bind-col-chip:hover  { border-color: var(--teal); color: var(--teal); }
-  .bind-col-chip.active { border-color: var(--teal); background: #14b8a620; color: var(--teal); }
-  /* Image chip — shows a live thumbnail */
+  .bind-col-chip:hover  { border-color: rgba(0,0,0,.3); }
+  .bind-col-chip.active { border-color: rgba(0,0,0,.5); background: rgba(0,0,0,.1); }
   .bind-img-chip {
     display: flex; flex-direction: column; align-items: center; gap: 4px;
-    background: var(--surface2); border: 1px solid var(--border);
-    border-radius: 6px; padding: 6px 8px; cursor: pointer; transition: all .12s;
-    font-size: 10px; color: var(--muted); width: 80px; flex-shrink: 0;
+    background: rgba(0,0,0,.07); border: 1.5px solid rgba(0,0,0,.1);
+    border-radius: 8px; padding: 6px 8px; cursor: pointer; transition: all .12s;
+    font-size: 10px; color: var(--muted); width: 78px; flex-shrink: 0; font-weight: 600;
   }
-  .bind-img-chip:hover  { border-color: var(--teal); color: var(--teal); }
-  .bind-img-chip.active { border-color: var(--teal); background: #14b8a620; color: var(--teal); }
+  .bind-img-chip:hover  { border-color: rgba(0,0,0,.3); }
+  .bind-img-chip.active { border-color: rgba(0,0,0,.5); background: rgba(0,0,0,.1); }
   .bind-img-thumb {
-    width: 52px; height: 52px; border-radius: 50%; object-fit: cover;
-    background: var(--border); display: block;
+    width: 50px; height: 50px; border-radius: 50%; object-fit: cover;
+    background: rgba(0,0,0,.1); display: block;
   }
-  .bind-img-thumb.rect { border-radius: 4px; }
-  .bind-img-label { font-size: 9px; text-align: center; max-width: 72px;
+  .bind-img-thumb.rect { border-radius: 6px; }
+  .bind-img-label { font-size: 9px; text-align: center; max-width: 70px;
                     overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .bind-preview {
-    font-family: monospace; font-size: 11px; color: var(--teal);
-    background: #14b8a610; border: 1px solid #14b8a630;
-    border-radius: 4px; padding: 3px 8px; text-align: center;
+    font-family: monospace; font-size: 11px; color: var(--text);
+    background: rgba(0,0,0,.07); border: 1.5px solid rgba(0,0,0,.1);
+    border-radius: 6px; padding: 3px 8px; text-align: center; font-weight: 700;
   }
   .bind-preview.empty { color: var(--muted); background: none; border-color: transparent; }
-  .btn-bind { background: var(--teal); border-color: var(--teal); color: #0f1a1a;
-              font-weight: 700; width: 100%; padding: 6px; font-size: 11px; }
-  .btn-bind:hover:not(:disabled) { background: #2dd4bf; border-color: #2dd4bf; color: #0f1a1a; }
-  .btn-bind:disabled { opacity: .45; }
-  .bind-ok { font-size: 10px; color: var(--teal); text-align: center; display: none; }
-  .bind-divider { border: none; border-top: 1px solid var(--border); margin: 7px 0 5px; }
-  .btn-create-elems {
-    background: var(--surface2); border: 1px solid var(--gold); color: var(--gold);
-    width: 100%; padding: 7px; font-size: 11px; font-weight: 700; border-radius: var(--radius);
-    cursor: pointer; transition: all .15s; font-family: var(--font);
+  .btn-bind {
+    background: rgba(0,0,0,.8); border: none; border-radius: var(--radius);
+    color: #fff; font-weight: 700; font-family: var(--font);
+    width: 100%; padding: 7px; font-size: 11px; cursor: pointer; transition: all .15s;
   }
-  .btn-create-elems:hover:not(:disabled) { background: #f5a62320; }
+  .btn-bind:hover:not(:disabled) { background: rgba(0,0,0,.95); }
+  .btn-bind:disabled { opacity: .45; }
+  .bind-ok { font-size: 10px; color: #065f46; text-align: center; display: none; font-weight: 600; }
+  .bind-divider { border: none; border-top: 1.5px solid var(--border); margin: 4px 0; }
+  .btn-create-elems {
+    background: rgba(0,0,0,.08); border: 1.5px solid rgba(0,0,0,.18);
+    color: var(--text); width: 100%; padding: 7px; font-size: 11px; font-weight: 700;
+    border-radius: var(--radius); cursor: pointer; transition: all .15s; font-family: var(--font);
+  }
+  .btn-create-elems:hover:not(:disabled) { background: rgba(0,0,0,.14); }
   .btn-create-elems:disabled { opacity: .5; cursor: default; }
-  .create-ok { font-size: 10px; color: var(--teal); text-align: center; display: none; margin-top: 4px; }
+  .create-ok { font-size: 10px; color: #065f46; text-align: center; display: none; margin-top: 4px; font-weight: 600; }
   .create-ok.show { display: block; }
 
-  /* Upload CSV section */
-  .upload-toggle { font-size: 10px; color: var(--muted); background: none; border: none;
-                   cursor: pointer; padding: 0; font-family: var(--font);
-                   display: flex; align-items: center; gap: 4px; align-self: flex-start; }
-  .upload-toggle:hover { color: var(--gold); }
-  .upload-panel { display: none; flex-direction: column; gap: 7px;
-                  background: var(--surface); border: 1px solid var(--border);
-                  border-radius: var(--radius); padding: 9px 10px; }
-  .upload-panel.open { display: flex; }
-  .upload-drop {
-    border: 2px dashed var(--border); border-radius: var(--radius);
-    padding: 16px 10px; text-align: center; cursor: pointer; transition: all .15s;
-    color: var(--muted); font-size: 11px; line-height: 1.6;
+  /* ── Ref groups ─────────────────────────────────────────────────────── */
+  .ref-list { display: flex; flex-direction: column; gap: 5px; }
+  .ref-tag {
+    display: inline-block;
+    background: rgba(0,0,0,.09); border: 1.5px solid rgba(0,0,0,.1);
+    border-radius: 5px; padding: 2px 6px; font-size: 10px; font-family: monospace;
+    color: var(--text); font-weight: 600;
   }
-  .upload-drop:hover, .upload-drop.over { border-color: var(--gold); color: var(--gold); background: #f5a62308; }
-  .upload-drop.busy { border-color: var(--teal); color: var(--teal); background: #14b8a608; cursor: default; }
-  .upload-progress { font-size: 10px; color: var(--teal); display: none; text-align: center; }
+  .ref-tag.miss { color: #b91c1c; border-color: rgba(185,28,28,.3); background: rgba(185,28,28,.06); }
+  .ref-group {
+    border: 1.5px solid var(--border); border-radius: var(--radius);
+    background: var(--white);
+  }
+  .ref-group-head {
+    display: flex; align-items: center; gap: 6px; padding: 5px 9px;
+    cursor: pointer; user-select: none; border-radius: var(--radius);
+  }
+  .ref-group-head:hover { background: rgba(0,0,0,.04); }
+  .ref-group-caret { display: inline-block; width: 10px; font-size: 10px; color: var(--muted); transition: transform .15s; }
+  .ref-group.open > .ref-group-head .ref-group-caret { transform: rotate(90deg); }
+  .ref-group-name { flex: 1; font-size: 11px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ref-group-type { font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+  .ref-group-count { background: rgba(0,0,0,.08); border-radius: 10px; padding: 1px 7px; font-size: 10px; color: var(--muted); font-weight: 700; }
+  .ref-group-body { padding: 0 9px 9px 22px; display: none; flex-wrap: wrap; gap: 4px; }
+  .ref-group.open > .ref-group-body { display: flex; }
+
+  /* ── Asset items ────────────────────────────────────────────────────── */
+  .asset-item {
+    display: flex; align-items: center; gap: 6px; padding: 7px 10px;
+    background: var(--white); border: 1.5px solid var(--border);
+    border-radius: var(--radius);
+  }
+  .asset-item-name { flex: 1; font-size: 11px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .asset-item-count { font-size: 9px; color: var(--muted); }
+
+  /* ── Banners ────────────────────────────────────────────────────────── */
+  .banner {
+    font-size: 10px; font-weight: 700;
+    padding: 7px 11px; border-radius: var(--radius-sm); display: none;
+  }
+  .banner.ok   { background: #dcfce7; border: 1.5px solid #86efac; color: #14532d; display: block; }
+  .banner.err  { background: #fee2e2; border: 1.5px solid #fca5a5; color: #7f1d1d; display: block; }
+  .banner.info { background: #fef9c3; border: 1.5px solid #fde047; color: #713f12; display: block; }
+
+  /* ── Upload feedback ────────────────────────────────────────────────── */
+  .upload-progress { font-size: 10px; color: var(--muted); display: none; text-align: center; font-weight: 700; }
   .upload-progress.active { display: block; }
-  .upload-ok { font-size: 10px; color: var(--teal); display: none; text-align: center; }
-  .upload-ok.active { display: block; }
-  .upload-err { font-size: 10px; color: var(--red); display: none; }
+  .upload-ok  { font-size: 10px; color: #14532d; display: none; text-align: center; font-weight: 700; }
+  .upload-ok.active  { display: block; }
+  .upload-err { font-size: 10px; color: #7f1d1d; display: none; font-weight: 700; }
   .upload-err.active { display: block; }
+
+  /* ── Section labels ─────────────────────────────────────────────────── */
+  .sec-label { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+
+  /* ── Misc ───────────────────────────────────────────────────────────── */
+  .empty { color: var(--muted); font-size: 11px; padding: 10px 0; text-align: center; font-weight: 600; }
+  .spinner {
+    display: inline-block; width: 10px; height: 10px;
+    border: 2px solid rgba(0,0,0,.15); border-top-color: rgba(0,0,0,.5);
+    border-radius: 50%; animation: spin .7s linear infinite; margin-right: 4px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  hr { border: none; border-top: 1.5px solid var(--border); }
+
+  /* ── Processing overlay ─────────────────────────────────────────────── */
+  .processing-overlay {
+    display: none;
+    position: fixed; inset: 0;
+    background: rgba(237,233,248,.92);
+    backdrop-filter: blur(4px);
+    z-index: 100;
+    flex-direction: column; align-items: center; justify-content: center; gap: 16px;
+  }
+  .processing-overlay.active { display: flex; }
+  .proc-ring {
+    width: 46px; height: 46px;
+    border: 3px solid rgba(0,0,0,.12);
+    border-top-color: rgba(0,0,0,.6);
+    border-radius: 50%;
+    animation: spin .8s linear infinite;
+  }
+  .proc-label { font-size: 13px; color: var(--text); font-weight: 800; }
+  .proc-sub   { font-size: 10px; color: var(--muted); font-weight: 600; }
 </style>
 </head>
 <body>
 
-<div class="header">
-  <span class="header-logo">🎰</span>
-  <span class="header-title">Smartico Bridge</span>
-  <span class="status off" id="connStatus">Offline</span>
+<!-- ── Panel 1: Data Importer ──────────────────────────────────────── -->
+<div class="panel panel-pink open" id="panel-data">
+  <div class="panel-hd" onclick="togglePanel('data')">
+    <div class="panel-hd-text">
+      <div class="panel-app-label">Smartico Bridge</div>
+      <div class="panel-title">Data<br>Importer</div>
+    </div>
+    <span class="panel-caret">▶</span>
+  </div>
+  <div class="panel-body" id="panel-data-body">
+
+    <!-- connection status -->
+    <div class="status-row">
+      <span class="status-dot" id="statusDot"></span>
+      <span id="connStatus">Connecting…</span>
+    </div>
+
+    <!-- processed dataset list -->
+    <div class="sec-label">Select dataset</div>
+    <div id="dsList"><div class="empty"><span class="spinner"></span>Loading…</div></div>
+
+    <!-- CSV upload -->
+    <div class="sec-label">Upload CSV to pipeline</div>
+    <div class="select-wrap">
+      <select id="uploadPipelineSel">
+        <option value="">Loading pipelines…</option>
+      </select>
+    </div>
+    <div class="drop-zone" id="uploadDrop"
+         onclick="document.getElementById('uploadFileInput').click()"
+         ondragover="onUploadDragOver(event)"
+         ondragleave="onUploadDragLeave(event)"
+         ondrop="onUploadDrop(event)">
+      Drop a CSV file here or click to browse
+    </div>
+    <input type="file" id="uploadFileInput" accept=".csv,text/csv" style="display:none" onchange="onUploadFileChange(event)">
+    <div class="upload-progress" id="uploadProgress">⟳ Processing…</div>
+    <div class="upload-ok"  id="uploadOk"></div>
+    <div class="upload-err" id="uploadErr"></div>
+
+    <!-- data preview -->
+    <div id="previewSection" style="display:none">
+      <div class="sec-label" style="margin-bottom:6px">Data preview</div>
+      <div class="tbl-wrap" id="previewWrap"></div>
+    </div>
+
+    <!-- figma selection -->
+    <div id="selSection" style="display:none">
+      <div class="sec-label" style="margin-bottom:6px">Figma selection</div>
+      <div class="sel-box none" id="selBox">
+        <span id="selLabel">Nothing selected</span>
+      </div>
+    </div>
+
+    <!-- bind layer -->
+    <div id="bindSection" style="display:none">
+      <div class="sec-label" style="margin-bottom:6px">Bind layer to data</div>
+      <div class="bind-panel">
+        <div class="bind-hint" id="bindHint">← Click a row in the data preview above</div>
+        <div id="bindRowInfo" style="display:none">
+          <div class="bind-sel-row">
+            <span class="bind-sel-row-label">Row</span>
+            <span class="bind-sel-row-val" id="bindRowVal">—</span>
+            <span class="bind-sel-row-label" id="bindRowSrc" style="font-size:9px"></span>
+          </div>
+          <div style="font-size:10px;color:var(--muted);margin:5px 0 3px;font-weight:600" id="bindColsLabel">
+            Pick a column to rename the selected layer:
+          </div>
+          <div class="bind-cols" id="bindCols"></div>
+          <div class="bind-preview empty" id="bindPreview">#column.row</div>
+          <button class="btn-bind" id="bindBtn" onclick="bindLayer()" disabled>Rename Layer</button>
+          <div class="bind-ok" id="bindOk"></div>
+          <hr class="bind-divider">
+          <button class="btn-create-elems" id="createElemsBtn" onclick="createRowElements()">📐 Create all as Figma elements</button>
+          <div class="create-ok" id="createOk"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- refs -->
+    <div id="refsSection" style="display:none">
+      <div class="sec-label" style="margin-bottom:4px">Layer refs found</div>
+      <div style="font-size:10px;color:var(--muted);margin-bottom:6px;font-weight:600;line-height:1.5">
+        Name layers <span style="font-family:monospace;font-weight:800">#columnname.rowindex</span>
+        e.g. <span style="font-family:monospace">#prize.1</span> · <span style="font-family:monospace">#avatar.2</span>
+      </div>
+      <div class="ref-list" id="refList">
+        <div class="empty">Scan selection to see refs</div>
+      </div>
+    </div>
+
+    <div class="banner" id="mainBanner"></div>
+
+    <!-- inject -->
+    <div id="injectBar" style="display:none">
+      <button class="btn btn-primary btn-full" id="injectBtn" onclick="inject()">Inject into Figma</button>
+    </div>
+
+  </div><!-- /panel-data-body -->
 </div>
 
-<div class="body">
+<!-- ── Panel 2: Asset Library ──────────────────────────────────────── -->
+<div class="panel panel-blue" id="panel-assets">
+  <div class="panel-hd" onclick="togglePanel('assets')">
+    <div class="panel-hd-text">
+      <div class="panel-title">Asset Library</div>
+      <div class="panel-subtitle">Frame sets</div>
+    </div>
+    <span class="panel-caret">▶</span>
+  </div>
+  <div class="panel-body hidden" id="panel-assets-body">
 
-  <!-- Server settings (hidden for now — hardcoded Railway URL) -->
-  <div class="section" style="display:none">
-    <button class="stg-toggle" onclick="toggleSettings()">⚙ Server settings</button>
-    <div class="settings-drawer" id="settingsDrawer">
-      <label>Bridge server URL</label>
-      <input type="text" id="serverUrl" value="https://smartico-bridge-production.up.railway.app">
+    <button class="btn btn-primary btn-full" onclick="saveAsset()">💾 Save selection to library</button>
+
+    <div id="assetNameRow" style="display:none">
+      <input type="text" id="assetNameInput" placeholder="Asset name…" style="margin-bottom:6px">
       <div class="btn-row">
-        <button class="btn btn-sm" onclick="connect()">Reconnect</button>
+        <button class="btn btn-primary btn-sm" style="flex:1" onclick="confirmSaveAsset()">Save</button>
+        <button class="btn btn-sm" style="flex:1" onclick="cancelSaveAsset()">Cancel</button>
       </div>
     </div>
+
+    <div id="assetList" style="display:flex;flex-direction:column;gap:5px"></div>
+    <div id="assetBanner" style="font-size:10px;color:var(--muted);font-weight:600;min-height:14px"></div>
+
   </div>
-
-  <!-- Processed dataset list -->
-  <div class="section">
-    <span class="section-title">Processed dataset</span>
-    <div style="font-size:10px;color:var(--muted)">
-      Auto-refreshes every few seconds — drop a CSV onto a pipeline and it'll appear here.
-    </div>
-    <div id="dsList"><div class="empty">Connecting…</div></div>
-  </div>
-
-  <!-- Upload CSV via plugin -->
-  <div class="section" id="uploadSection">
-    <button class="upload-toggle" onclick="toggleUpload()">▸ Upload CSV to pipeline</button>
-    <div class="upload-panel" id="uploadPanel">
-      <div>
-        <label>Pipeline</label>
-        <select id="uploadPipelineSel" style="margin-top:2px">
-          <option value="">Loading…</option>
-        </select>
-      </div>
-      <div class="upload-drop" id="uploadDrop"
-           onclick="document.getElementById('uploadFileInput').click()"
-           ondragover="onUploadDragOver(event)"
-           ondragleave="onUploadDragLeave(event)"
-           ondrop="onUploadDrop(event)">
-        📂 Drop a CSV here or click to browse
-      </div>
-      <input type="file" id="uploadFileInput" accept=".csv,text/csv" style="display:none" onchange="onUploadFileChange(event)">
-      <div class="upload-progress" id="uploadProgress">⟳ Processing…</div>
-      <div class="upload-ok" id="uploadOk"></div>
-      <div class="upload-err" id="uploadErr"></div>
-    </div>
-  </div>
-
-  <!-- Preview -->
-  <div class="section" id="previewSection" style="display:none">
-    <span class="section-title">Data preview</span>
-    <div class="tbl-wrap" id="previewWrap"></div>
-  </div>
-
-  <!-- Figma selection -->
-  <div class="section" id="selSection" style="display:none">
-    <span class="section-title">Figma selection</span>
-    <div class="sel-box none" id="selBox">
-      <span id="selLabel">Nothing selected</span>
-    </div>
-  </div>
-
-  <!-- Bind layer — shown when dataset is loaded -->
-  <div class="section" id="bindSection" style="display:none">
-    <span class="section-title">Bind layer to data</span>
-    <div class="bind-panel">
-      <div class="bind-hint" id="bindHint">← Click a row in the data preview above</div>
-      <div id="bindRowInfo" style="display:none">
-        <div class="bind-sel-row">
-          <span class="bind-sel-row-label">Row</span>
-          <span class="bind-sel-row-val" id="bindRowVal">—</span>
-          <span class="bind-sel-row-label" id="bindRowSrc" style="font-size:9px"></span>
-        </div>
-        <!-- Column chips: click to rename the selected Figma layer -->
-        <div style="font-size:10px;color:var(--muted);margin:5px 0 3px" id="bindColsLabel">Pick a column to rename the selected layer:</div>
-        <div class="bind-cols" id="bindCols"></div>
-        <div class="bind-preview empty" id="bindPreview">#column.row</div>
-        <button class="btn btn-bind" id="bindBtn" onclick="bindLayer()" disabled>Rename Layer</button>
-        <div class="bind-ok" id="bindOk"></div>
-        <!-- Create elements -->
-        <hr class="bind-divider">
-        <button class="btn-create-elems" id="createElemsBtn" onclick="createRowElements()">📐 Create all as Figma elements</button>
-        <div class="create-ok" id="createOk"></div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Asset library -->
-  <div class="section" id="assetSection">
-    <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
-      <span class="section-title" style="flex:1">Asset library</span>
-      <button class="btn btn-sm" onclick="toggleAssets()" id="assetToggleBtn">▸ Show</button>
-    </div>
-    <div id="assetPanel" style="display:none">
-      <button class="btn btn-primary" style="width:100%;margin-bottom:6px" onclick="saveAsset()">
-        💾 Save selection to library
-      </button>
-      <div id="assetNameRow" style="display:none;margin-bottom:6px">
-        <input type="text" id="assetNameInput" placeholder="Asset name…" style="width:100%">
-        <div style="display:flex;gap:4px;margin-top:4px">
-          <button class="btn btn-primary btn-sm" style="flex:1" onclick="confirmSaveAsset()">Save</button>
-          <button class="btn btn-sm" style="flex:1" onclick="cancelSaveAsset()">Cancel</button>
-        </div>
-      </div>
-      <div id="assetList" style="display:flex;flex-direction:column;gap:4px"></div>
-      <div id="assetBanner" style="font-size:10px;margin-top:4px;color:var(--muted)"></div>
-    </div>
-  </div>
-
-  <!-- Refs found in selection -->
-  <div class="section" id="refsSection" style="display:none">
-    <span class="section-title">Layer refs found</span>
-    <div style="font-size:10px;color:var(--muted);margin-bottom:2px">
-      Text / image: <span style="font-family:monospace;color:var(--teal)">#columnname.rowindex</span> e.g. <span style="font-family:monospace;color:var(--teal)">#prize.1</span> · <span style="font-family:monospace;color:var(--teal)">#avatar.2</span><br>
-      Rule totals: <span style="font-family:monospace;color:var(--teal)">#rule.1</span> · <span style="font-family:monospace;color:var(--teal)">#totals.1</span> (1-based)<br>
-      Variant: same <span style="font-family:monospace;color:var(--teal)">#col.idx</span> on an Instance where the column matches a variant property<br>
-      Component swap: <span style="font-family:monospace;color:var(--teal)">##col.idx</span> on an Instance — value must match a local component name<br>
-      Grouped by containing frame — click ▸ to expand.
-    </div>
-    <div class="ref-list" id="refList"><div class="empty">Scan selection to see refs</div></div>
-  </div>
-
-  <div class="banner" id="mainBanner"></div>
-
 </div>
 
-<div class="inject-bar" id="injectBar" style="display:none">
-  <button class="btn btn-primary" id="injectBtn" onclick="inject()">Inject into Figma</button>
+<!-- ── Panel 3: Casino Game Library ────────────────────────────────── -->
+<div class="panel panel-lime" id="panel-casino">
+  <div class="panel-hd" onclick="togglePanel('casino')">
+    <div class="panel-hd-text">
+      <div class="panel-title">Casino Game<br>Library</div>
+      <div class="panel-subtitle">Workspace</div>
+    </div>
+    <span class="panel-caret">▶</span>
+  </div>
+  <div class="panel-body hidden" id="panel-casino-body">
+    <div class="empty" style="padding:14px 0">Coming soon — games from your other project will appear here.</div>
+  </div>
 </div>
 
-<!-- Processing overlay — shown while inject is running -->
+<!-- Processing overlay -->
 <div class="processing-overlay" id="procOverlay">
   <div class="proc-ring"></div>
   <div class="proc-label" id="procLabel">Injecting…</div>
-  <div class="proc-sub" id="procSub"></div>
+  <div class="proc-sub"   id="procSub"></div>
 </div>
 
+<!-- hidden elements kept for backward compat -->
+<div id="uploadSection" style="display:none"></div>
+<div id="assetSection"  style="display:none"></div>
+<input type="text" id="serverUrl" value="https://smartico-bridge-production.up.railway.app" style="display:none">
+
 <script>
-var serverUrl = 'https://smartico-bridge-production.up.railway.app';
-var allDatasets = [];
-var activeDataset = null;   // full dataset record (with rows)
-var scannedRefs  = [];      // flat ['prize.1', 'avatar.2', ...] — used by inject()
-var scannedGroups = [];     // [{ frameId, frameName, frameType, refs: [...] }]
-var openGroups   = {};      // frameId → true; tracks expanded groups
+var serverUrl    = 'https://smartico-bridge-production.up.railway.app';
+var allDatasets  = [];
+var activeDataset = null;
+var scannedRefs  = [];
+var scannedGroups = [];
+var openGroups   = {};
 var figmaSel     = [];
-var lastSelKey   = '';      // joined ids of last selection — debounces auto-scan
-var pollTimer    = null;    // setInterval handle for dataset polling
-var POLL_MS      = 4000;    // 4s — fast enough to feel "live", easy on the network
-var autoScanT    = null;    // debounce timer for auto-scan after selectionchange
+var lastSelKey   = '';
+var pollTimer    = null;
+var POLL_MS      = 4000;
+var autoScanT    = null;
 
 connect();
-// Ask code.js for the current selection on first load. After that the
-// figma.on('selectionchange') hook in code.js pushes updates — no polling here.
 parent.postMessage({ pluginMessage: { type: 'get-selection' } }, '*');
+loadUploadPipelines();
+
+// ── Panel accordion ───────────────────────────────────────────────────────────
+function togglePanel(name) {
+  var panel = document.getElementById('panel-' + name);
+  var body  = document.getElementById('panel-' + name + '-body');
+  panel.classList.toggle('open');
+  body.classList.toggle('hidden');
+  if (name === 'assets' && panel.classList.contains('open')) {
+    loadAssets();
+  }
+}
 
 // ── Connection ────────────────────────────────────────────────────────────────
 async function connect() {
-  // Server URL hardcoded for now; the drawer is hidden. If the drawer is
-  // shown again we'll re-read the input — keep the lookup defensive.
-  var urlInput = document.getElementById('serverUrl');
-  if (urlInput && urlInput.value) {
-    serverUrl = urlInput.value.trim().replace(/\/$/, '');
-  }
-  setStatus('…', false);
+  setStatus('Connecting…', null);
   try {
     await api('/api/health');
     setStatus('Online', true);
@@ -416,29 +586,24 @@ async function connect() {
   } catch (e) {
     setStatus('Offline', false);
     document.getElementById('dsList').innerHTML =
-      '<div class="empty">Cannot reach server.<br>Is the bridge running?</div>';
-    // Retry on a slow cadence so the plugin recovers from a temporary outage
-    // without the user touching anything.
+      '<div class="empty">Cannot reach server — is the bridge running?</div>';
     if (!pollTimer) startPolling();
   }
 }
 
-// Start the dataset poll. Only one timer ever runs — startPolling is idempotent.
 function startPolling() {
   if (pollTimer) return;
   pollTimer = setInterval(function() {
-    // Skip while the plugin window is hidden — saves battery and avoids
-    // racing with users on slow connections. Figma sometimes hides the
-    // iframe when the plugin window is collapsed.
     if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
     loadDatasets({ silent: true });
   }, POLL_MS);
 }
 
 function setStatus(t, ok) {
-  var el = document.getElementById('connStatus');
-  el.textContent = t;
-  el.className = 'status' + (ok ? '' : ' off');
+  var dot = document.getElementById('statusDot');
+  var lbl = document.getElementById('connStatus');
+  lbl.textContent = t;
+  dot.className = 'status-dot' + (ok === true ? ' ok' : ok === false ? ' err' : '');
 }
 
 async function api(path, opts) {
@@ -450,80 +615,58 @@ async function api(path, opts) {
 }
 
 // ── Datasets ──────────────────────────────────────────────────────────────────
-// silent = true skips the loading spinner — used by the poll so the list
-// doesn't flicker every 4s. The list is only re-rendered if the server
-// returns something materially different from what we already have.
 async function loadDatasets(opts) {
   opts = opts || {};
   if (!opts.silent) {
     document.getElementById('dsList').innerHTML = '<div class="empty"><span class="spinner"></span>Loading…</div>';
   }
   try {
-    // Dedicated Figma endpoint — server guarantees only processed datasets
-    // are returned, so this plugin can never accidentally load a raw upload.
-    var j = await api('/api/figma/datasets');
+    var j    = await api('/api/figma/datasets');
     var next = j.datasets || [];
-
-    // Only re-render the list when something visible actually changed —
-    // count, ids, names, rowCounts, or the per-row uploadedAt (a re-save
-    // bumps that). Avoids a full DOM rebuild every 4s.
     if (datasetsKey(next) !== datasetsKey(allDatasets)) {
       allDatasets = next;
       renderDsList();
     } else {
       allDatasets = next;
     }
-
-    // If the active dataset still exists but its server-side stamp moved
-    // (re-save with new rules), pull the fresh rows so the preview and
-    // injection use the latest data.
     if (activeDataset) {
       var stillThere = null;
       for (var i = 0; i < allDatasets.length; i++) {
         if (allDatasets[i].id === activeDataset.id) { stillThere = allDatasets[i]; break; }
       }
       if (!stillThere) {
-        // Source dataset deleted — clear the selection.
         activeDataset = null;
         scannedRefs = [];
         renderRefList();
         renderDsList();
-        var prev = document.getElementById('previewSection');
-        if (prev) prev.style.display = 'none';
+        show('previewSection', false);
       } else if (stillThere.uploadedAt && stillThere.uploadedAt !== activeDataset.uploadedAt) {
-        // Re-save detected — re-fetch the full record (rows + ruleTable).
         try {
           var full = await api('/api/figma/datasets/' + activeDataset.id);
           activeDataset = full;
           renderPreview();
-          // Re-render refs in case the columns / row counts shifted.
           renderRefList();
-        } catch (_) { /* benign — next poll will retry */ }
+        } catch (_) {}
       }
     }
   } catch (e) {
     if (!opts.silent) {
-      document.getElementById('dsList').innerHTML = '<div class="empty" style="color:var(--red)">' + esc(e.message) + '</div>';
+      document.getElementById('dsList').innerHTML = '<div class="empty" style="color:#7f1d1d">' + esc(e.message) + '</div>';
     }
   }
 }
 
-// Cheap signature for the dataset list — used to skip rerenders when
-// nothing meaningful changed between polls.
 function datasetsKey(list) {
   if (!list || !list.length) return '';
-  var parts = [];
-  for (var i = 0; i < list.length; i++) {
-    var d = list[i] || {};
-    parts.push(String(d.id) + '|' + String(d.label || d.filename || '') + '|' + String(d.rowCount || 0) + '|' + String(d.uploadedAt || ''));
-  }
-  return parts.join(';');
+  return list.map(function(d){
+    return String(d.id) + '|' + String(d.label||d.filename||'') + '|' + String(d.rowCount||0) + '|' + String(d.uploadedAt||'');
+  }).join(';');
 }
 
 function renderDsList() {
   var el = document.getElementById('dsList');
   if (!allDatasets.length) {
-    el.innerHTML = '<div class="empty">No processed datasets yet.<br>In the dashboard: View tab → apply rules → 💾 Save processed dataset.</div>';
+    el.innerHTML = '<div class="empty">No processed datasets yet.<br>In the dashboard: apply rules → 💾 Save.</div>';
     return;
   }
   el.innerHTML = allDatasets.map(function(d) {
@@ -541,8 +684,6 @@ function renderDsList() {
 
 async function selectDataset(id) {
   try {
-    // Matching processed-only single-record endpoint — 404s if someone pastes
-    // a raw-upload UUID, so there's no way to sneak unprocessed data in.
     var full = await api('/api/figma/datasets/' + id);
     activeDataset = full;
     renderDsList();
@@ -564,17 +705,15 @@ async function selectDataset(id) {
 function renderPreview() {
   var wrap = document.getElementById('previewWrap');
   if (!activeDataset || !activeDataset.rows || !activeDataset.rows.length) {
-    wrap.innerHTML = '<div class="empty">No data</div>';
-    return;
+    wrap.innerHTML = '<div class="empty">No data</div>'; return;
   }
-  var rows = activeDataset.rows.slice(0, 30);
+  var rows    = activeDataset.rows.slice(0, 30);
   var headers = activeDataset.headers || Object.keys(rows[0] || {});
-  var cols = headers.slice(0, 8);
-
+  var cols    = headers.slice(0, 8);
   var thead = '<tr>' + cols.map(function(c){ return '<th title="' + esc(c) + '">' + esc(trunc(c,12)) + '</th>'; }).join('') + '</tr>';
   var tbody = rows.map(function(row, i) {
-    var rowNum = i + 1; // 1-based
-    var selCls = (bindRowSource === 'data' && bindRowIndex === rowNum) ? ' row-sel' : '';
+    var rowNum  = i + 1;
+    var selCls  = (bindRowSource === 'data' && bindRowIndex === rowNum) ? ' row-sel' : '';
     return '<tr class="' + selCls + '" data-bind-src="data" data-bind-row="' + rowNum + '" onclick="selectBindRow(\'data\',' + rowNum + ')">' +
       cols.map(function(c) {
         var v = row[c] !== undefined && row[c] !== null ? String(row[c]) : '';
@@ -586,35 +725,28 @@ function renderPreview() {
         return '<td title="' + esc(v) + '">' + esc(trunc(v, 16)) + '</td>';
       }).join('') + '</tr>';
   }).join('');
-
-  // Rule totals — RULE/TOTALS companion table saved with processed datasets.
-  // Designers bind component text nodes named RULE:<rule> and TOTALS:<rule>
-  // (or just `totals-<slug>`) to these values regardless of column visibility.
   var ruleTableHtml = '';
   var rt = activeDataset.ruleTable;
   if (Array.isArray(rt) && rt.length) {
     var rtBody = rt.map(function(r, ri){
       var rowNum = ri + 1;
-      var rv = (r && r.RULE !== undefined && r.RULE !== null) ? String(r.RULE) : '';
-      var tv = (r && r.TOTALS !== undefined && r.TOTALS !== null) ? String(r.TOTALS) : '';
+      var rv = (r && r.RULE   !== undefined) ? String(r.RULE)   : '';
+      var tv = (r && r.TOTALS !== undefined) ? String(r.TOTALS) : '';
       var selCls = (bindRowSource === 'rules' && bindRowIndex === rowNum) ? ' row-sel' : '';
       return '<tr class="' + selCls + '" data-bind-src="rules" data-bind-row="' + rowNum + '" onclick="selectBindRow(\'rules\',' + rowNum + ')">' +
              '<td title="' + esc(rv) + '">' + esc(trunc(rv, 24)) + '</td>' +
-             '<td style="text-align:right;font-variant-numeric:tabular-nums" title="' + esc(tv) + '">' + esc(trunc(tv, 14)) + '</td></tr>';
+             '<td style="text-align:right" title="' + esc(tv) + '">' + esc(trunc(tv, 14)) + '</td></tr>';
     }).join('');
     ruleTableHtml =
-      '<div style="margin-top:10px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Rule totals</div>' +
+      '<div style="margin-top:10px;font-size:10px;color:var(--muted);font-weight:800;text-transform:uppercase;letter-spacing:.06em">Rule totals</div>' +
       '<table style="margin-top:4px"><thead><tr><th>RULE</th><th style="text-align:right">TOTALS</th></tr></thead>' +
       '<tbody>' + rtBody + '</tbody></table>';
   }
-
   wrap.innerHTML = '<table><thead>' + thead + '</thead><tbody>' + tbody + '</tbody></table>' + ruleTableHtml;
 }
 
 // ── Figma selection ───────────────────────────────────────────────────────────
-function refreshSel() {
-  parent.postMessage({ pluginMessage: { type: 'get-selection' } }, '*');
-}
+function refreshSel() { parent.postMessage({ pluginMessage: { type: 'get-selection' } }, '*'); }
 
 function updateSelBox() {
   var box = document.getElementById('selBox');
@@ -627,7 +759,7 @@ function updateSelBox() {
     box.className = 'sel-box';
     lbl.innerHTML = '<span class="sel-name">' + esc(n.name) + '</span>' +
       (figmaSel.length > 1 ? ' <span style="color:var(--muted)">+ ' + (figmaSel.length-1) + ' more</span>' :
-       ' <span style="color:var(--muted)">' + n.type + (n.childCount ? ' · ' + n.childCount + ' children' : '') + '</span>');
+       ' <span style="color:var(--muted)">' + n.type + (n.childCount ? ' · ' + n.childCount : '') + '</span>');
   }
   refreshBindSection();
 }
@@ -639,33 +771,22 @@ function scanRefs() {
 }
 
 function renderRefTag(ref, rows, headers, ruleTable) {
-  var parts = ref.split('.');
+  var parts   = ref.split('.');
   var colName = parts[0];
   var rowIdx  = parseInt(parts[1], 10) - 1;
-
-  // Rule/totals refs target the companion RULE/TOTALS table, not the main
-  // winner rows. Same #column.index convention, just a different lookup.
   if (colName === 'rule' || colName === 'totals') {
     var rtValid = rowIdx >= 0 && rowIdx < ruleTable.length;
-    var rtVal = rtValid ? ruleTable[rowIdx][colName === 'rule' ? 'RULE' : 'TOTALS'] : null;
-    var rtPreview = rtVal !== null && rtVal !== undefined ? ' → ' + trunc(String(rtVal), 20) : '';
-    var rtCls = rtValid ? 'ref-tag' : 'ref-tag miss';
-    var rtTitle = rtValid ? esc(String(rtVal == null ? '' : rtVal)) : 'Row ' + (rowIdx + 1) + ' not in RULE/TOTALS (' + ruleTable.length + ' row' + (ruleTable.length === 1 ? '' : 's') + ')';
-    return '<span class="' + rtCls + '" title="' + rtTitle + '">#' + esc(ref) + esc(rtPreview) + '</span>';
+    var rtVal   = rtValid ? ruleTable[rowIdx][colName === 'rule' ? 'RULE' : 'TOTALS'] : null;
+    var rtPrev  = rtVal !== null && rtVal !== undefined ? ' → ' + trunc(String(rtVal), 20) : '';
+    return '<span class="ref-tag' + (rtValid ? '' : ' miss') + '">#' + esc(ref) + esc(rtPrev) + '</span>';
   }
-
   var matchedCol = null;
   for (var i = 0; i < headers.length; i++) {
     if (headers[i].toLowerCase() === colName) { matchedCol = headers[i]; break; }
   }
-  var valid = matchedCol !== null && rowIdx >= 0 && rowIdx < rows.length;
-  var preview = '';
-  if (valid) {
-    var val = rows[rowIdx][matchedCol];
-    preview = val ? (' → ' + trunc(String(val), 20)) : '';
-  }
-  var cls = valid ? 'ref-tag' : 'ref-tag miss';
-  return '<span class="' + cls + '" title="' + (valid ? esc(String(rows[rowIdx][matchedCol]||'')) : 'Column or row not found in dataset') + '">#' + esc(ref) + esc(preview) + '</span>';
+  var valid   = matchedCol !== null && rowIdx >= 0 && rowIdx < rows.length;
+  var preview = valid ? (' → ' + trunc(String(rows[rowIdx][matchedCol] || ''), 20)) : '';
+  return '<span class="ref-tag' + (valid ? '' : ' miss') + '">#' + esc(ref) + esc(preview) + '</span>';
 }
 
 function toggleRefGroup(frameId) {
@@ -678,28 +799,19 @@ function toggleRefGroup(frameId) {
 function renderRefList() {
   var el = document.getElementById('refList');
   if (!scannedRefs.length) {
-    el.innerHTML = '<div class="empty" style="padding:6px 0">No #name.index layers found in selection.<br>Name your text/image layers like <span style="font-family:monospace;color:var(--teal)">#prize.1</span></div>';
-    return;
+    el.innerHTML = '<div class="empty">No #name.index layers found in selection.</div>'; return;
   }
-
   var rows      = activeDataset ? activeDataset.rows : [];
   var headers   = activeDataset ? (activeDataset.headers || []) : [];
   var ruleTable = activeDataset && Array.isArray(activeDataset.ruleTable) ? activeDataset.ruleTable : [];
-
-  // Fall back to a single synthetic group if code.js didn't provide grouping
-  // (older plugin builds, or the dev-serve fallback during manifest reload).
-  var groups = (scannedGroups && scannedGroups.length)
+  var groups    = (scannedGroups && scannedGroups.length)
     ? scannedGroups
     : [{ frameId: '__all__', frameName: 'Selection', frameType: '', refs: scannedRefs.slice() }];
-
-  // Auto-open the first group if nothing is currently open so the user doesn't
-  // have to click to see anything on first scan.
   var anyOpen = false;
   for (var g0 = 0; g0 < groups.length; g0++) if (openGroups[groups[g0].frameId]) { anyOpen = true; break; }
   if (!anyOpen && groups.length) openGroups[groups[0].frameId] = true;
-
   el.innerHTML = groups.map(function(grp) {
-    var openCls = openGroups[grp.frameId] ? ' open' : '';
+    var openCls  = openGroups[grp.frameId] ? ' open' : '';
     var tagsHtml = grp.refs.map(function(ref) { return renderRefTag(ref, rows, headers, ruleTable); }).join('');
     return '<div class="ref-group' + openCls + '" data-fid="' + esc(grp.frameId) + '">' +
              '<div class="ref-group-head" onclick="toggleRefGroup(\'' + jsEsc(grp.frameId) + '\')">' +
@@ -719,21 +831,13 @@ function showProcessing(label, sub) {
   document.getElementById('procLabel').textContent = label || 'Injecting…';
   document.getElementById('procSub').textContent   = sub   || '';
   o.classList.add('active');
-  // Hide content sections so the overlay isn't cluttered
-  show('previewSection',  false);
-  show('selSection',      false);
-  show('refsSection',     false);
-  show('injectBar',       false);
+  show('previewSection', false); show('selSection', false);
+  show('refsSection', false);    show('injectBar',   false);
 }
-
 function hideProcessing() {
   document.getElementById('procOverlay').classList.remove('active');
-  // Restore sections if there's an active dataset and refs
   if (activeDataset) {
-    show('previewSection');
-    show('selSection');
-    show('refsSection');
-    show('injectBar');
+    show('previewSection'); show('selSection'); show('refsSection'); show('injectBar');
   }
 }
 
@@ -741,15 +845,13 @@ async function inject() {
   if (!activeDataset) { showBanner('Select a dataset first', 'err'); return; }
   if (!scannedRefs.length) {
     scanRefs();
-    showBanner('Scanning selection for #name.index layers… click Inject again after scan.', 'info');
+    showBanner('Scanning for #name.index layers… click Inject again after scan.', 'info');
     return;
   }
-
   var btn = document.getElementById('injectBtn');
   btn.disabled = true;
   showProcessing('Fetching images…', '');
   hideBanner();
-
   try {
     var rows    = activeDataset.rows || [];
     var headers = activeDataset.headers || [];
@@ -757,18 +859,12 @@ async function inject() {
     var values  = {};
     var imageMap = {};
     var imageCols = ['avatar', 'avatar_image'];
-
-    // Build values map and collect image URLs to fetch
     var imagesToFetch = [];
     for (var r = 0; r < scannedRefs.length; r++) {
       var ref   = scannedRefs[r];
       var parts = ref.split('.');
       var colName = parts[0];
       var rowIdx  = parseInt(parts[1], 10) - 1;
-
-      // Rule totals: look up in companion table instead of main rows. Same
-      // #col.index convention, so designers can bind #rule.1 / #totals.1 to
-      // text nodes and the plugin will write the rule name / total value.
       if (colName === 'rule' || colName === 'totals') {
         if (rowIdx < 0 || rowIdx >= ruleTable.length) continue;
         var rtRow = ruleTable[rowIdx] || {};
@@ -776,24 +872,18 @@ async function inject() {
         values[ref] = rtVal !== undefined && rtVal !== null ? rtVal : '';
         continue;
       }
-
       var matchedCol = null;
       for (var c = 0; c < headers.length; c++) {
         if (headers[c].toLowerCase() === colName) { matchedCol = headers[c]; break; }
       }
       if (!matchedCol || rowIdx < 0 || rowIdx >= rows.length) continue;
-
       var val = rows[rowIdx][matchedCol];
       values[ref] = val !== undefined && val !== null ? val : '';
-
-      // Queue image fetch if it's an avatar column with a URL
       var isImageCol = imageCols.indexOf(colName) !== -1;
       if (isImageCol && typeof val === 'string' && val.indexOf('http') === 0) {
         imagesToFetch.push({ ref: ref, url: val });
       }
     }
-
-    // Fetch image bytes
     showProcessing('Loading images…', imagesToFetch.length + ' to fetch');
     for (var f = 0; f < imagesToFetch.length; f++) {
       try {
@@ -802,13 +892,10 @@ async function inject() {
           var buf = await res.arrayBuffer();
           imageMap[imagesToFetch[f].ref] = Array.from(new Uint8Array(buf));
         }
-      } catch (_) { /* skip — plugin will leave fill unchanged */ }
+      } catch (_) {}
     }
-
     showProcessing('Injecting into Figma…', scannedRefs.length + ' layer ref(s)');
     parent.postMessage({ pluginMessage: { type: 'inject-refs', values: values, imageMap: imageMap } }, '*');
-    // Re-enable on result message (inject-result handler below)
-
   } catch (e) {
     hideProcessing();
     showBanner('Inject error: ' + e.message, 'err');
@@ -824,10 +911,6 @@ window.onmessage = function(event) {
   if (msg.type === 'selection') {
     figmaSel = msg.nodes || [];
     updateSelBox();
-
-    // Auto-scan: if the selection changed AND has at least one node, kick off
-    // a fresh scan-refs after a short debounce. The debounce keeps drag-marquee
-    // selections (which fire per-pixel) from spamming the sandbox.
     var key = figmaSel.map(function(n){ return n.id; }).join('|');
     if (key !== lastSelKey) {
       lastSelKey = key;
@@ -837,11 +920,7 @@ window.onmessage = function(event) {
         if (figmaSel.length) {
           parent.postMessage({ pluginMessage: { type: 'scan-refs' } }, '*');
         } else {
-          // Nothing selected — clear the refs view, no scan to run.
-          scannedRefs = [];
-          scannedGroups = [];
-          renderRefList();
-          hideBanner();
+          scannedRefs = []; scannedGroups = []; renderRefList(); hideBanner();
         }
       }, 250);
     }
@@ -850,12 +929,12 @@ window.onmessage = function(event) {
 
   if (msg.type === 'scan-result') {
     if (!msg.ok) { showBanner(msg.error, 'err'); return; }
-    scannedRefs   = msg.refs || [];
+    scannedRefs   = msg.refs   || [];
     scannedGroups = Array.isArray(msg.groups) ? msg.groups : [];
-    openGroups    = {}; // fresh scan → collapse everything, renderRefList opens the first
+    openGroups    = {};
     renderRefList();
-    if (scannedRefs.length === 0) {
-      showBanner('No #name.index layers found. Name your Figma layers like #prize.1 or #avatar.2', 'info');
+    if (!scannedRefs.length) {
+      showBanner('No #name.index layers found. Name layers like #prize.1 or #avatar.2', 'info');
     } else {
       var nF = scannedGroups.length || 1;
       showBanner('Found ' + scannedRefs.length + ' ref(s) in ' + nF + ' frame' + (nF === 1 ? '' : 's') + '. Click Inject to fill them.', 'ok');
@@ -882,11 +961,10 @@ window.onmessage = function(event) {
     var ceOk  = document.getElementById('createOk');
     if (ceBtn) { ceBtn.disabled = false; ceBtn.textContent = '📐 Create all as Figma elements'; }
     if (msg.ok) {
-      var errs = msg.errors && msg.errors.length;
-      var ceMsg = '✓ Created ' + msg.count + ' element(s) on canvas';
-      if (errs) ceMsg += ' · ⚠ ' + errs + ' issue(s): ' + msg.errors.slice(0,2).join('; ');
+      var errs  = msg.errors && msg.errors.length;
+      var ceMsg = '✓ Created ' + msg.count + ' element(s)';
+      if (errs) ceMsg += ' · ⚠ ' + errs + ' issue(s)';
       if (ceOk) { ceOk.textContent = ceMsg; ceOk.classList.add('show'); }
-      if (errs) console.warn('[create-elements] errors:', msg.errors);
     } else {
       showBanner('Create failed: ' + (msg.error || 'unknown error'), 'err');
     }
@@ -894,57 +972,44 @@ window.onmessage = function(event) {
   }
 
   if (msg.type === 'inject-result') {
-    var btn = document.getElementById('injectBtn');
-    btn.disabled = false;
+    var ibtn = document.getElementById('injectBtn');
+    ibtn.disabled = false;
     hideProcessing();
     if (!msg.ok) { showBanner('✕ ' + msg.error, 'err'); return; }
     var errs = (msg.errors || []).length;
-    var txt = '✓ Injected ' + msg.count + ' of ' + msg.total + ' layer(s)';
+    var txt  = '✓ Injected ' + msg.count + ' of ' + msg.total + ' layer(s)';
     if (errs) txt += ' · ⚠ ' + errs + ' warning(s)';
     showBanner(txt, errs ? 'info' : 'ok');
   }
 
   if (msg.type === 'save-asset-result') {
-    if (!msg.ok) {
-      setAssetBanner('✕ ' + (msg.error || 'Could not serialise selection'));
-      return;
-    }
-    if (!msg.nodes || !msg.nodes.length) {
-      setAssetBanner('✕ Nothing could be serialised — select a frame or group first.');
-      return;
-    }
-    // Store the serialised data then prompt for a name
+    if (!msg.ok) { setAssetBanner('✕ ' + (msg.error || 'Could not serialise selection')); return; }
+    if (!msg.nodes || !msg.nodes.length) { setAssetBanner('✕ Nothing serialised — select a frame or group first.'); return; }
     _pendingAssetNodes = { name: msg.name, assetType: msg.assetType, nodeCount: msg.nodeCount, nodes: msg.nodes };
     var nameEl = document.getElementById('assetNameInput');
     if (nameEl) nameEl.value = msg.name || '';
     var row = document.getElementById('assetNameRow');
-    if (row) row.style.display = 'block'; // explicit block — '' clears the attr but doesn't guarantee visibility
+    if (row) row.style.display = 'block';
     setAssetBanner('Name this asset and click Save ↑');
   }
 
   if (msg.type === 'restore-asset-result') {
-    if (!msg.ok) {
-      setAssetBanner('✕ Restore failed: ' + (msg.error || 'unknown'));
-      return;
-    }
+    if (!msg.ok) { setAssetBanner('✕ Restore failed: ' + (msg.error || 'unknown')); return; }
     var warnPart = msg.errors && msg.errors.length ? ' · ⚠ ' + msg.errors.length + ' issue(s)' : '';
     setAssetBanner('✓ Restored ' + msg.count + ' node(s)' + warnPart);
   }
 };
 
 // ── Bind layer ────────────────────────────────────────────────────────────────
-// State: which row is selected in the preview table
-var bindRowIndex  = null;  // 1-based index into activeDataset.rows (or ruleTable)
-var bindRowSource = null;  // 'data' | 'rules'
-var bindColName   = null;  // currently selected column name / key
+var bindRowIndex  = null;
+var bindRowSource = null;
+var bindColName   = null;
 
 function refreshBindSection() {
-  // Show whenever a dataset is loaded — "create elements" works without a Figma selection.
   var hasDataset = !!(activeDataset && (activeDataset.headers || []).length > 0);
   show('bindSection', hasDataset);
   if (!hasDataset) return;
   document.getElementById('bindOk').style.display = 'none';
-  // Update chips label to reflect whether renaming is available.
   var lbl = document.getElementById('bindColsLabel');
   if (lbl) {
     lbl.textContent = figmaSel.length === 1
@@ -954,20 +1019,14 @@ function refreshBindSection() {
   renderBindRowPanel();
 }
 
-// Called when the user clicks a data row or rule row in the preview table.
-// source: 'data' | 'rules'   rowIdx: 1-based
 function selectBindRow(source, rowIdx) {
   bindRowIndex  = rowIdx;
   bindRowSource = source;
   bindColName   = null;
-
-  // Highlight the clicked row and clear the other table
   document.querySelectorAll('tbody tr').forEach(function(tr) { tr.classList.remove('row-sel'); });
   var sel = document.querySelector('tr[data-bind-src="' + source + '"][data-bind-row="' + rowIdx + '"]');
   if (sel) sel.classList.add('row-sel');
-
   refreshBindSection();
-  // Scroll bind section into view smoothly
   var bsec = document.getElementById('bindSection');
   if (bsec) bsec.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
@@ -975,27 +1034,16 @@ function selectBindRow(source, rowIdx) {
 function renderBindRowPanel() {
   var hint    = document.getElementById('bindHint');
   var rowInfo = document.getElementById('bindRowInfo');
-
-  if (bindRowIndex === null) {
-    hint.style.display    = '';
-    rowInfo.style.display = 'none';
-    return;
-  }
-  hint.style.display    = 'none';
-  rowInfo.style.display = '';
-
-  // Row label
+  if (bindRowIndex === null) { hint.style.display = ''; rowInfo.style.display = 'none'; return; }
+  hint.style.display = 'none'; rowInfo.style.display = '';
   document.getElementById('bindRowVal').textContent = 'Row ' + bindRowIndex;
   document.getElementById('bindRowSrc').textContent = bindRowSource === 'rules' ? 'rule data' : 'winners data';
-
-  // Build column chips
   var chips = '';
   if (bindRowSource === 'rules') {
-    // Rule table has two columns: RULE and TOTALS
-    var rt  = (activeDataset && activeDataset.ruleTable) ? activeDataset.ruleTable : [];
+    var rt   = (activeDataset && activeDataset.ruleTable) ? activeDataset.ruleTable : [];
     var rRow = rt[bindRowIndex - 1] || {};
     ['RULE', 'TOTALS'].forEach(function(col) {
-      var val  = rRow[col] !== undefined ? String(rRow[col]) : '—';
+      var val    = rRow[col] !== undefined ? String(rRow[col]) : '—';
       var active = col === bindColName ? ' active' : '';
       chips += '<span class="bind-col-chip' + active + '" onclick="selectBindCol(\'' + col + '\')">' +
                col.toLowerCase() + ' <span style="color:var(--muted)">→ ' + esc(trunc(val, 14)) + '</span></span>';
@@ -1013,11 +1061,9 @@ function renderBindRowPanel() {
         val.match(/\.(jpg|jpeg|png|webp|gif)(\?|$)/i)
       );
       if (isImg) {
-        // Show a live thumbnail card for image URLs
         var isCircle = lh.indexOf('avatar') !== -1;
-        var thumbCls = 'bind-img-thumb' + (isCircle ? '' : ' rect');
         chips += '<div class="bind-img-chip' + active + '" onclick="selectBindCol(\'' + jsEsc(h) + '\')">' +
-                   '<img class="' + thumbCls + '" src="' + esc(val) + '" onerror="this.style.opacity=\'0.3\'">' +
+                   '<img class="bind-img-thumb' + (isCircle ? '' : ' rect') + '" src="' + esc(val) + '" onerror="this.style.opacity=\'0.3\'">' +
                    '<span class="bind-img-label">' + esc(h) + '</span>' +
                  '</div>';
       } else {
@@ -1032,12 +1078,9 @@ function renderBindRowPanel() {
 
 function selectBindCol(colName) {
   bindColName = colName;
-  // Update chip highlights — covers both text chips (.bind-col-chip) and image chips (.bind-img-chip)
-  document.querySelectorAll('.bind-col-chip, .bind-img-chip').forEach(function(c) { c.classList.remove('active'); });
-  // Re-render to get fresh active state (both chip types need it)
+  document.querySelectorAll('.bind-col-chip, .bind-img-chip').forEach(function(c){ c.classList.remove('active'); });
   renderBindRowPanel();
   updateBindPreview();
-  // Immediately rename the selected Figma layer — no second button click needed.
   if (figmaSel.length && bindRowIndex !== null) bindLayer();
 }
 
@@ -1045,44 +1088,30 @@ function updateBindPreview() {
   var prev = document.getElementById('bindPreview');
   var btn  = document.getElementById('bindBtn');
   if (!prev) return;
-
   if (!bindColName || bindRowIndex === null) {
-    prev.textContent = '#column.row';
-    prev.className   = 'bind-preview empty';
-    if (btn) btn.disabled = true;
-    return;
+    prev.textContent = '#column.row'; prev.className = 'bind-preview empty';
+    if (btn) btn.disabled = true; return;
   }
-
-  var safeName = bindColName.toLowerCase().replace(/\s+/g, '_');
-  var name = '#' + safeName + '.' + bindRowIndex;
-  prev.textContent = name;
-  prev.className   = 'bind-preview';
+  var name = '#' + bindColName.toLowerCase().replace(/\s+/g, '_') + '.' + bindRowIndex;
+  prev.textContent = name; prev.className = 'bind-preview';
   if (btn) btn.disabled = false;
 }
 
 function bindLayer() {
   if (!figmaSel.length || bindColName === null || bindRowIndex === null) return;
-  var safeName = bindColName.toLowerCase().replace(/\s+/g, '_');
-  var newName  = '#' + safeName + '.' + bindRowIndex;
+  var newName = '#' + bindColName.toLowerCase().replace(/\s+/g, '_') + '.' + bindRowIndex;
   document.getElementById('bindBtn').disabled = true;
   parent.postMessage({ pluginMessage: { type: 'rename-node', nodeId: figmaSel[0].id, newName: newName } }, '*');
 }
 
 // ── Create row elements ───────────────────────────────────────────────────────
-// Creates a Figma frame containing one node per column in the selected row.
-// Text columns → TEXT node.  URL columns with avatar/image name → RECTANGLE with image fill.
-// Every node is named #colname.rowindex so it's immediately injection-ready.
 async function createRowElements() {
   if (!activeDataset || bindRowIndex === null) return;
-
   var ceBtn = document.getElementById('createElemsBtn');
   var ceOk  = document.getElementById('createOk');
   if (ceBtn) { ceBtn.disabled = true; ceBtn.textContent = '⟳ Preparing…'; }
   if (ceOk)  { ceOk.classList.remove('show'); }
-
-  var columns  = [];   // [{ name, value, isImage }]
-  var imageMap = {};   // { 'colname.rowindex': [bytes] }
-
+  var columns = [], imageMap = {};
   if (bindRowSource === 'rules') {
     var rt   = (activeDataset.ruleTable || []);
     var rRow = rt[bindRowIndex - 1] || {};
@@ -1097,18 +1126,14 @@ async function createRowElements() {
       var val = dRow[h] !== undefined ? String(dRow[h]) : '';
       var lh  = h.toLowerCase();
       var isImg = val.indexOf('http') === 0 && (
-        lh.indexOf('avatar') !== -1 || lh.indexOf('image') !== -1 ||
-        lh.indexOf('photo') !== -1  || lh.indexOf('thumb') !== -1 ||
-        lh.indexOf('logo')  !== -1  || lh.indexOf('icon')  !== -1 ||
+        lh.indexOf('avatar') !== -1 || lh.indexOf('image') !== -1 || lh.indexOf('photo') !== -1 ||
+        lh.indexOf('thumb')  !== -1 || lh.indexOf('logo')  !== -1 || lh.indexOf('icon')  !== -1 ||
         val.match(/\.(jpg|jpeg|png|webp|gif|svg)(\?|$)/i) ||
         val.match(/\/(avatar|image|photo|thumb|thumbnail|logo|icon)\//i)
       );
       columns.push({ name: h, value: val, isImage: !!isImg });
     }
   }
-
-  // Fetch image bytes via the bridge server proxy — bypasses CORS restrictions
-  // that block the plugin iframe from fetching avatar/image URLs directly.
   if (ceBtn) ceBtn.textContent = '⟳ Fetching images…';
   for (var j = 0; j < columns.length; j++) {
     var col = columns[j];
@@ -1116,48 +1141,20 @@ async function createRowElements() {
     var safeName = col.name.toLowerCase().replace(/[^a-z0-9_]/g, '_');
     var imgKey   = safeName + '.' + bindRowIndex;
     try {
-      var proxyUrl = serverUrl + '/api/proxy-image?url=' + encodeURIComponent(col.value);
-      var resp = await fetch(proxyUrl);
-      if (resp.ok) {
-        var buf = await resp.arrayBuffer();
-        imageMap[imgKey] = Array.from(new Uint8Array(buf));
-      } else {
-        console.warn('[proxy] ' + resp.status + ' for', col.name, col.value);
-      }
-    } catch (fetchErr) {
-      console.warn('[proxy] fetch error for', col.name, fetchErr.message);
-    }
+      var resp = await fetch(serverUrl + '/api/proxy-image?url=' + encodeURIComponent(col.value));
+      if (resp.ok) { var buf = await resp.arrayBuffer(); imageMap[imgKey] = Array.from(new Uint8Array(buf)); }
+    } catch (_) {}
   }
-
-  var imgCols = columns.filter(function(c){ return c.isImage; });
-  var imgFetched = Object.keys(imageMap);
-  console.log('[create-elements] columns:', columns.map(function(c){ return c.name + (c.isImage ? '(img)':''); }));
-  console.log('[create-elements] image cols detected:', imgCols.map(function(c){ return c.name; }));
-  console.log('[create-elements] imageMap keys fetched:', imgFetched);
-
   if (ceBtn) ceBtn.textContent = '⟳ Creating…';
   parent.postMessage({ pluginMessage: {
-    type:     'create-row-elements',
-    columns:  columns,
-    rowIndex: bindRowIndex,
-    imageMap: imageMap,
-    label:    'Row ' + bindRowIndex + (activeDataset.label ? ' – ' + activeDataset.label : ''),
+    type: 'create-row-elements', columns: columns, rowIndex: bindRowIndex, imageMap: imageMap,
+    label: 'Row ' + bindRowIndex + (activeDataset.label ? ' – ' + activeDataset.label : ''),
   }}, '*');
 }
 
 // ── Asset library ─────────────────────────────────────────────────────────────
-var assetPanelOpen  = false;
-var savedAssets     = [];
-var _pendingAssetNodes = null; // serialised tree waiting for a name
-
-function toggleAssets() {
-  assetPanelOpen = !assetPanelOpen;
-  var panel = document.getElementById('assetPanel');
-  var btn   = document.getElementById('assetToggleBtn');
-  if (panel) panel.style.display = assetPanelOpen ? 'block' : 'none';
-  if (btn)   btn.textContent = (assetPanelOpen ? '▾' : '▸') + ' ' + (assetPanelOpen ? 'Hide' : 'Show');
-  if (assetPanelOpen) loadAssets();
-}
+var savedAssets        = [];
+var _pendingAssetNodes = null;
 
 async function loadAssets() {
   try {
@@ -1173,15 +1170,14 @@ function renderAssets() {
   var list = document.getElementById('assetList');
   if (!list) return;
   if (!savedAssets.length) {
-    list.innerHTML = '<div style="font-size:10px;color:var(--muted)">No saved assets yet.</div>';
-    return;
+    list.innerHTML = '<div class="empty" style="padding:6px 0">No saved assets yet.</div>'; return;
   }
   list.innerHTML = savedAssets.map(function(a) {
-    return '<div style="display:flex;align-items:center;gap:6px;padding:4px 6px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius)">' +
-      '<span style="flex:1;font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(a.name) + '">' + esc(a.name) + '</span>' +
-      '<span style="font-size:9px;color:var(--muted)">' + (a.nodeCount || 1) + ' node(s)</span>' +
+    return '<div class="asset-item">' +
+      '<span class="asset-item-name" title="' + esc(a.name) + '">' + esc(a.name) + '</span>' +
+      '<span class="asset-item-count">' + (a.nodeCount || 1) + ' node(s)</span>' +
       '<button class="btn btn-sm" onclick="restoreAsset(\'' + esc(a.id) + '\')">↩ Restore</button>' +
-      '<button class="btn btn-sm" style="color:var(--red)" onclick="deleteAsset(\'' + esc(a.id) + '\')" title="Delete">✕</button>' +
+      '<button class="btn btn-sm" style="color:#b91c1c" onclick="deleteAsset(\'' + esc(a.id) + '\')" title="Delete">✕</button>' +
     '</div>';
   }).join('');
 }
@@ -1192,19 +1188,16 @@ function setAssetBanner(msg) {
 }
 
 function saveAsset() {
-  // Ask code.js to serialise the current selection; we'll receive save-asset-result
   _pendingAssetNodes = null;
   parent.postMessage({ pluginMessage: { type: 'save-asset' } }, '*');
   setAssetBanner('Serialising selection…');
 }
-
 function cancelSaveAsset() {
   _pendingAssetNodes = null;
   var row = document.getElementById('assetNameRow');
   if (row) row.style.display = 'none';
   setAssetBanner('');
 }
-
 async function confirmSaveAsset() {
   if (!_pendingAssetNodes) return;
   var nameEl = document.getElementById('assetNameInput');
@@ -1214,23 +1207,16 @@ async function confirmSaveAsset() {
     await api('/api/assets', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name:      name,
-        type:      _pendingAssetNodes.assetType || 'FRAME',
-        nodeCount: _pendingAssetNodes.nodeCount  || 1,
-        nodes:     _pendingAssetNodes.nodes,
-      }),
+      body: JSON.stringify({ name: name, type: _pendingAssetNodes.assetType || 'FRAME',
+                             nodeCount: _pendingAssetNodes.nodeCount || 1, nodes: _pendingAssetNodes.nodes }),
     });
     _pendingAssetNodes = null;
     var row = document.getElementById('assetNameRow');
     if (row) row.style.display = 'none';
     setAssetBanner('✓ Saved to library');
     await loadAssets();
-  } catch (e) {
-    setAssetBanner('Save failed: ' + e.message);
-  }
+  } catch (e) { setAssetBanner('Save failed: ' + e.message); }
 }
-
 async function restoreAsset(id) {
   try {
     setAssetBanner('Loading asset…');
@@ -1238,11 +1224,8 @@ async function restoreAsset(id) {
     if (!data || !data.nodes) throw new Error('Empty asset');
     parent.postMessage({ pluginMessage: { type: 'restore-asset', nodes: data.nodes } }, '*');
     setAssetBanner('Restoring…');
-  } catch (e) {
-    setAssetBanner('Restore failed: ' + e.message);
-  }
+  } catch (e) { setAssetBanner('Restore failed: ' + e.message); }
 }
-
 async function deleteAsset(id) {
   if (!confirm('Delete this asset from the library?')) return;
   try {
@@ -1250,24 +1233,11 @@ async function deleteAsset(id) {
     savedAssets = savedAssets.filter(function(a) { return a.id !== id; });
     renderAssets();
     setAssetBanner('Deleted.');
-  } catch (e) {
-    setAssetBanner('Delete failed: ' + e.message);
-  }
+  } catch (e) { setAssetBanner('Delete failed: ' + e.message); }
 }
 
 // ── Upload CSV ────────────────────────────────────────────────────────────────
-var uploadPanelOpen = false;
 var uploadPipelines = [];
-
-function toggleUpload() {
-  uploadPanelOpen = !uploadPanelOpen;
-  var panel = document.getElementById('uploadPanel');
-  var btn   = document.querySelector('.upload-toggle');
-  panel.classList.toggle('open', uploadPanelOpen);
-  if (btn) btn.textContent = (uploadPanelOpen ? '▾' : '▸') + ' Upload CSV to pipeline';
-  // Always reload the pipeline list when the panel opens so stale IDs are never shown.
-  if (uploadPanelOpen) loadUploadPipelines();
-}
 
 async function loadUploadPipelines() {
   var sel = document.getElementById('uploadPipelineSel');
@@ -1276,8 +1246,7 @@ async function loadUploadPipelines() {
     var j = await api('/api/pipelines');
     uploadPipelines = (j.pipelines || []).filter(function(p) { return !p.archived; });
     if (!uploadPipelines.length) {
-      sel.innerHTML = '<option value="">No pipelines — create one in the dashboard first</option>';
-      return;
+      sel.innerHTML = '<option value="">No pipelines — create one in the dashboard</option>'; return;
     }
     sel.innerHTML = uploadPipelines.map(function(p) {
       return '<option value="' + esc(p.id) + '">' + esc(p.name) + '</option>';
@@ -1287,13 +1256,8 @@ async function loadUploadPipelines() {
   }
 }
 
-function onUploadDragOver(evt) {
-  evt.preventDefault();
-  document.getElementById('uploadDrop').classList.add('over');
-}
-function onUploadDragLeave(evt) {
-  document.getElementById('uploadDrop').classList.remove('over');
-}
+function onUploadDragOver(evt) { evt.preventDefault(); document.getElementById('uploadDrop').classList.add('over'); }
+function onUploadDragLeave()   { document.getElementById('uploadDrop').classList.remove('over'); }
 function onUploadDrop(evt) {
   evt.preventDefault();
   document.getElementById('uploadDrop').classList.remove('over');
@@ -1303,68 +1267,46 @@ function onUploadDrop(evt) {
 function onUploadFileChange(evt) {
   var files = evt.target.files;
   if (files && files.length) runUpload(files[0]);
-  // Reset so the same file can be re-uploaded if needed
   evt.target.value = '';
 }
 
 async function runUpload(file) {
   var pipelineId = document.getElementById('uploadPipelineSel').value;
-  if (!pipelineId) {
-    setUploadErr('Select a pipeline first.'); return;
-  }
-  if (!file.name.match(/\.csv$/i)) {
-    setUploadErr('Please select a .csv file.'); return;
-  }
-
+  if (!pipelineId) { setUploadErr('Select a pipeline first.'); return; }
+  if (!file.name.match(/\.csv$/i)) { setUploadErr('Please select a .csv file.'); return; }
   var drop = document.getElementById('uploadDrop');
   var prog = document.getElementById('uploadProgress');
   var okEl = document.getElementById('uploadOk');
-  var errEl = document.getElementById('uploadErr');
-
+  var errEl= document.getElementById('uploadErr');
   drop.classList.add('busy');
   drop.textContent = '⟳ Uploading ' + file.name + '…';
   prog.classList.add('active');
   okEl.classList.remove('active');
   errEl.classList.remove('active');
-
   try {
     var form = new FormData();
     form.append('file', file);
-
-    var res = await fetch(serverUrl + '/api/pipelines/' + encodeURIComponent(pipelineId) + '/run', {
-      method: 'POST',
-      body: form
-    });
-    var j = await res.json().catch(function() { return {}; });
+    var res = await fetch(serverUrl + '/api/pipelines/' + encodeURIComponent(pipelineId) + '/run', { method: 'POST', body: form });
+    var j   = await res.json().catch(function(){ return {}; });
     if (!res.ok || !j.ok) {
       var errMsg = j.error || ('HTTP ' + res.status);
-      if (res.status === 404 || errMsg.indexOf('ENOENT') !== -1) {
-        errMsg = 'Pipeline not found on server — it may have been lost during a redeploy. Open the dashboard and recreate it, then try again.';
-        // Refresh the pipeline list so the stale entry disappears
-        loadUploadPipelines();
-      }
+      if (res.status === 404 || errMsg.indexOf('ENOENT') !== -1) { errMsg = 'Pipeline not found — recreate it in the dashboard.'; loadUploadPipelines(); }
       throw new Error(errMsg);
     }
-
     var ds = j.dataset || {};
-    okEl.textContent = '✓ Processed: ' + (ds.label || ds.filename || 'dataset') +
-                       ' (' + fmtNum(ds.rowCount || 0) + ' rows, ' + (ds.headers||[]).length + ' cols)';
+    okEl.textContent = '✓ ' + (ds.label || ds.filename || 'dataset') + ' (' + fmtNum(ds.rowCount || 0) + ' rows)';
     okEl.classList.add('active');
     prog.classList.remove('active');
     drop.classList.remove('busy');
-    drop.textContent = '📂 Drop a CSV here or click to browse';
-
-    // Refresh the dataset list so the new result appears immediately
+    drop.textContent = 'Drop a CSV file here or click to browse';
     await loadDatasets({ silent: false });
-
   } catch (e) {
     prog.classList.remove('active');
     drop.classList.remove('busy');
-    drop.textContent = '📂 Drop a CSV here or click to browse';
+    drop.textContent = 'Drop a CSV file here or click to browse';
     setUploadErr('Upload failed: ' + e.message);
   }
 }
-
 function setUploadErr(msg) {
   var el = document.getElementById('uploadErr');
   el.textContent = msg;
@@ -1372,17 +1314,24 @@ function setUploadErr(msg) {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-function toggleSettings() { document.getElementById('settingsDrawer').classList.toggle('open'); }
-function show(id, cond) { document.getElementById(id).style.display = (cond === false) ? 'none' : ''; }
-function showBanner(msg, type) { var el = document.getElementById('mainBanner'); el.textContent = msg; el.className = 'banner ' + type; }
-function hideBanner() { document.getElementById('mainBanner').className = 'banner'; }
-function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-// Escape a value for interpolation into a JS string literal inside onclick='…'
-function jsEsc(s) { return String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'\\"'); }
-// Escape for use in CSS selector brackets (strip any stray quotes)
-function cssEsc(s) { return String(s||'').replace(/"/g,'\\"'); }
-function trunc(s, n) { return s.length > n ? s.slice(0,n) + '…' : s; }
-function fmtNum(n) { return (n||0).toLocaleString(); }
+function show(id, cond) {
+  var el = document.getElementById(id);
+  if (el) el.style.display = (cond === false) ? 'none' : '';
+}
+function showBanner(msg, type) {
+  var el = document.getElementById('mainBanner');
+  el.textContent = msg;
+  el.className   = 'banner ' + type;
+}
+function hideBanner()  { document.getElementById('mainBanner').className = 'banner'; }
+function esc(s)        { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function jsEsc(s)      { return String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'\\"'); }
+function cssEsc(s)     { return String(s||'').replace(/"/g,'\\"'); }
+function trunc(s, n)   { s = String(s||''); return s.length > n ? s.slice(0,n) + '…' : s; }
+function fmtNum(n)     { return (n||0).toLocaleString(); }
+function toggleSettings() {}   // kept for compat — settings now hidden
+function toggleUpload()   {}   // kept for compat — upload always visible
+function toggleAssets()   { togglePanel('assets'); }
 </script>
 </body>
 </html>

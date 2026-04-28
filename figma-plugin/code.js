@@ -550,18 +550,38 @@ figma.ui.onmessage = async function(msg) {
     }
 
     var nodes = [];
+    var serErrors = [];
     for (var si = 0; si < sel.length; si++) {
-      try { nodes.push(serializeNode(sel[si])); } catch(_) {}
+      try { nodes.push(serializeNode(sel[si])); } catch(se) { serErrors.push(se.message); }
     }
+
+    if (!nodes.length) {
+      figma.ui.postMessage({
+        type:  'save-asset-result',
+        ok:    false,
+        error: 'Could not serialise any node' + (serErrors.length ? ': ' + serErrors[0] : ''),
+      });
+      return;
+    }
+
     var assetName = msg.name || (sel.length === 1 ? sel[0].name : 'Selection (' + sel.length + ' nodes)');
-    figma.ui.postMessage({
-      type:      'save-asset-result',
-      ok:        true,
-      name:      assetName,
-      assetType: sel.length === 1 ? sel[0].type : 'GROUP',
-      nodeCount: nodes.length,
-      nodes:     nodes,
-    });
+    try {
+      figma.ui.postMessage({
+        type:      'save-asset-result',
+        ok:        true,
+        name:      assetName,
+        assetType: sel.length === 1 ? sel[0].type : 'GROUP',
+        nodeCount: nodes.length,
+        nodes:     nodes,
+      });
+    } catch (pmErr) {
+      // postMessage can fail if the payload exceeds Figma's message size limit.
+      figma.ui.postMessage({
+        type:  'save-asset-result',
+        ok:    false,
+        error: 'Serialised data too large to transfer (' + pmErr.message + '). Try selecting fewer / simpler nodes.',
+      });
+    }
     return;
   }
 

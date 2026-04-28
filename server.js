@@ -61,7 +61,7 @@ if (!fs.existsSync(SETTINGS_FILE)) {
 }
 
 // ── Middleware ───────────────────────────────────────────────────────────────
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '25mb' }));
 
 // CORS — allow the Figma plugin UI (runs on Figma's HTTPS origin) to reach
 // every API endpoint. The dashboard and any other browser client also benefit.

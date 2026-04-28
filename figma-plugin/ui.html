@@ -909,13 +909,17 @@ window.onmessage = function(event) {
       setAssetBanner('✕ ' + (msg.error || 'Could not serialise selection'));
       return;
     }
+    if (!msg.nodes || !msg.nodes.length) {
+      setAssetBanner('✕ Nothing could be serialised — select a frame or group first.');
+      return;
+    }
     // Store the serialised data then prompt for a name
     _pendingAssetNodes = { name: msg.name, assetType: msg.assetType, nodeCount: msg.nodeCount, nodes: msg.nodes };
     var nameEl = document.getElementById('assetNameInput');
     if (nameEl) nameEl.value = msg.name || '';
     var row = document.getElementById('assetNameRow');
-    if (row) row.style.display = '';
-    setAssetBanner('Name this asset then click Save.');
+    if (row) row.style.display = 'block'; // explicit block — '' clears the attr but doesn't guarantee visibility
+    setAssetBanner('Name this asset and click Save ↑');
   }
 
   if (msg.type === 'restore-asset-result') {
@@ -1150,7 +1154,7 @@ function toggleAssets() {
   assetPanelOpen = !assetPanelOpen;
   var panel = document.getElementById('assetPanel');
   var btn   = document.getElementById('assetToggleBtn');
-  if (panel) panel.style.display = assetPanelOpen ? '' : 'none';
+  if (panel) panel.style.display = assetPanelOpen ? 'block' : 'none';
   if (btn)   btn.textContent = (assetPanelOpen ? '▾' : '▸') + ' ' + (assetPanelOpen ? 'Hide' : 'Show');
   if (assetPanelOpen) loadAssets();
 }

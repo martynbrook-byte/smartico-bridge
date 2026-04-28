@@ -688,7 +688,7 @@ function renderFilenameTemplate(template, ctx) {
   const safeTpl = String(template || '{pipelineName}').trim() || '{pipelineName}';
   const now = new Date();
   const pad = (n) => String(n).padStart(2, '0');
-  const dateStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+  const dateStr = `${pad(now.getDate())}/${pad(now.getMonth() + 1)}/${now.getFullYear()}`;
   const timeStr = `${pad(now.getHours())}-${pad(now.getMinutes())}`;
   const iterRaw = Number(ctx.iteration);
   const iterStr = Number.isFinite(iterRaw) && iterRaw > 0
@@ -1988,9 +1988,12 @@ app.post('/api/pipelines/:id/run', upload.single('file'), async (req, res) => {
         dropZone = null;
       }
     }
+    // Iteration increments on every run — against the drop zone when one is
+    // present, otherwise against the pipeline itself so direct uploads also
+    // get a monotonically increasing counter instead of always showing 001.
     const iteration = dropZone
-      ? (Number.isFinite(Number(dropZone.runCount)) ? Number(dropZone.runCount) : 0) + 1
-      : 1;
+      ? (Number.isFinite(Number(dropZone.runCount))   ? Number(dropZone.runCount)   : 0) + 1
+      : (Number.isFinite(Number(pipeline.runCount))   ? Number(pipeline.runCount)   : 0) + 1;
 
     // Resolve which mapping set to use:
     //   pipeline.mappingSetId  → pinned set (override the active one for this run)
@@ -2097,6 +2100,12 @@ app.post('/api/pipelines/:id/run', upload.single('file'), async (req, res) => {
       dropZone.runCount = iteration;
       try { await saveDropZone(dropZone); } catch (e) {
         console.warn('[pipelines/run] saving drop-zone runCount failed:', e.message);
+      }
+    } else {
+      // Direct upload — bump the pipeline's own counter
+      pipeline.runCount = iteration;
+      try { await savePipeline(pipeline); } catch (e) {
+        console.warn('[pipelines/run] saving pipeline runCount failed:', e.message);
       }
     }
 

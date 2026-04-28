@@ -3,8 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <title>Smartico Bridge</title>
+<link rel="preconnect" href="https://fonts.cdnfonts.com">
+<link href="https://fonts.cdnfonts.com/css/monument-extended" rel="stylesheet">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;900&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root {
     --pink:  #f2c8f2;
@@ -19,7 +21,8 @@
     --radius-xl: 22px;
     --radius: 12px;
     --radius-sm: 8px;
-    --font: 'Nunito', -apple-system, sans-serif;
+    --font-display: 'Monument Extended', -apple-system, sans-serif;
+    --font: 'Manrope', -apple-system, sans-serif;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -54,22 +57,29 @@
 
   .panel-hd-text { flex: 1; }
   .panel-app-label {
-    font-size: 11px;
-    font-weight: 600;
+    font-family: var(--font);
+    font-size: 10px;
+    font-weight: 500;
     color: var(--muted);
-    letter-spacing: .04em;
-    margin-bottom: 2px;
+    letter-spacing: .01em;
+    margin-bottom: 4px;
   }
   .panel-title {
-    font-size: 24px;
-    font-weight: 900;
-    line-height: 1.08;
+    font-family: var(--font-display);
+    font-size: 29px;
+    font-weight: 800;
+    line-height: 1;
+    letter-spacing: -0.02em;
     color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .panel-subtitle {
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--muted);
+    font-family: var(--font);
+    font-size: 16px;
+    font-weight: 700;
+    color: #000;
     margin-top: 2px;
   }
   .panel-caret {
@@ -398,7 +408,8 @@
   <div class="panel-hd" onclick="togglePanel('data')">
     <div class="panel-hd-text">
       <div class="panel-app-label">Smartico Bridge</div>
-      <div class="panel-title">Data<br>Importer</div>
+      <div class="panel-title">Data Importer</div>
+      <div class="panel-subtitle">Winners &amp; game data</div>
     </div>
     <span class="panel-caret">▶</span>
   </div>

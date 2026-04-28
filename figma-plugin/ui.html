@@ -9,7 +9,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root {
-    --pink:  #f2c8f2;
+    --pink:  #F4C7FF;
     --blue:  #ccd8f8;
     --lime:  #d8edb8;
     --bg:    #ede9f8;
@@ -18,7 +18,7 @@
     --white: rgba(255,255,255,0.68);
     --white-strong: rgba(255,255,255,0.88);
     --border: rgba(0,0,0,0.13);
-    --radius-xl: 22px;
+    --radius-xl: 50px;
     --radius: 12px;
     --radius-sm: 8px;
     --font-display: 'Monument Extended', -apple-system, sans-serif;
@@ -45,11 +45,12 @@
   .panel-lime  { background: var(--lime);  }
 
   .panel-hd {
-    padding: 16px 18px 14px;
+    padding: 0 22px;
+    min-height: 110px;
     cursor: pointer;
     user-select: none;
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     justify-content: space-between;
     gap: 8px;
   }
@@ -66,10 +67,10 @@
   }
   .panel-title {
     font-family: var(--font-display);
-    font-size: 29px;
+    font-size: 24px;
     font-weight: 800;
     line-height: 1;
-    letter-spacing: -0.02em;
+    letter-spacing: 0.02em;
     color: var(--text);
     white-space: nowrap;
     overflow: hidden;
@@ -78,20 +79,13 @@
   .panel-subtitle {
     font-family: var(--font);
     font-size: 16px;
-    font-weight: 700;
+    font-weight: 600;
     color: #000;
     margin-top: 2px;
   }
-  .panel-caret {
-    font-size: 13px;
-    color: var(--muted);
-    margin-top: 6px;
-    transition: transform .2s;
-  }
-  .panel.open .panel-caret { transform: rotate(90deg); }
 
   .panel-body {
-    padding: 0 16px 18px;
+    padding: 0 16px 25px;
     display: flex;
     flex-direction: column;
     gap: 9px;
@@ -135,6 +129,15 @@
   input[type="text"] { padding-right: 12px; text-transform: none; font-weight: 600; }
   select option { background: #fff; font-weight: 600; }
 
+  /* ── Pipeline dropdown — pink ───────────────────────────────────────── */
+  #uploadPipelineSel {
+    background: #EC9EFF;
+    border-color: rgba(160,40,200,0.25);
+    color: var(--text);
+    font-weight: 700;
+  }
+  #uploadPipelineSel:focus { border-color: rgba(160,40,200,0.5); }
+
   /* ── Buttons ────────────────────────────────────────────────────────── */
   .btn {
     border: 1.5px solid var(--border);
@@ -163,24 +166,23 @@
 
   /* ── Drop zone ──────────────────────────────────────────────────────── */
   .drop-zone {
-    border: 2px dashed rgba(0,0,0,.18);
+    border: 2px dashed rgba(160,40,200,0.35);
     border-radius: var(--radius);
     padding: 16px 12px;
     text-align: center;
     cursor: pointer;
     font-size: 11px;
     font-weight: 700;
-    color: var(--muted);
-    background: rgba(255,255,255,.35);
+    color: var(--text);
+    background: #EC9EFF;
     transition: all .15s;
     line-height: 1.5;
   }
   .drop-zone:hover, .drop-zone.over {
-    border-color: rgba(0,0,0,.35);
-    color: var(--text);
-    background: rgba(255,255,255,.55);
+    border-color: rgba(160,40,200,0.6);
+    background: #e088f7;
   }
-  .drop-zone.busy { border-color: rgba(0,0,0,.2); color: var(--muted); cursor: default; }
+  .drop-zone.busy { opacity: .6; cursor: default; }
 
   /* ── Dataset cards ──────────────────────────────────────────────────── */
   .ds-card {
@@ -201,16 +203,16 @@
   /* ── Preview table ──────────────────────────────────────────────────── */
   .tbl-wrap {
     overflow: auto;
-    border: 1.5px solid var(--border);
+    border: 1.5px solid rgba(160,40,200,0.25);
     border-radius: var(--radius);
     max-height: 150px;
-    background: rgba(255,255,255,.6);
+    background: #EC9EFF;
   }
   .tbl-wrap::-webkit-scrollbar { height: 4px; width: 4px; }
   .tbl-wrap::-webkit-scrollbar-thumb { background: rgba(0,0,0,.15); border-radius: 2px; }
   table { width: 100%; border-collapse: collapse; font-size: 10px; }
   th {
-    background: rgba(0,0,0,.06);
+    background: rgba(160,40,200,0.18);
     color: var(--muted);
     font-weight: 700;
     padding: 4px 7px;
@@ -357,7 +359,7 @@
   }
   .banner.ok   { background: #dcfce7; border: 1.5px solid #86efac; color: #14532d; display: block; }
   .banner.err  { background: #fee2e2; border: 1.5px solid #fca5a5; color: #7f1d1d; display: block; }
-  .banner.info { background: #fef9c3; border: 1.5px solid #fde047; color: #713f12; display: block; }
+  .banner.info { background: transparent; border: none; color: var(--text); display: block; }
 
   /* ── Upload feedback ────────────────────────────────────────────────── */
   .upload-progress { font-size: 10px; color: var(--muted); display: none; text-align: center; font-weight: 700; }
@@ -368,7 +370,7 @@
   .upload-err.active { display: block; }
 
   /* ── Section labels ─────────────────────────────────────────────────── */
-  .sec-label { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+  .sec-label { font-family: var(--font); font-size: 11px; font-weight: 600; text-transform: none; letter-spacing: 0; color: var(--muted); }
 
   /* ── Misc ───────────────────────────────────────────────────────────── */
   .empty { color: var(--muted); font-size: 11px; padding: 10px 0; text-align: center; font-weight: 600; }
@@ -407,11 +409,10 @@
 <div class="panel panel-pink open" id="panel-data">
   <div class="panel-hd" onclick="togglePanel('data')">
     <div class="panel-hd-text">
-      <div class="panel-app-label">Smartico Bridge</div>
-      <div class="panel-title">Data Importer</div>
+
+      <div class="panel-title">Data importer</div>
       <div class="panel-subtitle">Winners &amp; game data</div>
     </div>
-    <span class="panel-caret">▶</span>
   </div>
   <div class="panel-body" id="panel-data-body">
 
@@ -419,14 +420,14 @@
     <div class="status-row">
       <span class="status-dot" id="statusDot"></span>
       <span id="connStatus">Connecting…</span>
+      <span id="dsLoadingSpinner" style="display:none"><span class="spinner"></span></span>
     </div>
 
     <!-- processed dataset list -->
-    <div class="sec-label">Select dataset</div>
-    <div id="dsList"><div class="empty"><span class="spinner"></span>Loading…</div></div>
+    <div id="dsList"></div>
 
     <!-- CSV upload -->
-    <div class="sec-label">Upload CSV to pipeline</div>
+
     <div class="select-wrap">
       <select id="uploadPipelineSel">
         <option value="">Loading pipelines…</option>
@@ -450,11 +451,27 @@
       <div class="tbl-wrap" id="previewWrap"></div>
     </div>
 
-    <!-- figma selection -->
+    <!-- figma selection + refs (combined) -->
     <div id="selSection" style="display:none">
-      <div class="sec-label" style="margin-bottom:6px">Figma selection</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+        <div class="sec-label">Figma selection</div>
+        <button onclick="toggleSelDetail()" id="selToggleBtn"
+          style="background:none;border:none;cursor:pointer;font-size:10px;font-weight:700;font-family:var(--font);color:var(--muted);padding:0">Show</button>
+      </div>
       <div class="sel-box none" id="selBox">
         <span id="selLabel">Nothing selected</span>
+      </div>
+      <div id="selDetailWrap" style="display:none;margin-top:8px;display:none">
+        <div id="refsSection" style="display:none">
+          <div class="sec-label" style="margin-bottom:4px">Layer refs found</div>
+          <div style="font-size:10px;color:var(--muted);margin-bottom:6px;font-weight:600;line-height:1.5">
+            Name layers <span style="font-family:monospace;font-weight:800">#columnname.rowindex</span>
+            e.g. <span style="font-family:monospace">#prize.1</span> · <span style="font-family:monospace">#avatar.2</span>
+          </div>
+          <div class="ref-list" id="refList">
+            <div class="empty">Scan selection to see refs</div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -483,23 +500,16 @@
       </div>
     </div>
 
-    <!-- refs -->
-    <div id="refsSection" style="display:none">
-      <div class="sec-label" style="margin-bottom:4px">Layer refs found</div>
-      <div style="font-size:10px;color:var(--muted);margin-bottom:6px;font-weight:600;line-height:1.5">
-        Name layers <span style="font-family:monospace;font-weight:800">#columnname.rowindex</span>
-        e.g. <span style="font-family:monospace">#prize.1</span> · <span style="font-family:monospace">#avatar.2</span>
-      </div>
-      <div class="ref-list" id="refList">
-        <div class="empty">Scan selection to see refs</div>
-      </div>
-    </div>
-
     <div class="banner" id="mainBanner"></div>
 
     <!-- inject -->
     <div id="injectBar" style="display:none">
-      <button class="btn btn-primary btn-full" id="injectBtn" onclick="inject()">Inject into Figma</button>
+      <button id="injectBtn" onclick="inject()" style="
+        width:100%; padding:16px 12px; border:none; border-radius:var(--radius);
+        background:#EC9EFF; color:var(--text);
+        font-family:var(--font-display); font-size:22px; font-weight:800;
+        letter-spacing:-0.01em; cursor:pointer; transition:background .15s;
+      " onmouseover="this.style.background='#e088f7'" onmouseout="this.style.background='#EC9EFF'">INJECT</button>
     </div>
 
   </div><!-- /panel-data-body -->
@@ -509,10 +519,9 @@
 <div class="panel panel-blue" id="panel-assets">
   <div class="panel-hd" onclick="togglePanel('assets')">
     <div class="panel-hd-text">
-      <div class="panel-title">Asset Library</div>
+      <div class="panel-title">Asset library</div>
       <div class="panel-subtitle">Frame sets</div>
     </div>
-    <span class="panel-caret">▶</span>
   </div>
   <div class="panel-body hidden" id="panel-assets-body">
 
@@ -536,10 +545,9 @@
 <div class="panel panel-lime" id="panel-casino">
   <div class="panel-hd" onclick="togglePanel('casino')">
     <div class="panel-hd-text">
-      <div class="panel-title">Casino Game<br>Library</div>
+      <div class="panel-title">Casino game library</div>
       <div class="panel-subtitle">Workspace</div>
     </div>
-    <span class="panel-caret">▶</span>
   </div>
   <div class="panel-body hidden" id="panel-casino-body">
     <div class="empty" style="padding:14px 0">Coming soon — games from your other project will appear here.</div>
@@ -576,13 +584,19 @@ parent.postMessage({ pluginMessage: { type: 'get-selection' } }, '*');
 loadUploadPipelines();
 
 // ── Panel accordion ───────────────────────────────────────────────────────────
+var PANELS = ['data', 'assets', 'casino'];
 function togglePanel(name) {
-  var panel = document.getElementById('panel-' + name);
-  var body  = document.getElementById('panel-' + name + '-body');
-  panel.classList.toggle('open');
-  body.classList.toggle('hidden');
-  if (name === 'assets' && panel.classList.contains('open')) {
-    loadAssets();
+  var isOpen = document.getElementById('panel-' + name).classList.contains('open');
+  // Close all panels first
+  PANELS.forEach(function(p) {
+    document.getElementById('panel-' + p).classList.remove('open');
+    document.getElementById('panel-' + p + '-body').classList.add('hidden');
+  });
+  // Open the clicked panel if it was previously closed
+  if (!isOpen) {
+    document.getElementById('panel-' + name).classList.add('open');
+    document.getElementById('panel-' + name + '-body').classList.remove('hidden');
+    if (name === 'assets') loadAssets();
   }
 }
 
@@ -628,9 +642,8 @@ async function api(path, opts) {
 // ── Datasets ──────────────────────────────────────────────────────────────────
 async function loadDatasets(opts) {
   opts = opts || {};
-  if (!opts.silent) {
-    document.getElementById('dsList').innerHTML = '<div class="empty"><span class="spinner"></span>Loading…</div>';
-  }
+  var spinner = document.getElementById('dsLoadingSpinner');
+  if (spinner) spinner.style.display = '';
   try {
     var j    = await api('/api/figma/datasets');
     var next = j.datasets || [];
@@ -664,6 +677,8 @@ async function loadDatasets(opts) {
     if (!opts.silent) {
       document.getElementById('dsList').innerHTML = '<div class="empty" style="color:#7f1d1d">' + esc(e.message) + '</div>';
     }
+  } finally {
+    if (spinner) spinner.style.display = 'none';
   }
 }
 
@@ -697,6 +712,10 @@ async function selectDataset(id) {
   try {
     var full = await api('/api/figma/datasets/' + id);
     activeDataset = full;
+    // Reset bind state so panel stays hidden until a row is clicked
+    bindRowIndex  = null;
+    bindRowSource = null;
+    bindColName   = null;
     renderDsList();
     renderPreview();
     show('previewSection');
@@ -1018,7 +1037,8 @@ var bindColName   = null;
 
 function refreshBindSection() {
   var hasDataset = !!(activeDataset && (activeDataset.headers || []).length > 0);
-  show('bindSection', hasDataset);
+  // Only show the bind panel after a row has been clicked in the preview table
+  show('bindSection', hasDataset && bindRowIndex !== null);
   if (!hasDataset) return;
   document.getElementById('bindOk').style.display = 'none';
   var lbl = document.getElementById('bindColsLabel');
@@ -1340,6 +1360,14 @@ function jsEsc(s)      { return String(s||'').replace(/\\/g,'\\\\').replace(/'/g
 function cssEsc(s)     { return String(s||'').replace(/"/g,'\\"'); }
 function trunc(s, n)   { s = String(s||''); return s.length > n ? s.slice(0,n) + '…' : s; }
 function fmtNum(n)     { return (n||0).toLocaleString(); }
+var selDetailVisible = false;
+function toggleSelDetail() {
+  selDetailVisible = !selDetailVisible;
+  var wrap = document.getElementById('selDetailWrap');
+  var btn  = document.getElementById('selToggleBtn');
+  if (wrap) wrap.style.display = selDetailVisible ? 'block' : 'none';
+  if (btn)  btn.textContent    = selDetailVisible ? 'Hide' : 'Show';
+}
 function toggleSettings() {}   // kept for compat — settings now hidden
 function toggleUpload()   {}   // kept for compat — upload always visible
 function toggleAssets()   { togglePanel('assets'); }

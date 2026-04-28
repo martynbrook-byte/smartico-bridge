@@ -451,17 +451,16 @@
       <div class="tbl-wrap" id="previewWrap"></div>
     </div>
 
-    <!-- figma selection + refs (combined) -->
+    <!-- figma selection + refs (combined, clickable toggle) -->
     <div id="selSection" style="display:none">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-        <div class="sec-label">Figma selection</div>
-        <button onclick="toggleSelDetail()" id="selToggleBtn"
-          style="background:none;border:none;cursor:pointer;font-size:10px;font-weight:700;font-family:var(--font);color:var(--muted);padding:0">Show</button>
+      <div class="sel-box none" id="selBox" onclick="toggleSelDetail()" style="cursor:pointer">
+        <div style="flex:1;min-width:0">
+          <span id="selLabel">Nothing selected</span>
+          <span id="selRefBadge" style="display:none;margin-left:8px;font-size:10px;font-weight:600;color:var(--muted)"></span>
+        </div>
+        <span id="selToggleCaret" style="font-size:10px;color:var(--muted);transition:transform .2s;flex-shrink:0">▾</span>
       </div>
-      <div class="sel-box none" id="selBox">
-        <span id="selLabel">Nothing selected</span>
-      </div>
-      <div id="selDetailWrap" style="display:none;margin-top:8px;display:none">
+      <div id="selDetailWrap" style="display:none;margin-top:6px">
         <div id="refsSection" style="display:none">
           <div class="sec-label" style="margin-bottom:4px">Layer refs found</div>
           <div style="font-size:10px;color:var(--muted);margin-bottom:6px;font-weight:600;line-height:1.5">
@@ -781,15 +780,19 @@ function refreshSel() { parent.postMessage({ pluginMessage: { type: 'get-selecti
 function updateSelBox() {
   var box = document.getElementById('selBox');
   var lbl = document.getElementById('selLabel');
+  var badge = document.getElementById('selRefBadge');
   if (!figmaSel.length) {
     box.className = 'sel-box none';
     lbl.innerHTML = '<span style="color:var(--muted)">Nothing selected in Figma</span>';
+    if (badge) { badge.style.display = 'none'; badge.textContent = ''; }
   } else {
     var n = figmaSel[0];
     box.className = 'sel-box';
     lbl.innerHTML = '<span class="sel-name">' + esc(n.name) + '</span>' +
       (figmaSel.length > 1 ? ' <span style="color:var(--muted)">+ ' + (figmaSel.length-1) + ' more</span>' :
        ' <span style="color:var(--muted)">' + n.type + (n.childCount ? ' · ' + n.childCount : '') + '</span>');
+    // Clear stale ref badge when selection changes
+    if (badge) { badge.style.display = 'none'; badge.textContent = ''; }
   }
   refreshBindSection();
 }
@@ -963,11 +966,18 @@ window.onmessage = function(event) {
     scannedGroups = Array.isArray(msg.groups) ? msg.groups : [];
     openGroups    = {};
     renderRefList();
+    var badge = document.getElementById('selRefBadge');
     if (!scannedRefs.length) {
-      showBanner('No #name.index layers found. Name layers like #prize.1 or #avatar.2', 'info');
+      if (badge) { badge.textContent = 'No refs found'; badge.style.display = ''; }
+      hideBanner();
     } else {
       var nF = scannedGroups.length || 1;
-      showBanner('Found ' + scannedRefs.length + ' ref(s) in ' + nF + ' frame' + (nF === 1 ? '' : 's') + '. Click Inject to fill them.', 'ok');
+      if (badge) {
+        badge.textContent = scannedRefs.length + ' ref' + (scannedRefs.length === 1 ? '' : 's') + ' in ' + nF + ' frame' + (nF === 1 ? '' : 's');
+        badge.style.display = '';
+        badge.style.color = '#2d7a3a';
+      }
+      hideBanner();
     }
     return;
   }
@@ -1363,10 +1373,10 @@ function fmtNum(n)     { return (n||0).toLocaleString(); }
 var selDetailVisible = false;
 function toggleSelDetail() {
   selDetailVisible = !selDetailVisible;
-  var wrap = document.getElementById('selDetailWrap');
-  var btn  = document.getElementById('selToggleBtn');
-  if (wrap) wrap.style.display = selDetailVisible ? 'block' : 'none';
-  if (btn)  btn.textContent    = selDetailVisible ? 'Hide' : 'Show';
+  var wrap   = document.getElementById('selDetailWrap');
+  var caret  = document.getElementById('selToggleCaret');
+  if (wrap)  wrap.style.display          = selDetailVisible ? 'block' : 'none';
+  if (caret) caret.style.transform       = selDetailVisible ? 'rotate(180deg)' : 'rotate(0deg)';
 }
 function toggleSettings() {}   // kept for compat — settings now hidden
 function toggleUpload()   {}   // kept for compat — upload always visible

@@ -1850,12 +1850,21 @@ async function loadSettings() {
   return settings;
 }
 
-async function importSettings(evt) {
-  const file = evt.target.files && evt.target.files[0];
+async function importSettings(evtOrInput) {
+  // Called as importSettings(event) or importSettings(this) — handle both.
+  const inputEl = evtOrInput.target || evtOrInput;
+  const file    = inputEl.files && inputEl.files[0];
   if (!file) return;
-  const status = document.getElementById('importStatus');
-  status.textContent = 'Reading…';
-  status.style.color = 'var(--muted)';
+
+  // Update whichever status elements exist on the page.
+  const setStatus = (msg, isErr) => {
+    const s1 = document.getElementById('importStatus');
+    const s2 = document.getElementById('importExportBanner');
+    if (s1) { s1.textContent = msg; s1.style.color = isErr ? 'var(--danger)' : 'var(--success,#22c55e)'; }
+    if (s2) { s2.textContent = msg; s2.className = 'banner ' + (isErr ? 'error' : 'success'); }
+  };
+
+  setStatus('Reading…', false);
   try {
     const text = await file.text();
     const json = JSON.parse(text);
@@ -1865,14 +1874,11 @@ async function importSettings(evt) {
       body: JSON.stringify(json),
     });
     await refreshAll();
-    status.textContent = `✓ Restored — ${r.ruleSets} rule set(s), ${r.mappingSets} mapping set(s)`;
-    status.style.color = 'var(--success, #22c55e)';
+    setStatus(`✓ Restored — ${r.ruleSets} rule set(s), ${r.mappingSets} mapping set(s)`, false);
   } catch (e) {
-    status.textContent = '✕ Import failed: ' + e.message;
-    status.style.color = 'var(--danger)';
+    setStatus('✕ Import failed: ' + e.message, true);
   }
-  // Reset file input so the same file can be re-imported if needed
-  evt.target.value = '';
+  inputEl.value = '';
 }
 async function loadDatasets() {
   const r = await api('/api/datasets');
@@ -5045,29 +5051,7 @@ async function importRuleSets(event) {
   }
 }
 
-async function importSettings(input) {
-  const file = input.files[0];
-  input.value = '';  // reset so the same file can be picked again
-  if (!file) return;
-  const banner = document.getElementById('importExportBanner');
-  try {
-    const text = await file.text();
-    const parsed = JSON.parse(text);
-    const res = await api('/api/settings', {
-      method: 'POST',
-      body: JSON.stringify(parsed),
-    });
-    if (res && res.settings) settings = res.settings;
-    renderMappings();
-    renderProfileApi();
-    banner.className = 'banner success';
-    banner.textContent = `✓ Settings imported — ${(settings.ruleSets || []).length} rule set(s), ${Object.keys(settings.columnMappings || {}).length} column mapping(s)`;
-    setTimeout(() => { banner.className = ''; banner.textContent = ''; }, 5000);
-  } catch (err) {
-    banner.className = 'banner error';
-    banner.textContent = `Import failed: ${err.message}`;
-  }
-}
+// importSettings is defined earlier — duplicate removed.
 
 // ── Boot ────────────────────────────────────────────────────────────────────
 async function refreshAll() {

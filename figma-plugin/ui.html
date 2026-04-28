@@ -385,22 +385,33 @@
   /* ── Processing overlay ─────────────────────────────────────────────── */
   .processing-overlay {
     display: none;
-    position: fixed; inset: 0;
-    background: rgba(237,233,248,.92);
-    backdrop-filter: blur(4px);
+    position: fixed; inset: 10px;
+    background: #EC9EFF;
     z-index: 100;
-    flex-direction: column; align-items: center; justify-content: center; gap: 16px;
+    flex-direction: column; align-items: center; justify-content: center; gap: 20px;
+    border-radius: var(--radius-xl);
   }
   .processing-overlay.active { display: flex; }
   .proc-ring {
-    width: 46px; height: 46px;
-    border: 3px solid rgba(0,0,0,.12);
-    border-top-color: rgba(0,0,0,.6);
+    width: 52px; height: 52px;
+    border: 3px solid rgba(0,0,0,.15);
+    border-top-color: rgba(0,0,0,.7);
     border-radius: 50%;
     animation: spin .8s linear infinite;
   }
-  .proc-label { font-size: 13px; color: var(--text); font-weight: 800; }
-  .proc-sub   { font-size: 10px; color: var(--muted); font-weight: 600; }
+  .proc-label {
+    font-family: var(--font-display);
+    font-size: 22px; font-weight: 800;
+    letter-spacing: 0.02em;
+    color: var(--text);
+    text-align: center;
+  }
+  .proc-sub {
+    font-family: var(--font);
+    font-size: 12px; font-weight: 600;
+    color: rgba(0,0,0,.5);
+    text-align: center;
+  }
 </style>
 </head>
 <body>
@@ -556,8 +567,10 @@
 <!-- Processing overlay -->
 <div class="processing-overlay" id="procOverlay">
   <div class="proc-ring"></div>
-  <div class="proc-label" id="procLabel">Injecting…</div>
-  <div class="proc-sub"   id="procSub"></div>
+  <div style="text-align:center">
+    <div class="proc-label" id="procLabel">Injecting</div>
+    <div class="proc-sub"   id="procSub"></div>
+  </div>
 </div>
 
 <!-- hidden elements kept for backward compat -->
@@ -860,15 +873,21 @@ function renderRefList() {
 
 // ── Inject ────────────────────────────────────────────────────────────────────
 function showProcessing(label, sub) {
-  var o = document.getElementById('procOverlay');
   document.getElementById('procLabel').textContent = label || 'Injecting…';
   document.getElementById('procSub').textContent   = sub   || '';
-  o.classList.add('active');
-  show('previewSection', false); show('selSection', false);
-  show('refsSection', false);    show('injectBar',   false);
+  // Hide all panels so only the overlay is visible
+  ['panel-data','panel-assets','panel-casino'].forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el) el.style.visibility = 'hidden';
+  });
+  document.getElementById('procOverlay').classList.add('active');
 }
 function hideProcessing() {
   document.getElementById('procOverlay').classList.remove('active');
+  ['panel-data','panel-assets','panel-casino'].forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el) el.style.visibility = '';
+  });
   if (activeDataset) {
     show('previewSection'); show('selSection'); show('refsSection'); show('injectBar');
   }

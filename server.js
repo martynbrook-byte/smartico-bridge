@@ -510,6 +510,7 @@ async function listDatasets() {
         ruleTable:       Array.isArray(r.ruleTable) ? r.ruleTable : (r.metrics ? buildRuleTable(r.metrics) : []),
         maxRows:         r.maxRows ?? null,
         sort:            r.sort || null,
+        hiddenRows:      Array.isArray(r.hiddenRows) ? r.hiddenRows : [],
       });
     } catch (e) {
       console.warn(`[datasets] skipping unreadable file ${f}: ${e.message}`);
@@ -528,6 +529,8 @@ async function getDataset(id) {
   if (rec.isProcessed && !Array.isArray(rec.ruleTable) && Array.isArray(rec.metrics)) {
     rec.ruleTable = buildRuleTable(rec.metrics);
   }
+  // Backfill hiddenRows for records saved before the field existed.
+  if (!Array.isArray(rec.hiddenRows)) rec.hiddenRows = [];
   return rec;
 }
 
@@ -1266,12 +1269,22 @@ app.delete('/api/datasets/:id', async (req, res) => {
   }
 });
 
-// Patch a dataset (rename / add a label). Only `label` is editable right now.
+// Patch a dataset (rename / add a label / update hidden rows).
 app.patch('/api/datasets/:id', async (req, res) => {
   try {
     const record = await getDataset(req.params.id);
     if (typeof req.body?.label === 'string') {
       record.label = req.body.label.trim() || null;
+    }
+    // hiddenRows: array of 0-based row indices to exclude from injection/export.
+    // Accept null to clear all hidden rows.
+    if (req.body && 'hiddenRows' in req.body) {
+      const hr = req.body.hiddenRows;
+      if (hr === null || hr === undefined) {
+        record.hiddenRows = [];
+      } else if (Array.isArray(hr)) {
+        record.hiddenRows = hr.filter(n => typeof n === 'number' && Number.isFinite(n) && n >= 0).map(Math.floor);
+      }
     }
     await saveDataset(record);
     res.json({
@@ -1284,6 +1297,7 @@ app.patch('/api/datasets/:id', async (req, res) => {
         rowCount: record.rowCount,
         headers: record.headers,
         summary: record.summary || null,
+        hiddenRows: record.hiddenRows || [],
       },
     });
   } catch (err) {

@@ -449,6 +449,59 @@
     .ruleset-editor-header .names { flex: 1; min-width: 0; }
     .ruleset-editor-header input[type="text"],
     .ruleset-editor-header textarea { margin-bottom: 6px; }
+    /* Collapse chevron for rule set editor */
+    .rs-collapse-btn {
+      background: none; border: none; cursor: pointer; padding: 3px 5px;
+      font-size: 1.1rem; color: var(--muted); transition: transform 0.2s, color 0.15s;
+      align-self: flex-start;
+    }
+    .rs-collapse-btn:hover { color: var(--text); }
+    .rs-collapse-btn.open { transform: rotate(90deg); }
+    .rs-body-wrap {
+      overflow: hidden;
+      transition: max-height 0.3s cubic-bezier(0.4,0,0.2,1), opacity 0.25s ease;
+    }
+    .rs-body-wrap.collapsed { max-height: 0 !important; opacity: 0; pointer-events: none; }
+
+    /* ── Dataset row preview ── */
+    .dataset-rows-toggle {
+      font-size: 0.75rem; cursor: pointer; color: var(--muted);
+      background: none; border: none; padding: 0; display: inline-flex; align-items: center; gap: 4px;
+      transition: color 0.15s;
+    }
+    .dataset-rows-toggle:hover { color: var(--text); }
+    .dataset-rows-panel {
+      overflow: hidden;
+      max-height: 0;
+      transition: max-height 0.3s cubic-bezier(0.4,0,0.2,1);
+    }
+    .dataset-rows-panel.open { max-height: 600px; }
+    .dataset-rows-table {
+      width: 100%; border-collapse: collapse; font-size: 0.74rem;
+      margin-top: 8px; border: 1px solid var(--border); border-radius: 6px; overflow: hidden;
+    }
+    .dataset-rows-table th {
+      background: var(--surface3); color: var(--muted); font-weight: 700;
+      padding: 4px 8px; text-align: left; border-bottom: 1px solid var(--border);
+      white-space: nowrap; overflow: hidden; max-width: 120px; text-overflow: ellipsis;
+    }
+    .dataset-rows-table td {
+      padding: 3px 8px; border-bottom: 1px solid var(--border); max-width: 140px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .dataset-rows-table tr:last-child td { border-bottom: none; }
+    .dataset-rows-table tr.row-hidden { opacity: 0.35; text-decoration: line-through; }
+    .row-eye-btn {
+      background: none; border: none; cursor: pointer; padding: 0 4px;
+      font-size: 0.85rem; color: var(--muted); transition: color 0.15s;
+      flex-shrink: 0;
+    }
+    .row-eye-btn:hover { color: var(--text); }
+    .hidden-rows-bar {
+      margin-top: 6px; padding: 4px 8px; background: var(--surface3);
+      border-radius: 5px; font-size: 0.74rem; color: var(--muted);
+      display: flex; align-items: center; gap: 8px;
+    }
 
     /* ── Rule cards ── */
     .rule-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
@@ -1788,6 +1841,8 @@ let settings = { columnMappings: {}, ruleSets: [] };
 let datasets = [];
 let activeRuleSetId = null;
 const openRuleIds = new Set(); // rule ids whose config is expanded
+const collapsedRuleSetIds = new Set(); // rule set ids whose rule list is collapsed
+const expandedDatasetRowIds = new Set(); // dataset ids whose row preview is open
 let bootTime = Date.now();
 
 // Cache of computed metric values per rule id for the active rule set, so the
@@ -1958,6 +2013,7 @@ function renderDatasets() {
           <span>${fmtNumber(d.rowCount)} rows</span>
           <span>${(d.headers || []).length} cols</span>
           <span>${fmtDate(d.uploadedAt)}</span>
+          ${(d.hiddenRows || []).length ? `<span style="color:var(--gold2)">⊘ ${d.hiddenRows.length} hidden</span>` : ''}
         </div>
         <div class="dataset-actions">
           ${d.isProcessed
@@ -1972,6 +2028,8 @@ function renderDatasets() {
                  ↻ Re-map
                </button>`
           }
+          <button class="btn btn-small" onclick="toggleDatasetRows('${esc(d.id)}')"
+                  title="Show/hide rows">Rows</button>
           <button class="btn btn-danger btn-small" onclick="deleteDataset('${esc(d.id)}')">Delete</button>
         </div>
       </div>
@@ -1982,6 +2040,10 @@ function renderDatasets() {
         : renderDatasetSummary(d.summary)
       }
       ${d.isProcessed ? '' : renderEnrichmentReport(d.enrichment)}
+      <div class="dataset-rows-panel ${expandedDatasetRowIds.has(d.id) ? 'open' : ''}"
+           id="dsRowsPanel_${esc(d.id)}">
+        ${expandedDatasetRowIds.has(d.id) ? renderDatasetRowsTable(d) : ''}
+      </div>
     </div>
   `).join('');
 }
@@ -2000,6 +2062,142 @@ function renderEnrichmentReport(e) {
   }
   const when = e.lastRunAt ? fmtDate(e.lastRunAt) : '';
   return `<div class="enrich-report">Enriched ${when ? '· ' + esc(when) : ''} ${bits.join(' ')}</div>`;
+}
+
+// ── Dataset row hide/show ────────────────────────────────────────────────────
+function toggleDatasetRows(id) {
+  const panel = document.getElementById('dsRowsPanel_' + id);
+  if (!panel) return;
+  const isOpen = expandedDatasetRowIds.has(id);
+  if (isOpen) {
+    expandedDatasetRowIds.delete(id);
+    panel.classList.remove('open');
+  } else {
+    expandedDatasetRowIds.add(id);
+    panel.classList.add('open');
+    // Lazy-render the table on first open
+    const d = datasets.find(ds => ds.id === id);
+    if (d && !panel.innerHTML.trim()) {
+      panel.innerHTML = renderDatasetRowsTable(d);
+    }
+  }
+}
+
+function renderDatasetRowsTable(d) {
+  const rows = d.rows || [];
+  if (!rows.length) {
+    // Rows may not be in the list payload — fetch them
+    fetchAndRenderDatasetRows(d.id);
+    return '<div style="padding:8px;font-size:0.8rem;color:var(--muted)">Loading rows…</div>';
+  }
+  const hiddenSet = new Set((d.hiddenRows || []).map(Number));
+  const headers = (d.headers || Object.keys(rows[0] || {})).slice(0, 6);
+  const hiddenCount = hiddenSet.size;
+  return `
+    <div style="overflow:auto;max-height:280px">
+      <table class="dataset-rows-table">
+        <thead><tr>
+          <th style="width:28px"></th>
+          <th>#</th>
+          ${headers.map(h => `<th title="${esc(h)}">${esc(h.length > 14 ? h.slice(0,14)+'…' : h)}</th>`).join('')}
+        </tr></thead>
+        <tbody>
+          ${rows.map((row, i) => {
+            const hidden = hiddenSet.has(i);
+            const cells = headers.map(h => {
+              const v = row[h] !== undefined && row[h] !== null ? String(row[h]) : '';
+              return `<td title="${esc(v)}">${esc(v.length > 18 ? v.slice(0,18)+'…' : v)}</td>`;
+            }).join('');
+            return `<tr class="${hidden ? 'row-hidden' : ''}">
+              <td style="text-align:center">
+                <button class="row-eye-btn" title="${hidden ? 'Show row' : 'Hide row'}"
+                        onclick="toggleDatasetRowHidden('${esc(d.id)}', ${i})">${hidden ? '🙈' : '👁'}</button>
+              </td>
+              <td style="color:var(--muted);font-size:0.7rem">${i+1}</td>
+              ${cells}
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+    ${hiddenCount ? `
+      <div class="hidden-rows-bar">
+        <span>⊘ ${hiddenCount} row${hiddenCount===1?'':'s'} hidden from Figma injection</span>
+        <button class="btn btn-small" style="padding:1px 8px;font-size:0.72rem"
+                onclick="showAllDatasetRows('${esc(d.id)}')">Show all</button>
+      </div>` : ''}
+  `;
+}
+
+async function fetchAndRenderDatasetRows(id) {
+  try {
+    const r = await api('/api/datasets/' + id);
+    const d = datasets.find(ds => ds.id === id);
+    if (d && r.rows) {
+      d.rows = r.rows;
+      const panel = document.getElementById('dsRowsPanel_' + id);
+      if (panel) panel.innerHTML = renderDatasetRowsTable(d);
+    }
+  } catch (e) {
+    const panel = document.getElementById('dsRowsPanel_' + id);
+    if (panel) panel.innerHTML = `<div style="padding:8px;font-size:0.8rem;color:var(--red)">Failed to load rows: ${esc(e.message)}</div>`;
+  }
+}
+
+async function toggleDatasetRowHidden(id, rowIdx) {
+  const d = datasets.find(ds => ds.id === id);
+  if (!d) return;
+  const hiddenSet = new Set((d.hiddenRows || []).map(Number));
+  if (hiddenSet.has(rowIdx)) {
+    hiddenSet.delete(rowIdx);
+  } else {
+    hiddenSet.add(rowIdx);
+  }
+  const newHidden = [...hiddenSet].sort((a, b) => a - b);
+  try {
+    await api(`/api/datasets/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ hiddenRows: newHidden }),
+    });
+    d.hiddenRows = newHidden;
+    // Re-render just the rows panel and the hidden badge in the meta bar
+    const panel = document.getElementById('dsRowsPanel_' + id);
+    if (panel) panel.innerHTML = renderDatasetRowsTable(d);
+    // Refresh the hidden row count badge in the meta line
+    const card = document.querySelector(`.dataset-row[data-id="${CSS.escape(id)}"]`);
+    if (card) {
+      const metaSpans = card.querySelectorAll('.dataset-meta span');
+      // Find existing hidden badge or add one
+      let hiddenBadge = card.querySelector('.hidden-rows-badge');
+      if (!hiddenBadge) {
+        hiddenBadge = document.createElement('span');
+        hiddenBadge.className = 'hidden-rows-badge';
+        hiddenBadge.style.color = 'var(--gold2)';
+        card.querySelector('.dataset-meta').appendChild(hiddenBadge);
+      }
+      hiddenBadge.textContent = newHidden.length ? `⊘ ${newHidden.length} hidden` : '';
+    }
+  } catch (e) {
+    banner(`Failed to update hidden rows: ${e.message}`, 'error');
+  }
+}
+
+async function showAllDatasetRows(id) {
+  try {
+    await api(`/api/datasets/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ hiddenRows: [] }),
+    });
+    const d = datasets.find(ds => ds.id === id);
+    if (d) d.hiddenRows = [];
+    const panel = document.getElementById('dsRowsPanel_' + id);
+    if (panel) panel.innerHTML = renderDatasetRowsTable(d);
+    // Clear badge
+    const badge = document.querySelector(`.dataset-row[data-id="${CSS.escape(id)}"] .hidden-rows-badge`);
+    if (badge) badge.textContent = '';
+  } catch (e) {
+    banner(`Failed to clear hidden rows: ${e.message}`, 'error');
+  }
 }
 
 async function remapDataset(id, btn) {
@@ -2229,6 +2427,9 @@ function renderRuleSets() {
          onclick="selectRuleSet('${esc(rs.id)}')">
       <span class="ruleset-item-name">${esc(rs.name)}</span>
       <span class="ruleset-item-count">${(rs.rules || []).length}</span>
+      <button class="btn btn-small" style="padding:1px 6px;font-size:0.68rem;flex-shrink:0"
+              title="Duplicate this rule set"
+              onclick="event.stopPropagation();duplicateRuleSet('${esc(rs.id)}')">⧉</button>
     </div>
   `).join('') + `
     <div class="ruleset-new-btn" style="display:flex;flex-direction:column;gap:6px">
@@ -2264,6 +2465,26 @@ function renderRuleSets() {
 function selectRuleSet(id) {
   activeRuleSetId = id;
   renderRuleSets();
+}
+
+function toggleRuleSetCollapse(id) {
+  if (collapsedRuleSetIds.has(id)) {
+    collapsedRuleSetIds.delete(id);
+  } else {
+    collapsedRuleSetIds.add(id);
+  }
+  // Toggle DOM directly — no full re-render needed.
+  const body = document.getElementById('rsBody_' + id);
+  const btn  = body && body.parentElement && body.parentElement.querySelector('.rs-collapse-btn');
+  if (body) {
+    const collapsing = collapsedRuleSetIds.has(id);
+    body.style.maxHeight = collapsing ? '0' : '9999px';
+    body.classList.toggle('collapsed', collapsing);
+    if (btn) {
+      btn.classList.toggle('open', !collapsing);
+      btn.title = collapsing ? 'Expand rule list' : 'Collapse rule list';
+    }
+  }
 }
 
 async function createRuleSet() {
@@ -2351,8 +2572,12 @@ function renderRuleSetEditor(ruleSet) {
   // as a fallback if a card is rendered outside the normal renderRuleSets path.
   const headerSuggestions = [...new Set([...(baseHeaders || []), ...perRuleHeaders.flat()])];
 
+  const isCollapsed = collapsedRuleSetIds.has(ruleSet.id);
   editor.innerHTML = `
     <div class="ruleset-editor-header">
+      <button class="rs-collapse-btn ${isCollapsed ? '' : 'open'}"
+              onclick="toggleRuleSetCollapse('${esc(ruleSet.id)}')"
+              title="${isCollapsed ? 'Expand rule list' : 'Collapse rule list'}">›</button>
       <div class="names">
         <input type="text" value="${esc(ruleSet.name)}"
                oninput="onRuleSetFieldInput('${esc(ruleSet.id)}', this, 'name')"
@@ -2369,30 +2594,35 @@ function renderRuleSetEditor(ruleSet) {
       </div>
     </div>
 
-    ${(ruleSet.rules || []).length > 0 ? `
-      <div style="display:flex;justify-content:flex-end;margin-bottom:6px">
-        <button class="btn btn-small" onclick="toggleAllRules('${esc(ruleSet.id)}')"
-                title="Expand or collapse every rule in this set">
-          ${(ruleSet.rules || []).every(r => openRuleIds.has(r.id)) ? 'Collapse all' : 'Expand all'}
-        </button>
+    <div class="rs-body-wrap ${isCollapsed ? 'collapsed' : ''}"
+         id="rsBody_${esc(ruleSet.id)}"
+         style="max-height:${isCollapsed ? '0' : '9999px'}">
+
+      ${(ruleSet.rules || []).length > 0 ? `
+        <div style="display:flex;justify-content:flex-end;margin-bottom:6px">
+          <button class="btn btn-small" onclick="toggleAllRules('${esc(ruleSet.id)}')"
+                  title="Expand or collapse every rule in this set">
+            ${(ruleSet.rules || []).every(r => openRuleIds.has(r.id)) ? 'Collapse all' : 'Expand all'}
+          </button>
+        </div>
+      ` : ''}
+
+      <div class="rule-list" id="ruleList_${esc(ruleSet.id)}">
+        ${(ruleSet.rules || []).map((rule, idx) => renderRuleCard(ruleSet, rule, idx, perRuleHeaders[idx] || headerSuggestions)).join('')}
+        ${(ruleSet.rules || []).length === 0 ? `
+          <div class="empty-state" style="padding:20px">
+            <span class="empty-icon">🧩</span>
+            No rules yet. Add one below.
+          </div>` : ''}
       </div>
-    ` : ''}
 
-    <div class="rule-list" id="ruleList_${esc(ruleSet.id)}">
-      ${(ruleSet.rules || []).map((rule, idx) => renderRuleCard(ruleSet, rule, idx, perRuleHeaders[idx] || headerSuggestions)).join('')}
-      ${(ruleSet.rules || []).length === 0 ? `
-        <div class="empty-state" style="padding:20px">
-          <span class="empty-icon">🧩</span>
-          No rules yet. Add one below.
-        </div>` : ''}
-    </div>
-
-    <div class="add-rule-row">
-      <label class="field-label" style="margin:0;padding:0">Add rule</label>
-      <select id="newRuleType_${esc(ruleSet.id)}">
-        ${RULE_TYPES.map(t => `<option value="${t.value}">${esc(t.label)}</option>`).join('')}
-      </select>
-      <button class="btn btn-primary btn-small" onclick="addRule('${esc(ruleSet.id)}')">Add</button>
+      <div class="add-rule-row">
+        <label class="field-label" style="margin:0;padding:0">Add rule</label>
+        <select id="newRuleType_${esc(ruleSet.id)}">
+          ${RULE_TYPES.map(t => `<option value="${t.value}">${esc(t.label)}</option>`).join('')}
+        </select>
+        <button class="btn btn-primary btn-small" onclick="addRule('${esc(ruleSet.id)}')">Add</button>
+      </div>
     </div>
   `;
 }

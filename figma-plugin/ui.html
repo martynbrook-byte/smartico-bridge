@@ -197,6 +197,7 @@
 
   /* ── Dataset cards ──────────────────────────────────────────────────── */
   .ds-card {
+    position: relative;
     background: var(--white);
     border: 1.5px solid var(--border);
     border-radius: var(--radius);
@@ -210,6 +211,14 @@
   .ds-meta { font-size: 10px; color: var(--muted); margin-top: 3px; display: flex; gap: 8px; flex-wrap: wrap; }
   .ds-chip { background: rgba(0,0,0,.07); border-radius: 4px; padding: 1px 5px; }
   .ds-chip.proc { background: #d1fae5; color: #065f46; }
+  .ds-eye-btn {
+    position: absolute; top: 6px; right: 6px;
+    background: none; border: none; cursor: pointer; padding: 2px 4px;
+    font-size: 11px; opacity: 0.45; line-height: 1; border-radius: 4px;
+    transition: opacity 0.15s, background 0.15s;
+  }
+  .ds-eye-btn:hover { opacity: 1; background: rgba(0,0,0,.07); }
+  .ds-eye-btn.has-hidden { opacity: 0.9; color: #7c3aed; }
 
   /* ── Preview table ──────────────────────────────────────────────────── */
   .tbl-wrap {
@@ -246,6 +255,13 @@
   tbody tr:hover { background: rgba(0,0,0,.04); }
   tbody tr.row-sel { background: rgba(0,0,0,.07); }
   tbody tr.row-sel td:first-child { box-shadow: inset 2px 0 0 rgba(0,0,0,.4); }
+  tbody tr.row-hidden { opacity: 0.35; text-decoration: line-through; }
+  .row-eye-cell { width: 20px; padding: 0 2px !important; text-align: center; }
+  .row-eye-btn {
+    background: none; border: none; cursor: pointer; padding: 0;
+    font-size: 10px; opacity: 0.6; line-height: 1;
+  }
+  .row-eye-btn:hover { opacity: 1; }
 
   /* ── Selection box ──────────────────────────────────────────────────── */
   .sel-box {
@@ -741,15 +757,34 @@ function renderDsList() {
   }
   el.innerHTML = allDatasets.map(function(d) {
     var sel = (activeDataset && activeDataset.id === d.id) ? ' sel' : '';
-    return '<div class="ds-card' + sel + '" onclick="selectDataset(\'' + d.id + '\')">' +
+    var hiddenCount = Array.isArray(d.hiddenRows) ? d.hiddenRows.length : 0;
+    var eyeLabel = hiddenCount ? '🙈 ' + hiddenCount : '👁';
+    var eyeCls = hiddenCount ? ' has-hidden' : '';
+    var eyeTip = hiddenCount
+      ? hiddenCount + ' row' + (hiddenCount === 1 ? '' : 's') + ' hidden — click to manage'
+      : 'Manage hidden rows';
+    return '<div class="ds-card' + sel + '" onclick="selectDataset(\'' + esc(d.id) + '\')" style="padding-right:36px">' +
       '<div class="ds-name">' + esc(d.label || d.filename) + '</div>' +
       '<div class="ds-meta">' +
         '<span>' + fmtNum(d.rowCount) + ' rows</span>' +
         '<span>' + (d.headers||[]).length + ' cols</span>' +
         (d.ruleSetName ? '<span class="ds-chip proc">' + esc(d.ruleSetName) + '</span>' : '') +
       '</div>' +
+      '<button class="ds-eye-btn' + eyeCls + '" title="' + esc(eyeTip) + '"' +
+        ' onclick="event.stopPropagation();openHiddenRowsFor(\'' + esc(d.id) + '\')">' +
+        eyeLabel + '</button>' +
     '</div>';
   }).join('');
+}
+
+// Open the row-hide manager for a dataset — selects it if needed then scrolls
+// the preview table into view so the eye icons are immediately visible.
+async function openHiddenRowsFor(id) {
+  if (!activeDataset || activeDataset.id !== id) {
+    await selectDataset(id);
+  }
+  var previewEl = document.getElementById('previewSection');
+  if (previewEl) previewEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 async function selectDataset(id) {
@@ -776,19 +811,70 @@ async function selectDataset(id) {
 }
 
 // ── Preview ───────────────────────────────────────────────────────────────────
+// hiddenRowIndices: Set of 0-based row indices excluded from Figma injection.
+// Loaded from activeDataset.hiddenRows and kept in sync with the server.
+var hiddenRowIndices = new Set();
+
+function syncHiddenRows() {
+  hiddenRowIndices = new Set();
+  if (activeDataset && Array.isArray(activeDataset.hiddenRows)) {
+    for (var hi = 0; hi < activeDataset.hiddenRows.length; hi++) {
+      hiddenRowIndices.add(Number(activeDataset.hiddenRows[hi]));
+    }
+  }
+}
+
+async function toggleRowHidden(rowIdx0) {
+  if (!activeDataset) return;
+  if (hiddenRowIndices.has(rowIdx0)) {
+    hiddenRowIndices.delete(rowIdx0);
+  } else {
+    hiddenRowIndices.add(rowIdx0);
+  }
+  var newHidden = [];
+  hiddenRowIndices.forEach(function(n){ newHidden.push(n); });
+  newHidden.sort(function(a,b){ return a - b; });
+  activeDataset.hiddenRows = newHidden;
+  // Keep the ds-list entry in sync so the eye badge reflects the new count.
+  for (var si = 0; si < allDatasets.length; si++) {
+    if (allDatasets[si].id === activeDataset.id) {
+      allDatasets[si].hiddenRows = newHidden; break;
+    }
+  }
+  renderPreview();
+  renderDsList();
+  // Persist to server in background
+  try {
+    await api('/api/datasets/' + activeDataset.id, {
+      method: 'PATCH',
+      body: JSON.stringify({ hiddenRows: newHidden }),
+    });
+  } catch (_) {}
+}
+
 function renderPreview() {
   var wrap = document.getElementById('previewWrap');
   if (!activeDataset || !activeDataset.rows || !activeDataset.rows.length) {
     wrap.innerHTML = '<div class="empty">No data</div>'; return;
   }
+  syncHiddenRows();
   var rows    = activeDataset.rows.slice(0, 30);
   var headers = activeDataset.headers || Object.keys(rows[0] || {});
   var cols    = headers.slice(0, 8);
-  var thead = '<tr>' + cols.map(function(c){ return '<th title="' + esc(c) + '">' + esc(trunc(c,12)) + '</th>'; }).join('') + '</tr>';
+  // Eye icon column header + data columns
+  var thead = '<tr><th class="row-eye-cell" title="Hide/show row from injection">👁</th>' +
+    cols.map(function(c){ return '<th title="' + esc(c) + '">' + esc(trunc(c,12)) + '</th>'; }).join('') + '</tr>';
   var tbody = rows.map(function(row, i) {
-    var rowNum  = i + 1;
+    var rowIdx0 = i;          // 0-based index used for hiddenRows
+    var rowNum  = i + 1;      // 1-based used for bind row
+    var isHidden = hiddenRowIndices.has(rowIdx0);
+    var hiddenCls = isHidden ? ' row-hidden' : '';
     var selCls  = (bindRowSource === 'data' && bindRowIndex === rowNum) ? ' row-sel' : '';
-    return '<tr class="' + selCls + '" data-bind-src="data" data-bind-row="' + rowNum + '" onclick="selectBindRow(\'data\',' + rowNum + ')">' +
+    var eyeBtn = '<td class="row-eye-cell" onclick="event.stopPropagation();toggleRowHidden(' + rowIdx0 + ')">' +
+      '<button class="row-eye-btn" title="' + (isHidden ? 'Show row' : 'Hide row from injection') + '">' +
+      (isHidden ? '🙈' : '👁') + '</button></td>';
+    return '<tr class="' + selCls + hiddenCls + '" data-bind-src="data" data-bind-row="' + rowNum + '" onclick="selectBindRow(\'data\',' + rowNum + ')">' +
+      eyeBtn +
       cols.map(function(c) {
         var v = row[c] !== undefined && row[c] !== null ? String(row[c]) : '';
         var lc = String(c).toLowerCase();
@@ -799,6 +885,10 @@ function renderPreview() {
         return '<td title="' + esc(v) + '">' + esc(trunc(v, 16)) + '</td>';
       }).join('') + '</tr>';
   }).join('');
+  var hiddenCount = hiddenRowIndices.size;
+  var hiddenNote = hiddenCount
+    ? '<div style="font-size:9px;color:var(--muted);padding:4px 6px 2px">⊘ ' + hiddenCount + ' row' + (hiddenCount===1?'':'s') + ' hidden from injection</div>'
+    : '';
   var ruleTableHtml = '';
   var rt = activeDataset.ruleTable;
   if (Array.isArray(rt) && rt.length) {
@@ -816,7 +906,7 @@ function renderPreview() {
       '<table style="margin-top:4px"><thead><tr><th>RULE</th><th style="text-align:right">TOTALS</th></tr></thead>' +
       '<tbody>' + rtBody + '</tbody></table>';
   }
-  wrap.innerHTML = '<table><thead>' + thead + '</thead><tbody>' + tbody + '</tbody></table>' + ruleTableHtml;
+  wrap.innerHTML = '<table><thead>' + thead + '</thead><tbody>' + tbody + '</tbody></table>' + hiddenNote + ruleTableHtml;
 }
 
 // ── Figma selection ───────────────────────────────────────────────────────────
@@ -964,11 +1054,14 @@ async function inject() {
       return false;
     }
 
+    syncHiddenRows();
     for (var r = 0; r < scannedRefs.length; r++) {
       var ref   = scannedRefs[r];
       var parts = ref.split('.');
       var colName = parts[0];
-      var rowIdx  = parseInt(parts[1], 10) - 1;
+      var rowIdx  = parseInt(parts[1], 10) - 1;   // 0-based
+      // Skip refs that point to a hidden row
+      if (hiddenRowIndices.has(rowIdx)) continue;
       if (colName === 'rule' || colName === 'totals') {
         if (rowIdx < 0 || rowIdx >= ruleTable.length) continue;
         var rtRow = ruleTable[rowIdx] || {};

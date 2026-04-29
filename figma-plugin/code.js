@@ -212,17 +212,40 @@ figma.ui.onmessage = async function(msg) {
           return;
         }
 
-        // If this is a TEXT node but imageMap already has bytes for this ref,
-        // treat it as an image fill (designer named a text layer but the value
-        // is actually an image URL — the image takes priority).
+        // TEXT node: if the value is an image URL, find the best visual target
+        // for the image fill. Applying a fill directly to a TEXT node clips the
+        // image to the glyph shapes — not what anyone wants for an avatar.
+        // Priority order for image target:
+        //   1. A sibling RECTANGLE or ELLIPSE in the same parent (named image layer)
+        //   2. The parent FRAME/COMPONENT (if it directly wraps this text node)
+        //   3. Fall back to the TEXT node itself (last resort)
         if (n.type === 'TEXT' && (key in values)) {
           if (key in imageMap) {
-            pending.push({ node: n, key: key, type: 'image' });
+            var imageTarget = null;
+            var par = n.parent;
+            // 1. Sibling shape (RECTANGLE or ELLIPSE) — common pattern: rect + text label in a group
+            if (par && par.children) {
+              for (var si = 0; si < par.children.length; si++) {
+                var sib = par.children[si];
+                if (sib !== n && (sib.type === 'RECTANGLE' || sib.type === 'ELLIPSE') && 'fills' in sib) {
+                  imageTarget = sib;
+                  break;
+                }
+              }
+            }
+            // 2. Parent frame (if it has fills and isn't the root selected node)
+            if (!imageTarget && par && 'fills' in par && par.type !== 'DOCUMENT' && par.type !== 'PAGE') {
+              imageTarget = par;
+            }
+            // 3. Fallback: TEXT node itself
+            if (!imageTarget) imageTarget = n;
+            pending.push({ node: imageTarget, key: key, type: 'image' });
           } else {
             pending.push({ node: n, key: key, type: 'text' });
           }
           return;
         }
+        // RECTANGLE, ELLIPSE, FRAME etc. — direct image fill target
         if ('fills' in n && (key in imageMap)) {
           pending.push({ node: n, key: key, type: 'image' });
         }

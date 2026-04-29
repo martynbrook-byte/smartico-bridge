@@ -374,13 +374,33 @@ async function fetchProfilesForBrand(endpoint, pids) {
   return map;
 }
 
-// Return the brand's configured default avatar image (the same placeholder
-// the enrichment profile API uses for unknown users).
-function brandDefaultAvatar(cfg, brandKey) {
+// Avatar pool sourced from the 888bets Mozambique profile system — these are
+// the same images assigned to real user profiles on the brand sites.
+const AVATAR_POOL_888 = [
+  'Arsenal', 'Barcelona', 'Benfica', 'Big-Plane', 'Cheetah', 'Chelsea',
+  'Diamond', 'Elephant', 'Emrald', 'Football', 'Giraffe', 'Gorilla',
+  'MALAWI', 'Orange-Diamond', 'Plane', 'Porto', 'Propeller-Plane',
+  'Propeller', 'Ruby', 'Simba', 'ZAMBIA',
+].map(n => `https://888africa.com/888bets-mozambique/wp-content/uploads/sites/2/2025/09/${n}.webp`);
+
+// Pick a deterministic avatar from the pool based on the PID so the same
+// winner always gets the same avatar, but different winners get different ones.
+function poolAvatarForPid(pid) {
+  const str = String(pid);
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = (hash * 31 + str.charCodeAt(i)) >>> 0;
+  }
+  return AVATAR_POOL_888[hash % AVATAR_POOL_888.length];
+}
+
+// Return a fallback avatar for a winner with no profile image. Uses the pool
+// avatar for the PID so each winner gets a unique but consistent image.
+function brandDefaultAvatar(cfg, brandKey, pid) {
+  if (pid) return poolAvatarForPid(pid);
   if (brandKey && cfg.defaultAvatars && cfg.defaultAvatars[brandKey]) {
     return cfg.defaultAvatars[brandKey];
   }
-  // Fallback: first available defaultAvatar in config, or empty string.
   const vals = Object.values((cfg && cfg.defaultAvatars) || {});
   return vals.length ? vals[0] : '';
 }
@@ -471,7 +491,7 @@ async function enrichDataset(record, settings) {
       const profileName = hasRealName ? hit.name : `ID: ${pid}`;
       // If the API returned no avatar, fall back to the brand's own default
       // placeholder image (same image the enrichment API uses for unknown users).
-      const avatarUrl = (hit && hit.avatar) ? hit.avatar : brandDefaultAvatar(cfg, brandKey);
+      const avatarUrl = (hit && hit.avatar) ? hit.avatar : brandDefaultAvatar(cfg, brandKey, pid);
       const phone     = (hit && hit.phone)  ? hit.phone  : '';
       row.profile_name  = profileName;
       row.avatar        = avatarUrl;
@@ -495,7 +515,7 @@ async function enrichDataset(record, settings) {
     // brand's own default avatar rather than an external placeholder service.
     const resolvedBrandKey = (cfg.brandMap || {})[rawBrand] || null;
     if (!row.profile_name) row.profile_name = `ID: ${pid}`;
-    if (!row.avatar)        row.avatar       = brandDefaultAvatar(cfg, resolvedBrandKey);
+    if (!row.avatar)        row.avatar       = brandDefaultAvatar(cfg, resolvedBrandKey, pid);
     if (!row.avatar_image)  row.avatar_image = row.avatar;
     if (!row.phone)         row.phone        = '';
     if (!row.country_code)  row.country_code = countryCode;

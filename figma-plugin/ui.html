@@ -625,12 +625,12 @@
   </div>
   <div class="panel-body hidden" id="panel-assets-body">
 
-    <button onclick="saveAsset()" style="
+    <button id="saveSelBtn" onclick="saveAsset()" style="
       width:100%; padding:16px 12px; border:none; border-radius:var(--radius);
       background:#3344FF; color:#fff;
       font-family:var(--font-display); font-size:18px; font-weight:800;
       letter-spacing:0.02em; cursor:pointer; transition:background .15s;
-    " onmouseover="this.style.background='#2233DD'" onmouseout="this.style.background='#3344FF'">SAVE SELECTION</button>
+    " onmouseover="if(!this.disabled)this.style.background='#2233DD'" onmouseout="if(!this.disabled)this.style.background='#3344FF'">SAVE SELECTION</button>
 
     <div id="assetNameRow" style="display:none">
       <input type="text" id="assetNameInput" placeholder="Asset name…" style="margin-bottom:6px">
@@ -1027,15 +1027,27 @@ function renderPreview() {
 function refreshSel() { parent.postMessage({ pluginMessage: { type: 'get-selection' } }, '*'); }
 
 function updateInjectBtn() {
-  var btn = document.getElementById('injectBtn');
-  if (!btn) return;
   var enabled = figmaSel.length > 0;
-  btn.disabled = !enabled;
-  btn.style.background  = enabled ? '#BB00FF' : '#ccc';
-  btn.style.color       = enabled ? '#fff'    : '#999';
-  btn.style.cursor      = enabled ? 'pointer' : 'not-allowed';
-  btn.style.opacity     = enabled ? '1'       : '0.6';
-  btn.title = enabled ? '' : 'Select a frame in Figma first';
+
+  var btn = document.getElementById('injectBtn');
+  if (btn) {
+    btn.disabled = !enabled;
+    btn.style.background  = '#BB00FF';
+    btn.style.color       = '#fff';
+    btn.style.cursor      = enabled ? 'pointer' : 'not-allowed';
+    btn.style.opacity     = enabled ? '1' : '0.4';
+    btn.title = enabled ? '' : 'Select a frame in Figma first';
+  }
+
+  var saveBtn = document.getElementById('saveSelBtn');
+  if (saveBtn) {
+    saveBtn.disabled = !enabled;
+    saveBtn.style.background  = '#3344FF';
+    saveBtn.style.color       = '#fff';
+    saveBtn.style.cursor      = enabled ? 'pointer' : 'not-allowed';
+    saveBtn.style.opacity     = enabled ? '1' : '0.4';
+    saveBtn.title = enabled ? '' : 'Select a frame in Figma first';
+  }
 }
 
 function updateSelBox() {

@@ -1856,6 +1856,7 @@ const RULE_TYPES = [
   { value: 'rename',         label: 'Rename column',        category: 'transform' },
   { value: 'sort',           label: 'Sort',                 category: 'transform' },
   { value: 'extract-number', label: 'Extract number → new column', category: 'transform' },
+  { value: 'country-code',   label: 'Country code',         category: 'transform' },
   { value: 'count',          label: 'Count (match value)',  category: 'metric' },
   { value: 'count-times',    label: 'Count × value',        category: 'metric' },
   { value: 'sum',            label: 'Sum',                  category: 'metric' },
@@ -2552,6 +2553,9 @@ function headersByRuleIndex(baseHeaders, rules) {
       case 'extract-number':
         if (c.targetColumn && !cur.includes(c.targetColumn)) cur = [...cur, c.targetColumn];
         break;
+      case 'country-code':
+        if (c.targetColumn && !cur.includes(c.targetColumn)) cur = [...cur, c.targetColumn || 'country_code'];
+        break;
       case 'select-columns':
         if (Array.isArray(c.columns) && c.columns.length) {
           const avail = new Set(cur);
@@ -2667,6 +2671,12 @@ function ruleSummary(rule) {
     }
     case 'extract-number':
       return c.sourceColumn && c.targetColumn ? `${c.sourceColumn} → ${c.targetColumn} (number)` : '—';
+    case 'country-code': {
+      const pairs = Object.entries(c.mapping || {});
+      return c.sourceColumn
+        ? `${c.sourceColumn} → ${c.targetColumn || 'country_code'} (${pairs.length} mapping${pairs.length === 1 ? '' : 's'})`
+        : '—';
+    }
     case 'count':          return c.column && c.value ? `${c.column} ${c.matchMode === 'exact' ? '=' : '~'} "${c.value}"` : '—';
     case 'count-times':    return c.column && c.value ? `${c.column} ${c.matchMode === 'exact' ? '=' : '~'} "${c.value}" × ${c.multiplier ?? '?'}` : '—';
     case 'sum':
@@ -3002,6 +3012,53 @@ function renderRuleConfigFields(ruleSetId, rule, idx, headers) {
         ${formatFieldHtml(ruleSetId, idx, cfg)}
       `;
     }
+    case 'country-code': {
+      const mapping = cfg.mapping && typeof cfg.mapping === 'object' ? cfg.mapping : {};
+      const pairs = Object.entries(mapping);
+      const mapJson = JSON.stringify(mapping, null, 2);
+      return `
+        <div class="field">
+          <label class="field-label">Source column</label>
+          <select onchange="updateRuleConfig('${esc(ruleSetId)}', ${idx}, 'sourceColumn', this.value); saveActiveRuleSet()">
+            ${columnOptions(headers, cfg.sourceColumn)}
+          </select>
+        </div>
+        <div class="field">
+          <label class="field-label">Output column name</label>
+          <input type="text" value="${esc(cfg.targetColumn || 'country_code')}" placeholder="country_code"
+                 oninput="updateRuleConfig('${esc(ruleSetId)}', ${idx}, 'targetColumn', this.value)"
+                 onblur="saveActiveRuleSet()">
+        </div>
+        <div class="field">
+          <label class="field-label">Fallback (value when no match)</label>
+          <input type="text" value="${esc(cfg.fallback || '')}" placeholder="leave empty or e.g. XX"
+                 oninput="updateRuleConfig('${esc(ruleSetId)}', ${idx}, 'fallback', this.value)"
+                 onblur="saveActiveRuleSet()">
+        </div>
+        <div class="field">
+          <label class="field-label" style="display:flex;align-items:center;justify-content:space-between">
+            <span>Mappings (${pairs.length}) — source value → country code</span>
+            <button class="btn btn-small" style="font-size:0.7rem"
+                    onclick="seedCountryCodeMappings('${esc(ruleSetId)}', ${idx})">Seed defaults</button>
+          </label>
+          <div id="ccMapRows_${esc(ruleSetId)}_${idx}" style="display:flex;flex-direction:column;gap:4px;margin-bottom:6px">
+            ${pairs.map(([k, v], pi) => `
+              <div style="display:flex;gap:6px;align-items:center">
+                <input type="text" value="${esc(k)}" placeholder="Brand name"
+                       style="flex:1"
+                       onblur="updateCountryCodePair('${esc(ruleSetId)}', ${idx}, ${pi}, 'key', this.value)">
+                <input type="text" value="${esc(v)}" placeholder="MZ"
+                       style="width:60px;text-transform:uppercase"
+                       onblur="updateCountryCodePair('${esc(ruleSetId)}', ${idx}, ${pi}, 'val', this.value)">
+                <button class="btn btn-danger btn-small" style="padding:2px 6px"
+                        onclick="removeCountryCodePair('${esc(ruleSetId)}', ${idx}, ${pi})">✕</button>
+              </div>
+            `).join('')}
+          </div>
+          <button class="btn btn-small" onclick="addCountryCodePair('${esc(ruleSetId)}', ${idx})">+ Add mapping</button>
+        </div>
+      `;
+    }
     default:
       return `<div class="field"><em style="color:var(--muted)">Unknown rule type.</em></div>`;
   }
@@ -3020,6 +3077,78 @@ function updateRuleConfig(ruleSetId, idx, key, value) {
   if (!rs || !rs.rules[idx]) return;
   rs.rules[idx].config = rs.rules[idx].config || {};
   rs.rules[idx].config[key] = value;
+}
+
+// ── Country code mapping helpers ─────────────────────────────────────────────
+const COUNTRY_CODE_DEFAULTS = {
+  '888-Mozambique':      'MZ',
+  '888bets Mozambique':  'MZ',
+  '888-Angola':          'AO',
+  '888bets Angola':      'AO',
+  'BetLion':             'ZM',
+  'BetLion Zambia':      'ZM',
+  '888-Tanzania':        'TZ',
+  '888bets Tanzania':    'TZ',
+  '888-Kenya':           'KE',
+  '888bets Kenya':       'KE',
+  '888-Uganda':          'UG',
+  '888bets Uganda':      'UG',
+  '888-Ghana':           'GH',
+  '888bets Ghana':       'GH',
+  '888-Nigeria':         'NG',
+  '888bets Nigeria':     'NG',
+  '888-South Africa':    'ZA',
+  '888bets South Africa':'ZA',
+};
+
+function getCountryCodeMapping(ruleSetId, idx) {
+  const rs = settings.ruleSets.find(r => r.id === ruleSetId);
+  if (!rs || !rs.rules[idx]) return {};
+  rs.rules[idx].config = rs.rules[idx].config || {};
+  rs.rules[idx].config.mapping = rs.rules[idx].config.mapping || {};
+  return rs.rules[idx].config.mapping;
+}
+
+function addCountryCodePair(ruleSetId, idx) {
+  const mapping = getCountryCodeMapping(ruleSetId, idx);
+  mapping[''] = '';
+  saveActiveRuleSet();
+  renderRuleSets();
+}
+
+function removeCountryCodePair(ruleSetId, idx, pairIdx) {
+  const mapping = getCountryCodeMapping(ruleSetId, idx);
+  const keys = Object.keys(mapping);
+  const key = keys[pairIdx];
+  if (key !== undefined) delete mapping[key];
+  saveActiveRuleSet();
+  renderRuleSets();
+}
+
+function updateCountryCodePair(ruleSetId, idx, pairIdx, field, newVal) {
+  const mapping = getCountryCodeMapping(ruleSetId, idx);
+  const keys = Object.keys(mapping);
+  const oldKey = keys[pairIdx];
+  if (oldKey === undefined) return;
+  if (field === 'val') {
+    mapping[oldKey] = newVal.toUpperCase().trim();
+  } else {
+    // key renamed — rebuild object to preserve order
+    const rebuilt = {};
+    for (const k of keys) {
+      rebuilt[k === oldKey ? newVal.trim() : k] = mapping[k];
+    }
+    const rs = settings.ruleSets.find(r => r.id === ruleSetId);
+    if (rs && rs.rules[idx]) rs.rules[idx].config.mapping = rebuilt;
+  }
+  saveActiveRuleSet();
+}
+
+function seedCountryCodeMappings(ruleSetId, idx) {
+  const mapping = getCountryCodeMapping(ruleSetId, idx);
+  Object.assign(mapping, COUNTRY_CODE_DEFAULTS);
+  saveActiveRuleSet();
+  renderRuleSets();
 }
 function onRuleSetFieldInput(ruleSetId, input, field) {
   const rs = settings.ruleSets.find(r => r.id === ruleSetId);

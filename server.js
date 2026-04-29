@@ -980,6 +980,29 @@ function applyRules(inputRows, inputHeaders, rules) {
         break;
       }
 
+      case 'country-code': {
+        // Reads `sourceColumn`, looks up each value in `mapping` (an object of
+        // { [rawValue]: countryCode }), and writes the result to `targetColumn`.
+        // Values not found in the mapping are written as an empty string unless
+        // `fallback` is set, in which case that string is used.
+        // The new column is appended after the source column (or at the end).
+        const { sourceColumn, targetColumn = 'country_code', mapping = {}, fallback = '' } = cfg;
+        if (!sourceColumn) break;
+        const insertAfter = headers.indexOf(sourceColumn);
+        if (!headers.includes(targetColumn)) {
+          if (insertAfter !== -1) {
+            headers.splice(insertAfter + 1, 0, targetColumn);
+          } else {
+            headers.push(targetColumn);
+          }
+        }
+        for (const row of rows) {
+          const raw = String(row[sourceColumn] ?? '').trim();
+          row[targetColumn] = mapping[raw] ?? mapping[raw.toLowerCase()] ?? fallback;
+        }
+        break;
+      }
+
       default:
         // unknown rule type — skip silently
         break;

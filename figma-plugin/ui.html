@@ -609,7 +609,7 @@
         background:#BB00FF; color:#fff;
         font-family:var(--font-display); font-size:22px; font-weight:800;
         letter-spacing:0.02em; cursor:pointer; transition:background .15s;
-      " onmouseover="this.style.background='#9900DD'" onmouseout="this.style.background='#BB00FF'">INJECT</button>
+      " onmouseover="if(!this.disabled)this.style.background='#9900DD'" onmouseout="if(!this.disabled)this.style.background='#BB00FF'">INJECT</button>
     </div>
 
   </div><!-- /panel-data-body -->
@@ -914,6 +914,7 @@ async function selectDataset(id) {
     show('selSection');
     show('refsSection');
     show('injectBar');
+    updateInjectBtn();
     hideBanner();
     scannedRefs = [];
     renderRefList();
@@ -1024,6 +1025,18 @@ function renderPreview() {
 
 // ── Figma selection ───────────────────────────────────────────────────────────
 function refreshSel() { parent.postMessage({ pluginMessage: { type: 'get-selection' } }, '*'); }
+
+function updateInjectBtn() {
+  var btn = document.getElementById('injectBtn');
+  if (!btn) return;
+  var enabled = figmaSel.length > 0;
+  btn.disabled = !enabled;
+  btn.style.background  = enabled ? '#BB00FF' : '#ccc';
+  btn.style.color       = enabled ? '#fff'    : '#999';
+  btn.style.cursor      = enabled ? 'pointer' : 'not-allowed';
+  btn.style.opacity     = enabled ? '1'       : '0.6';
+  btn.title = enabled ? '' : 'Select a frame in Figma first';
+}
 
 function updateSelBox() {
   var box = document.getElementById('selBox');
@@ -1210,7 +1223,7 @@ async function inject() {
   } catch (e) {
     hideProcessing();
     showBanner('Inject error: ' + e.message, 'err');
-    btn.disabled = false;
+    updateInjectBtn();
   }
 }
 
@@ -1222,6 +1235,7 @@ window.onmessage = function(event) {
   if (msg.type === 'selection') {
     figmaSel = msg.nodes || [];
     updateSelBox();
+    updateInjectBtn();
     var key = figmaSel.map(function(n){ return n.id; }).join('|');
     if (key !== lastSelKey) {
       lastSelKey = key;
@@ -1290,9 +1304,8 @@ window.onmessage = function(event) {
   }
 
   if (msg.type === 'inject-result') {
-    var ibtn = document.getElementById('injectBtn');
-    ibtn.disabled = false;
     hideProcessing();
+    updateInjectBtn(); // restores correct enabled/disabled state based on selection
     if (!msg.ok) { showBanner('✕ ' + msg.error, 'err'); return; }
     var errs = (msg.errors || []).length;
     var txt  = '✓ Injected ' + msg.count + ' of ' + msg.total + ' layer(s)';

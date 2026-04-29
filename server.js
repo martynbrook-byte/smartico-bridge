@@ -372,13 +372,15 @@ async function fetchProfilesForBrand(endpoint, pids) {
   return map;
 }
 
-// Generate a unique, consistent avatar URL for a PID that has no real avatar.
-// Uses pravatar.cc — a free service that returns real-looking portrait photos
-// seeded by a string, so each PID gets a different image on every enrichment
-// but the same winner always maps to the same face.
-function randomAvatarUrl(pid) {
-  // pravatar returns one of ~70 real photos deterministically by the `u` param.
-  return `https://i.pravatar.cc/300?u=${encodeURIComponent(String(pid))}`;
+// Return the brand's configured default avatar image (the same placeholder
+// the enrichment profile API uses for unknown users).
+function brandDefaultAvatar(cfg, brandKey) {
+  if (brandKey && cfg.defaultAvatars && cfg.defaultAvatars[brandKey]) {
+    return cfg.defaultAvatars[brandKey];
+  }
+  // Fallback: first available defaultAvatar in config, or empty string.
+  const vals = Object.values((cfg && cfg.defaultAvatars) || {});
+  return vals.length ? vals[0] : '';
 }
 
 // Enrich a single dataset record in place. Returns a summary object with
@@ -465,10 +467,9 @@ async function enrichDataset(record, settings) {
       const hit = profiles[pid];
       const hasRealName = hit && hit.name && String(hit.name).trim() !== pid;
       const profileName = hasRealName ? hit.name : `ID: ${pid}`;
-      // If the API returned no avatar, generate a unique random-looking portrait
-      // per PID using pravatar (seeded by PID → consistent per winner, varied
-      // across winners rather than every missing avatar being the same image).
-      const avatarUrl = (hit && hit.avatar) ? hit.avatar : randomAvatarUrl(pid);
+      // If the API returned no avatar, fall back to the brand's own default
+      // placeholder image (same image the enrichment API uses for unknown users).
+      const avatarUrl = (hit && hit.avatar) ? hit.avatar : brandDefaultAvatar(cfg, brandKey);
       const phone     = (hit && hit.phone)  ? hit.phone  : '';
       row.profile_name  = profileName;
       row.avatar        = avatarUrl;
@@ -488,8 +489,11 @@ async function enrichDataset(record, settings) {
     const pid = String(row[pidCol] || i + 1);
     const rawBrand = String(row?.crm_brand_name || '').trim();
     const countryCode = (cfg.countryMap || {})[rawBrand] || '';
+    // Resolve brand key from the raw brand name (if any) so we can use the
+    // brand's own default avatar rather than an external placeholder service.
+    const resolvedBrandKey = (cfg.brandMap || {})[rawBrand] || null;
     if (!row.profile_name) row.profile_name = `ID: ${pid}`;
-    if (!row.avatar)        row.avatar       = randomAvatarUrl(pid);
+    if (!row.avatar)        row.avatar       = brandDefaultAvatar(cfg, resolvedBrandKey);
     if (!row.avatar_image)  row.avatar_image = row.avatar;
     if (!row.phone)         row.phone        = '';
     if (!row.country_code)  row.country_code = countryCode;

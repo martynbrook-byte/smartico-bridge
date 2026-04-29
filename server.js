@@ -2428,6 +2428,19 @@ app.get('/api/proxy-image', async (req, res) => {
   }
 });
 
+// Download the Figma plugin as a ZIP archive.
+app.get('/api/plugin/download', (_req, res) => {
+  const archiver = require('archiver');
+  const pluginDir = path.join(__dirname, 'figma-plugin');
+  res.setHeader('Content-Type', 'application/zip');
+  res.setHeader('Content-Disposition', 'attachment; filename="smartico-bridge-plugin.zip"');
+  const archive = archiver('zip', { zlib: { level: 9 } });
+  archive.on('error', err => { console.error('[plugin-download]', err); res.end(); });
+  archive.pipe(res);
+  archive.directory(pluginDir, 'smartico-bridge');
+  archive.finalize();
+});
+
 // Health snapshot for the Firewatch widget.
 app.get('/api/health', async (_req, res) => {
   res.setHeader('Cache-Control', 'no-store');

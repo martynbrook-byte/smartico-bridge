@@ -1478,9 +1478,11 @@
     <button class="pill-tab" data-tab="pipelines" onclick="switchTab('pipelines')">
       Pipelines <span class="count" id="tabCountPipelines">0</span>
     </button>
+    <!-- Drop Zones tab hidden for now — uncomment to restore
     <button class="pill-tab" data-tab="dropzones" onclick="switchTab('dropzones')">
       Drop Zones <span class="count" id="tabCountDropzones">0</span>
     </button>
+    -->
     <button class="pill-tab" data-tab="view" onclick="switchTab('view')">
       View Data
     </button>
@@ -1517,7 +1519,7 @@
       </div>
     </div>
 
-    <div class="panel" id="homeDropzonesPanel">
+    <div class="panel" id="homeDropzonesPanel" style="display:none">
       <div class="panel-title">
         Drop Zones
         <span class="hint">drop a CSV onto a card to run its pipeline, or use the Quick Upload card</span>
@@ -4678,16 +4680,16 @@ function renderViewResult(result, opts) {
   const allHeaders = result.headers || (result.rows[0] ? Object.keys(result.rows[0]) : []);
   _viewVisibleCols = new Set(allHeaders);
 
-  // Re-apply the active column preset (if any) now that headers are known.
-  // The preset stores a hide-list, so columns that no longer exist are simply
-  // ignored, and any newly-added columns default to visible.
-  if (_activeColPresetId) {
-    const p = (settings.columnPresets || []).find(x => x.id === _activeColPresetId);
+  // Re-apply the active preset, or fall back to the default preset if none is
+  // selected. This means a default preset auto-applies on every Apply click.
+  const presetIdToApply = _activeColPresetId || (settings.defaultColumnPresetId || null);
+  if (presetIdToApply) {
+    const p = (settings.columnPresets || []).find(x => x.id === presetIdToApply);
     if (p) {
+      _activeColPresetId = presetIdToApply;
       const hidden = new Set(p.hidden || []);
       _viewVisibleCols = new Set(allHeaders.filter(h => !hidden.has(h)));
     } else {
-      // Preset was deleted while the view was open — clear the stale ref.
       _activeColPresetId = null;
     }
   }
@@ -5230,7 +5232,9 @@ function renderColumnPresetsList() {
       </div>`;
     return;
   }
+  const defaultId = settings.defaultColumnPresetId || null;
   host.innerHTML = list.map(p => {
+    const isDefault = p.id === defaultId;
     const tags = (p.hidden || []).map(col => `
       <span class="col-preset-tag">
         <span>${esc(col)}</span>
@@ -5239,7 +5243,7 @@ function renderColumnPresetsList() {
     const emptyHint = p.hidden.length === 0
       ? `<span class="col-preset-empty-hint">No columns hidden — add column names below</span>` : '';
     return `
-    <div class="col-preset-row">
+    <div class="col-preset-row" style="${isDefault ? 'border-color:var(--gold)' : ''}">
       <div class="col-preset-row-header">
         <input type="text" class="preset-name-input" value="${esc(p.name)}"
                onblur="renameColumnPreset('${esc(p.id)}', this.value)"
@@ -5247,6 +5251,11 @@ function renderColumnPresetsList() {
         <span style="color:var(--muted);font-size:0.78rem;white-space:nowrap">
           ${p.hidden.length} hidden
         </span>
+        <button class="btn btn-small" title="${isDefault ? 'Default preset — click to clear' : 'Set as default (auto-applies when viewing data)'}"
+                style="${isDefault ? 'color:var(--gold);border-color:var(--gold)' : ''}"
+                onclick="setDefaultColumnPreset('${esc(p.id)}', ${isDefault})">
+          ${isDefault ? '★ Default' : '☆ Set default'}
+        </button>
         <button class="btn btn-small btn-danger" onclick="deleteColumnPreset('${esc(p.id)}')">Delete</button>
       </div>
       <div class="col-preset-body">
@@ -5356,6 +5365,25 @@ async function removePresetColumn(id, col) {
     }
   } catch (err) {
     banner(`Remove column failed: ${err.message}`, 'error');
+  }
+}
+
+// Set or clear the default column preset
+async function setDefaultColumnPreset(id, isCurrentlyDefault) {
+  const newId = isCurrentlyDefault ? null : id;
+  try {
+    const r = await api('/api/settings/default-column-preset', {
+      method: 'PATCH',
+      body: JSON.stringify({ id: newId }),
+    });
+    settings = r.settings;
+    renderColumnPresetsList();
+    refreshViewColumnPresetSelect();
+    banner(newId
+      ? `"${(settings.columnPresets || []).find(p => p.id === newId)?.name}" will auto-apply when viewing data`
+      : 'Default preset cleared', 'success');
+  } catch (err) {
+    banner(`Failed: ${err.message}`, 'error');
   }
 }
 

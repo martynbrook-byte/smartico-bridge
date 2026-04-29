@@ -226,9 +226,10 @@ function normalizeColumnPresets(raw) {
 }
 
 function normalizeSettings(raw) {
-  const profileApi     = normalizeProfileApi(raw && raw.profileApi);
-  const mappingBlock   = normalizeMappingSets(raw);
-  const columnPresets  = normalizeColumnPresets(raw);
+  const profileApi              = normalizeProfileApi(raw && raw.profileApi);
+  const mappingBlock            = normalizeMappingSets(raw);
+  const columnPresets           = normalizeColumnPresets(raw);
+  const defaultColumnPresetId   = (raw && raw.defaultColumnPresetId) || null;
 
   // 1) If ruleSets already exists, trust it (coerce shape)
   if (Array.isArray(raw && raw.ruleSets)) {
@@ -238,7 +239,7 @@ function normalizeSettings(raw) {
       description: rs.description || '',
       rules:       Array.isArray(rs.rules) ? rs.rules : [],
     }));
-    return { ...mappingBlock, ruleSets, profileApi, columnPresets };
+    return { ...mappingBlock, ruleSets, profileApi, columnPresets, defaultColumnPresetId };
   }
 
   // 2) Legacy schema: flat rules[] → wrap as "Default" rule set
@@ -253,11 +254,12 @@ function normalizeSettings(raw) {
       }],
       profileApi,
       columnPresets,
+      defaultColumnPresetId,
     };
   }
 
   // 3) Empty
-  return { ...mappingBlock, ruleSets: [], profileApi, columnPresets };
+  return { ...mappingBlock, ruleSets: [], profileApi, columnPresets, defaultColumnPresetId };
 }
 
 async function readSettings() {
@@ -1790,6 +1792,19 @@ app.post('/api/mapping-sets/:id/activate', async (req, res) => {
 });
 
 // ── Column visibility presets CRUD ──────────────────────────────────────────
+// Set (or clear) the default column preset that auto-applies on View tab load.
+app.patch('/api/settings/default-column-preset', async (req, res) => {
+  try {
+    const settings = await readSettings();
+    const { id } = req.body; // null to clear
+    const next = { ...settings, defaultColumnPresetId: id || null };
+    await writeSettings(next);
+    res.json({ settings: next });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Each preset stores the columns to *hide*. Applied client-side on the View
 // tab — server just persists the named list.
 app.get('/api/column-presets', async (_req, res) => {

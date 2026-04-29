@@ -39,7 +39,7 @@
   }
 
   /* ── Accordion panels ───────────────────────────────────────────────── */
-  .panel { border-radius: var(--radius-xl); transition: box-shadow .2s; }
+  .panel { border-radius: var(--radius-xl); transition: box-shadow .2s, transform .2s ease; }
   .panel-pink  { background: var(--pink);  }
   .panel-blue  { background: var(--blue);  }
   .panel-lime  { background: var(--lime);  }
@@ -54,7 +54,8 @@
     justify-content: space-between;
     gap: 8px;
   }
-  .panel-hd:hover { opacity: .92; }
+  .panel-hd:hover  { opacity: .92; }
+  .panel-hd:active { transform: scale(0.985); transition: transform .1s ease; }
 
   .panel-hd-text { flex: 1; }
   .panel-app-label {
@@ -90,8 +91,18 @@
     flex-direction: column;
     gap: 9px;
     overflow: hidden;
+    max-height: 2000px;
+    opacity: 1;
+    transition: max-height 0.45s cubic-bezier(0.4, 0, 0.2, 1),
+                opacity    0.3s  ease,
+                padding    0.45s cubic-bezier(0.4, 0, 0.2, 1);
   }
-  .panel-body.hidden { display: none; }
+  .panel-body.hidden {
+    max-height: 0;
+    opacity: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+  }
 
   /* ── Status pill ────────────────────────────────────────────────────── */
   .status-row { display: flex; align-items: center; gap: 5px; }
@@ -383,6 +394,16 @@
   hr { border: none; border-top: 1.5px solid var(--border); }
 
   /* ── Processing overlay ─────────────────────────────────────────────── */
+  @keyframes overlay-expand {
+    0%   { inset: 60% 10px 10px; opacity: 0; border-radius: 50px; }
+    40%  { opacity: 1; }
+    100% { inset: 10px;          opacity: 1; border-radius: var(--radius-xl); }
+  }
+  @keyframes overlay-shrink {
+    0%   { inset: 10px;          opacity: 1; border-radius: var(--radius-xl); }
+    60%  { opacity: 1; }
+    100% { inset: 60% 10px 10px; opacity: 0; border-radius: 50px; }
+  }
   .processing-overlay {
     display: none;
     position: fixed; inset: 10px;
@@ -391,7 +412,13 @@
     flex-direction: column; align-items: center; justify-content: center; gap: 20px;
     border-radius: var(--radius-xl);
   }
-  .processing-overlay.active { display: flex; }
+  .processing-overlay.active {
+    display: flex;
+    animation: overlay-expand 0.45s cubic-bezier(0.34, 1.2, 0.64, 1) forwards;
+  }
+  .processing-overlay.closing {
+    animation: overlay-shrink 0.35s cubic-bezier(0.4, 0, 0.6, 1) forwards;
+  }
   .proc-ring {
     width: 52px; height: 52px;
     border: 3px solid rgba(0,0,0,.15);
@@ -516,10 +543,10 @@
     <div id="injectBar" style="display:none">
       <button id="injectBtn" onclick="inject()" style="
         width:100%; padding:16px 12px; border:none; border-radius:var(--radius);
-        background:#EC9EFF; color:var(--text);
+        background:#BB00FF; color:#fff;
         font-family:var(--font-display); font-size:22px; font-weight:800;
-        letter-spacing:-0.01em; cursor:pointer; transition:background .15s;
-      " onmouseover="this.style.background='#e088f7'" onmouseout="this.style.background='#EC9EFF'">INJECT</button>
+        letter-spacing:0.02em; cursor:pointer; transition:background .15s;
+      " onmouseover="this.style.background='#9900DD'" onmouseout="this.style.background='#BB00FF'">INJECT</button>
     </div>
 
   </div><!-- /panel-data-body -->
@@ -535,7 +562,12 @@
   </div>
   <div class="panel-body hidden" id="panel-assets-body">
 
-    <button class="btn btn-primary btn-full" onclick="saveAsset()">💾 Save selection to library</button>
+    <button onclick="saveAsset()" style="
+      width:100%; padding:16px 12px; border:none; border-radius:var(--radius);
+      background:#3344FF; color:#fff;
+      font-family:var(--font-display); font-size:18px; font-weight:800;
+      letter-spacing:0.02em; cursor:pointer; transition:background .15s;
+    " onmouseover="this.style.background='#2233DD'" onmouseout="this.style.background='#3344FF'">SAVE SELECTION</button>
 
     <div id="assetNameRow" style="display:none">
       <input type="text" id="assetNameInput" placeholder="Asset name…" style="margin-bottom:6px">
@@ -883,14 +915,19 @@ function showProcessing(label, sub) {
   document.getElementById('procOverlay').classList.add('active');
 }
 function hideProcessing() {
-  document.getElementById('procOverlay').classList.remove('active');
-  ['panel-data','panel-assets','panel-casino'].forEach(function(id) {
-    var el = document.getElementById(id);
-    if (el) el.style.visibility = '';
-  });
-  if (activeDataset) {
-    show('previewSection'); show('selSection'); show('refsSection'); show('injectBar');
-  }
+  var o = document.getElementById('procOverlay');
+  o.classList.add('closing');
+  setTimeout(function() {
+    o.classList.remove('active');
+    o.classList.remove('closing');
+    ['panel-data','panel-assets','panel-casino'].forEach(function(id) {
+      var el = document.getElementById(id);
+      if (el) el.style.visibility = '';
+    });
+    if (activeDataset) {
+      show('previewSection'); show('selSection'); show('refsSection'); show('injectBar');
+    }
+  }, 350);
 }
 
 async function inject() {
@@ -910,8 +947,23 @@ async function inject() {
     var ruleTable = Array.isArray(activeDataset.ruleTable) ? activeDataset.ruleTable : [];
     var values  = {};
     var imageMap = {};
-    var imageCols = ['avatar', 'avatar_image'];
     var imagesToFetch = [];
+
+    // Detect any value that looks like an image URL — by extension OR column name hint.
+    // This means designers don't need to name columns anything special; any cell
+    // containing a URL ending in a known image extension is auto-fetched.
+    var IMAGE_EXTS = /\.(jpe?g|png|gif|webp|svg|bmp|ico|avif|tiff?)(\?.*)?$/i;
+    var IMAGE_COL_HINT = /image|img|photo|pic|avatar|logo|banner|thumb|icon/i;
+    function looksLikeImageUrl(val, colName) {
+      if (typeof val !== 'string') return false;
+      if (val.indexOf('http') !== 0) return false;
+      // Extension match (most reliable)
+      try { var path = new URL(val).pathname; if (IMAGE_EXTS.test(path)) return true; } catch (_) {}
+      // Column name hint (fallback for CDN/signed URLs without extensions)
+      if (IMAGE_COL_HINT.test(colName)) return true;
+      return false;
+    }
+
     for (var r = 0; r < scannedRefs.length; r++) {
       var ref   = scannedRefs[r];
       var parts = ref.split('.');
@@ -931,15 +983,16 @@ async function inject() {
       if (!matchedCol || rowIdx < 0 || rowIdx >= rows.length) continue;
       var val = rows[rowIdx][matchedCol];
       values[ref] = val !== undefined && val !== null ? val : '';
-      var isImageCol = imageCols.indexOf(colName) !== -1;
-      if (isImageCol && typeof val === 'string' && val.indexOf('http') === 0) {
+      if (looksLikeImageUrl(val, colName)) {
         imagesToFetch.push({ ref: ref, url: val });
       }
     }
     showProcessing('Loading images…', imagesToFetch.length + ' to fetch');
     for (var f = 0; f < imagesToFetch.length; f++) {
       try {
-        var res = await fetch(imagesToFetch[f].url);
+        // Route through the server proxy to avoid CORS restrictions in the plugin iframe.
+        var proxyUrl = serverUrl + '/api/proxy-image?url=' + encodeURIComponent(imagesToFetch[f].url);
+        var res = await fetch(proxyUrl);
         if (res.ok) {
           var buf = await res.arrayBuffer();
           imageMap[imagesToFetch[f].ref] = Array.from(new Uint8Array(buf));

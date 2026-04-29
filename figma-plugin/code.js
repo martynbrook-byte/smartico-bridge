@@ -7,11 +7,21 @@
 //
 // Behaviour by node type:
 //   TEXT                     → value written as characters
+//                              EXCEPTION: if the cell value is an image URL the
+//                              plugin UI auto-detects it, fetches bytes, and the
+//                              TEXT node receives an image fill instead of text.
 //   INSTANCE (component)     → if a variant property matches the column name
 //                              (case-insensitive) and the row value is a valid
 //                              option, set that variant. Otherwise falls through
 //                              to image fill (if applicable).
 //   Any node with `fills`    → image fill set (if imageMap has bytes for that ref)
+//
+// Image URL auto-detection (in ui.html):
+//   Any cell value starting with "http" whose URL path ends in a known image
+//   extension (.jpg .png .gif .webp .svg .bmp .ico .avif .tiff) is treated as
+//   an image URL. Columns whose name contains "image", "img", "photo", "pic",
+//   "avatar", "logo", "banner", "thumb", or "icon" are also auto-detected even
+//   for CDN/signed URLs that lack file extensions.
 //
 // Component swap: prefix the layer name with `##` instead of `#`
 //   Layer name: ##column.rowindex   (on an INSTANCE)
@@ -202,8 +212,15 @@ figma.ui.onmessage = async function(msg) {
           return;
         }
 
+        // If this is a TEXT node but imageMap already has bytes for this ref,
+        // treat it as an image fill (designer named a text layer but the value
+        // is actually an image URL — the image takes priority).
         if (n.type === 'TEXT' && (key in values)) {
-          pending.push({ node: n, key: key, type: 'text' });
+          if (key in imageMap) {
+            pending.push({ node: n, key: key, type: 'image' });
+          } else {
+            pending.push({ node: n, key: key, type: 'text' });
+          }
           return;
         }
         if ('fills' in n && (key in imageMap)) {
@@ -750,23 +767,23 @@ figma.ui.onmessage = async function(msg) {
     // the transform pivot when the node is rotated.
     function applyPositionAndTransform(node, def) {
       if (def.relativeTransform) {
-        var rt  = def.relativeTransform;
-        var rta = rt[0][0], rtb = rt[0][1], rtc = rt[1][0], rtd = rt[1][1];
-        var hasRotOrFlip = Math.abs(rtb) > 0.001 || Math.abs(rtc) > 0.001 || (rta * rtd - rtb * rtc) < 0;
-        if (hasRotOrFlip) {
-          // Use stored pivot (rt[0][2]/rt[1][2]) — NOT def.x/def.y — as tx/ty.
-          try {
-            node.relativeTransform = [[rta, rtb, rt[0][2]], [rtc, rtd, rt[1][2]]];
-            return;
-          } catch(_) {
-            // Setter unavailable (e.g. auto-layout child) — fall through
-            try { if (typeof def.rotation === 'number' && def.rotation !== 0) node.rotation = def.rotation; } catch(_) {}
-          }
+        var rt = def.relativeTransform;
+        // Always prefer the full relativeTransform matrix over x/y.
+        // For non-rotated nodes these are equivalent, but for VECTOR nodes the
+        // bbox position (x/y) can shift after setVectorPaths+resize while the
+        // matrix tx/ty stays anchored at the original pivot — so using the
+        // matrix is more reliable in all cases.
+        try {
+          node.relativeTransform = [[rt[0][0], rt[0][1], rt[0][2]], [rt[1][0], rt[1][1], rt[1][2]]];
+          return;
+        } catch(_) {
+          // Setter unavailable on this node (auto-layout child in flow) — fall through
+          try { if (typeof def.rotation === 'number' && def.rotation !== 0) node.rotation = def.rotation; } catch(_) {}
         }
       } else if (typeof def.rotation === 'number' && def.rotation !== 0) {
         try { node.rotation = def.rotation; } catch(_) {}
       }
-      // Plain position (no rotation/flip, or fallback from above)
+      // Fallback: plain x/y (no relativeTransform stored, or setter threw above)
       try { if (typeof def.x === 'number') node.x = def.x; } catch(_) {}
       try { if (typeof def.y === 'number') node.y = def.y; } catch(_) {}
     }

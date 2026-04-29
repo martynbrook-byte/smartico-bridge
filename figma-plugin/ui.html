@@ -794,7 +794,8 @@ async function loadDatasets(opts) {
 function datasetsKey(list) {
   if (!list || !list.length) return '';
   return list.map(function(d){
-    return String(d.id) + '|' + String(d.label||d.filename||'') + '|' + String(d.rowCount||0) + '|' + String(d.uploadedAt||'');
+    var codes = Array.isArray(d.countryCodes) ? d.countryCodes.join(',') : '';
+    return String(d.id) + '|' + String(d.label||d.filename||'') + '|' + String(d.rowCount||0) + '|' + String(d.uploadedAt||'') + '|' + codes;
   }).join(';');
 }
 

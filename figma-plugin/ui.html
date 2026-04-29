@@ -220,6 +220,40 @@
   .ds-eye-btn:hover { opacity: 1; background: rgba(0,0,0,.07); }
   .ds-eye-btn.has-hidden { opacity: 0.9; color: #7c3aed; }
 
+  /* ── Active / Hidden slider ──────────────────────────────────────────── */
+  .ds-filter-bar {
+    margin-bottom: 8px;
+  }
+  .ds-filter-slider {
+    display: inline-flex;
+    position: relative;
+    background: rgba(0,0,0,.07);
+    border-radius: 20px;
+    padding: 2px;
+    gap: 0;
+  }
+  .ds-filter-pill {
+    position: relative; z-index: 1;
+    border: none; background: none; cursor: pointer;
+    font-size: 10px; font-weight: 700; padding: 3px 14px;
+    border-radius: 18px; color: var(--muted);
+    transition: color 0.2s;
+    letter-spacing: 0.03em;
+  }
+  .ds-filter-pill.active { color: var(--text); }
+  .ds-filter-track {
+    position: absolute; top: 2px; left: 2px; bottom: 2px;
+    width: calc(50% - 2px);
+    background: var(--white-strong);
+    border-radius: 18px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.12);
+    transition: transform 0.22s cubic-bezier(0.4,0,0.2,1);
+    pointer-events: none;
+  }
+  .ds-filter-slider.show-hidden .ds-filter-track {
+    transform: translateX(100%);
+  }
+
   /* ── Preview table ──────────────────────────────────────────────────── */
   .tbl-wrap {
     overflow: auto;
@@ -478,6 +512,13 @@
     </div>
 
     <!-- processed dataset list -->
+    <div class="ds-filter-bar">
+      <div class="ds-filter-slider" id="dsFilterSlider">
+        <button class="ds-filter-pill active" id="dsFilterActive" onclick="setDsFilter('active')">Active</button>
+        <button class="ds-filter-pill" id="dsFilterHidden" onclick="setDsFilter('hidden')">Hidden</button>
+        <div class="ds-filter-track"></div>
+      </div>
+    </div>
     <div id="dsList"></div>
 
     <!-- CSV upload -->
@@ -630,6 +671,8 @@
 var serverUrl    = 'https://smartico-bridge-production.up.railway.app';
 var allDatasets  = [];
 var activeDataset = null;
+var hiddenCardIds = new Set(); // dataset IDs hidden from the active list
+var dsFilter = 'active'; // 'active' | 'hidden'
 var scannedRefs  = [];
 var scannedGroups = [];
 var openGroups   = {};
@@ -749,20 +792,66 @@ function datasetsKey(list) {
   }).join(';');
 }
 
+function setDsFilter(f) {
+  dsFilter = f;
+  var slider = document.getElementById('dsFilterSlider');
+  var pillActive = document.getElementById('dsFilterActive');
+  var pillHidden = document.getElementById('dsFilterHidden');
+  if (slider)     slider.classList.toggle('show-hidden', f === 'hidden');
+  if (pillActive) pillActive.classList.toggle('active', f === 'active');
+  if (pillHidden) pillHidden.classList.toggle('active', f === 'hidden');
+  renderDsList();
+}
+
+function toggleCardHidden(id) {
+  if (hiddenCardIds.has(id)) {
+    hiddenCardIds.delete(id);
+  } else {
+    hiddenCardIds.add(id);
+    // If we're hiding the active dataset, deselect it
+    if (activeDataset && activeDataset.id === id) {
+      activeDataset = null;
+      scannedRefs = [];
+      show('previewSection', false);
+      show('selSection', false);
+      show('refsSection', false);
+      show('injectBar', false);
+    }
+  }
+  renderDsList();
+}
+
 function renderDsList() {
   var el = document.getElementById('dsList');
   if (!allDatasets.length) {
     el.innerHTML = '<div class="empty">No processed datasets yet.<br>In the dashboard: apply rules → 💾 Save.</div>';
     return;
   }
-  el.innerHTML = allDatasets.map(function(d) {
+  var filtered = allDatasets.filter(function(d) {
+    return dsFilter === 'hidden' ? hiddenCardIds.has(d.id) : !hiddenCardIds.has(d.id);
+  });
+  if (!filtered.length) {
+    el.innerHTML = dsFilter === 'hidden'
+      ? '<div class="empty">No hidden datasets.</div>'
+      : '<div class="empty">All datasets are hidden.<br>Switch to Hidden to restore them.</div>';
+    return;
+  }
+  el.innerHTML = filtered.map(function(d) {
+    var isHiddenCard = hiddenCardIds.has(d.id);
     var sel = (activeDataset && activeDataset.id === d.id) ? ' sel' : '';
     var hiddenCount = Array.isArray(d.hiddenRows) ? d.hiddenRows.length : 0;
-    var eyeLabel = hiddenCount ? '🙈 ' + hiddenCount : '👁';
-    var eyeCls = hiddenCount ? ' has-hidden' : '';
-    var eyeTip = hiddenCount
-      ? hiddenCount + ' row' + (hiddenCount === 1 ? '' : 's') + ' hidden — click to manage'
-      : 'Manage hidden rows';
+    // In active view: eye hides the card. In hidden view: eye restores it.
+    var eyeLabel, eyeTip, eyeCls;
+    if (isHiddenCard) {
+      eyeLabel = '🙈'; eyeTip = 'Restore to active'; eyeCls = ' has-hidden';
+    } else if (hiddenCount) {
+      eyeLabel = '👁 ' + hiddenCount; eyeTip = hiddenCount + ' row' + (hiddenCount===1?'':'s') + ' hidden — click to manage'; eyeCls = ' has-hidden';
+    } else {
+      eyeLabel = '👁'; eyeTip = 'Hide this dataset'; eyeCls = '';
+    }
+    var eyeAction = isHiddenCard
+      ? 'toggleCardHidden(\'' + esc(d.id) + '\')'
+      : 'event.stopPropagation();dsEyeAction(\'' + esc(d.id) + '\',' + hiddenCount + ')';
     return '<div class="ds-card' + sel + '" onclick="selectDataset(\'' + esc(d.id) + '\')" style="padding-right:36px">' +
       '<div class="ds-name">' + esc(d.label || d.filename) + '</div>' +
       '<div class="ds-meta">' +
@@ -771,10 +860,20 @@ function renderDsList() {
         (d.ruleSetName ? '<span class="ds-chip proc">' + esc(d.ruleSetName) + '</span>' : '') +
       '</div>' +
       '<button class="ds-eye-btn' + eyeCls + '" title="' + esc(eyeTip) + '"' +
-        ' onclick="event.stopPropagation();openHiddenRowsFor(\'' + esc(d.id) + '\')">' +
+        ' onclick="' + eyeAction + '">' +
         eyeLabel + '</button>' +
     '</div>';
   }).join('');
+}
+
+// Eye click in active view: if dataset has hidden rows, manage them;
+// otherwise hide the whole card.
+function dsEyeAction(id, hiddenRowCount) {
+  if (hiddenRowCount > 0) {
+    openHiddenRowsFor(id);
+  } else {
+    toggleCardHidden(id);
+  }
 }
 
 // Open the row-hide manager for a dataset — selects it if needed then scrolls

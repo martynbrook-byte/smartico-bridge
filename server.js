@@ -128,16 +128,33 @@ const DEFAULT_PROFILE_API = {
     '888bets Angola':      '888bets Angola',
     'BetLion':             'BetLion Zambia',
     'BetLion Zambia':      'BetLion Zambia',
+    '888-Tanzania':        '888bets Tanzania',
+    '888bets Tanzania':    '888bets Tanzania',
+    '888-Kenya':           '888bets Kenya',
+    '888bets Kenya':       '888bets Kenya',
+  },
+  // Auto country code — derived from brand key, no rule needed.
+  // Written into `country_code` column during enrichment automatically.
+  countryMap: {
+    '888bets Mozambique': 'MZ',
+    '888bets Angola':     'AO',
+    'BetLion Zambia':     'ZM',
+    '888bets Tanzania':   'TZ',
+    '888bets Kenya':      'KE',
   },
   endpoints: {
     '888bets Mozambique': 'https://888africa.com/888bets-mozambique/wp-json/profiles/v1/profile-names-by-pids',
     '888bets Angola':     'https://888africa.com/888bets-mozambique/wp-json/profiles/v1/profile-names-by-pids',
     'BetLion Zambia':     'https://gamepage.betlion.co.zm/wp-json/betlion-zambia/profile-names-by-pids',
+    '888bets Tanzania':   'https://888africa.com/888bets-mozambique/wp-json/profiles/v1/profile-names-by-pids',
+    '888bets Kenya':      'https://888africa.com/888bets-mozambique/wp-json/profiles/v1/profile-names-by-pids',
   },
   defaultAvatars: {
     '888bets Mozambique': 'https://blaze.888bets.co.mz/wp-content/uploads/2025/02/Property-1Mystery.png',
     '888bets Angola':     'https://blaze.888bets.co.mz/wp-content/uploads/2025/02/Property-1Mystery.png',
     'BetLion Zambia':     'https://gamepage.betlion.co.zm/wp-content/themes/megamission/images/avatars/avatardefault.webp',
+    '888bets Tanzania':   'https://blaze.888bets.co.mz/wp-content/uploads/2025/02/Property-1Mystery.png',
+    '888bets Kenya':      'https://blaze.888bets.co.mz/wp-content/uploads/2025/02/Property-1Mystery.png',
   },
   pidColumn: 'PID',
   batchSize: 1000,
@@ -152,6 +169,7 @@ function normalizeProfileApi(raw) {
   const bs = Number(src.batchSize);
   return {
     brandMap:       pick('brandMap',       DEFAULT_PROFILE_API.brandMap),
+    countryMap:     pick('countryMap',     DEFAULT_PROFILE_API.countryMap),
     endpoints:      pick('endpoints',      DEFAULT_PROFILE_API.endpoints),
     defaultAvatars: pick('defaultAvatars', DEFAULT_PROFILE_API.defaultAvatars),
     pidColumn:      typeof src.pidColumn === 'string' && src.pidColumn ? src.pidColumn : DEFAULT_PROFILE_API.pidColumn,
@@ -420,33 +438,62 @@ async function enrichDataset(record, settings) {
     }
   }
 
-  // Write enrichment back onto rows. Rows in a brand whose request failed
-  // still get default avatars so the Figma plugin has something to show.
+  // Write enrichment back onto rows.
+  // ALL rows get profile_name / avatar / avatar_image / phone / country_code —
+  // even rows that were skipped due to missing brand (they get safe fallbacks).
+  // This mirrors the Google Apps Script behaviour: every row ends up with
+  // "ID: <pid>" when no real name is found, and the brand default avatar.
   let enriched = 0;
   let missing  = 0;
+
+  // First pass: write brand-matched rows with real (or fallback) profile data.
   for (const [brandKey, { rowIdx }] of byBrand) {
-    const profiles    = profilesByBrand.get(brandKey) || {};
-    const defaultAv   = cfg.defaultAvatars[brandKey] || '';
+    const profiles   = profilesByBrand.get(brandKey) || {};
+    const defaultAv  = cfg.defaultAvatars[brandKey] || '';
+    const countryCode = (cfg.countryMap || {})[brandKey] || '';
     for (const i of rowIdx) {
       const row = rows[i];
       const pid = String(row[pidCol]);
       const hit = profiles[pid];
       const hasRealName = hit && hit.name && String(hit.name).trim() !== pid;
+      // Fallback profile name: "ID: <pid>" — matches getProfileData.js behaviour
       const profileName = hasRealName ? hit.name : `ID: ${pid}`;
-      const avatarUrl   = (hit && hit.avatar) ? hit.avatar : defaultAv;
+      // Fallback avatar: use a generated identicon from DiceBear so each PID
+      // gets a unique, consistent image rather than the same placeholder for all.
+      const generatedAv = `https://api.dicebear.com/9.x/identicon/svg?seed=${encodeURIComponent(pid)}`;
+      const avatarUrl   = (hit && hit.avatar) ? hit.avatar : (defaultAv || generatedAv);
       const phone       = (hit && hit.phone)  ? hit.phone  : '';
       row.profile_name  = profileName;
       row.avatar        = avatarUrl;
-      row.avatar_image  = avatarUrl; // URL form — rules/Figma can use either
+      row.avatar_image  = avatarUrl;
       row.phone         = phone;
+      row.country_code  = countryCode;
       if (hasRealName) enriched++; else missing++;
     }
+  }
+
+  // Second pass: rows that had no brand match still need the columns written
+  // so no row is missing profile_name / avatar / country_code after enrichment.
+  const enrichedIdx = new Set([...byBrand.values()].flatMap(b => b.rowIdx));
+  for (let i = 0; i < rows.length; i++) {
+    if (enrichedIdx.has(i)) continue;
+    const row = rows[i];
+    const pid = String(row[pidCol] || i + 1);
+    // Try to derive country from crm_brand_name even if not in brandMap
+    const rawBrand = String(row?.crm_brand_name || '').trim();
+    const countryCode = (cfg.countryMap || {})[rawBrand] || '';
+    const generatedAv = `https://api.dicebear.com/9.x/identicon/svg?seed=${encodeURIComponent(pid)}`;
+    if (!row.profile_name) row.profile_name = `ID: ${pid}`;
+    if (!row.avatar)        row.avatar       = generatedAv;
+    if (!row.avatar_image)  row.avatar_image = generatedAv;
+    if (!row.phone)         row.phone        = '';
+    if (!row.country_code)  row.country_code = countryCode;
   }
 
   // Keep headers in sync so the dataset-view UI picks up new columns.
   if (rows.length) {
     const headerSet = new Set(Array.isArray(record.headers) ? record.headers : Object.keys(rows[0]));
-    for (const c of ENRICH_COLUMNS) headerSet.add(c);
+    for (const c of [...ENRICH_COLUMNS, 'country_code']) headerSet.add(c);
     record.headers = [...headerSet];
   }
 

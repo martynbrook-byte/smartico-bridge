@@ -211,6 +211,12 @@
   .ds-meta { font-size: 10px; color: var(--muted); margin-top: 3px; display: flex; gap: 8px; flex-wrap: wrap; }
   .ds-chip { background: rgba(0,0,0,.07); border-radius: 4px; padding: 1px 5px; }
   .ds-chip.proc { background: #d1fae5; color: #065f46; }
+  .ds-country-badge {
+    font-size: 9px; font-weight: 800; letter-spacing: 0.04em;
+    background: #1e40af; color: #fff;
+    border-radius: 3px; padding: 1px 5px;
+    line-height: 1.4;
+  }
   .ds-eye-btn {
     position: absolute; top: 6px; right: 6px;
     background: none; border: none; cursor: pointer; padding: 2px 4px;
@@ -840,6 +846,7 @@ function renderDsList() {
     var isHiddenCard = hiddenCardIds.has(d.id);
     var sel = (activeDataset && activeDataset.id === d.id) ? ' sel' : '';
     var hiddenCount = Array.isArray(d.hiddenRows) ? d.hiddenRows.length : 0;
+    var codes = Array.isArray(d.countryCodes) ? d.countryCodes : [];
     // In active view: eye hides the card. In hidden view: eye restores it.
     var eyeLabel, eyeTip, eyeCls;
     if (isHiddenCard) {
@@ -852,8 +859,14 @@ function renderDsList() {
     var eyeAction = isHiddenCard
       ? 'toggleCardHidden(\'' + esc(d.id) + '\')'
       : 'event.stopPropagation();dsEyeAction(\'' + esc(d.id) + '\',' + hiddenCount + ')';
+    var countryBadges = codes.map(function(c) {
+      return '<span class="ds-country-badge">' + esc(c) + '</span>';
+    }).join('');
     return '<div class="ds-card' + sel + '" onclick="selectDataset(\'' + esc(d.id) + '\')" style="padding-right:36px">' +
-      '<div class="ds-name">' + esc(d.label || d.filename) + '</div>' +
+      '<div class="ds-name" style="display:flex;align-items:center;gap:5px">' +
+        esc(d.label || d.filename) +
+        (countryBadges ? '<span style="display:flex;gap:3px;margin-left:2px">' + countryBadges + '</span>' : '') +
+      '</div>' +
       '<div class="ds-meta">' +
         '<span>' + fmtNum(d.rowCount) + ' rows</span>' +
         '<span>' + (d.headers||[]).length + ' cols</span>' +

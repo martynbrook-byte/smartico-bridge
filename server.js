@@ -494,6 +494,21 @@ async function listDatasets() {
           }
         }
       }
+      // Extract unique country codes from any column whose name matches
+      // /country/i (typically `country_code` written by the country-code rule).
+      let countryCodes = [];
+      if (Array.isArray(r.headers) && Array.isArray(r.rows)) {
+        const ccCol = r.headers.find(h => /country/i.test(h));
+        if (ccCol) {
+          const seen = new Set();
+          for (const row of r.rows) {
+            const v = String(row[ccCol] ?? '').trim();
+            if (v) seen.add(v);
+          }
+          countryCodes = [...seen].sort();
+        }
+      }
+
       records.push({
         id:              r.id,
         filename:        r.filename,
@@ -511,6 +526,7 @@ async function listDatasets() {
         maxRows:         r.maxRows ?? null,
         sort:            r.sort || null,
         hiddenRows:      Array.isArray(r.hiddenRows) ? r.hiddenRows : [],
+        countryCodes,
       });
     } catch (e) {
       console.warn(`[datasets] skipping unreadable file ${f}: ${e.message}`);

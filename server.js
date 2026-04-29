@@ -372,6 +372,15 @@ async function fetchProfilesForBrand(endpoint, pids) {
   return map;
 }
 
+// Generate a unique, consistent avatar URL for a PID that has no real avatar.
+// Uses pravatar.cc — a free service that returns real-looking portrait photos
+// seeded by a string, so each PID gets a different image on every enrichment
+// but the same winner always maps to the same face.
+function randomAvatarUrl(pid) {
+  // pravatar returns one of ~70 real photos deterministically by the `u` param.
+  return `https://i.pravatar.cc/300?u=${encodeURIComponent(String(pid))}`;
+}
+
 // Enrich a single dataset record in place. Returns a summary object with
 // per-brand counts and any errors encountered so the UI can show what
 // happened. Rows whose crm_brand_name doesn't resolve to a known brand key
@@ -449,20 +458,18 @@ async function enrichDataset(record, settings) {
   // First pass: write brand-matched rows with real (or fallback) profile data.
   for (const [brandKey, { rowIdx }] of byBrand) {
     const profiles   = profilesByBrand.get(brandKey) || {};
-    const defaultAv  = cfg.defaultAvatars[brandKey] || '';
     const countryCode = (cfg.countryMap || {})[brandKey] || '';
     for (const i of rowIdx) {
       const row = rows[i];
       const pid = String(row[pidCol]);
       const hit = profiles[pid];
       const hasRealName = hit && hit.name && String(hit.name).trim() !== pid;
-      // Fallback profile name: "ID: <pid>" — matches getProfileData.js behaviour
       const profileName = hasRealName ? hit.name : `ID: ${pid}`;
-      // Fallback avatar: use a generated identicon from DiceBear so each PID
-      // gets a unique, consistent image rather than the same placeholder for all.
-      const generatedAv = `https://api.dicebear.com/9.x/identicon/svg?seed=${encodeURIComponent(pid)}`;
-      const avatarUrl   = (hit && hit.avatar) ? hit.avatar : (defaultAv || generatedAv);
-      const phone       = (hit && hit.phone)  ? hit.phone  : '';
+      // If the API returned no avatar, generate a unique random-looking portrait
+      // per PID using pravatar (seeded by PID → consistent per winner, varied
+      // across winners rather than every missing avatar being the same image).
+      const avatarUrl = (hit && hit.avatar) ? hit.avatar : randomAvatarUrl(pid);
+      const phone     = (hit && hit.phone)  ? hit.phone  : '';
       row.profile_name  = profileName;
       row.avatar        = avatarUrl;
       row.avatar_image  = avatarUrl;
@@ -479,13 +486,11 @@ async function enrichDataset(record, settings) {
     if (enrichedIdx.has(i)) continue;
     const row = rows[i];
     const pid = String(row[pidCol] || i + 1);
-    // Try to derive country from crm_brand_name even if not in brandMap
     const rawBrand = String(row?.crm_brand_name || '').trim();
     const countryCode = (cfg.countryMap || {})[rawBrand] || '';
-    const generatedAv = `https://api.dicebear.com/9.x/identicon/svg?seed=${encodeURIComponent(pid)}`;
     if (!row.profile_name) row.profile_name = `ID: ${pid}`;
-    if (!row.avatar)        row.avatar       = generatedAv;
-    if (!row.avatar_image)  row.avatar_image = generatedAv;
+    if (!row.avatar)        row.avatar       = randomAvatarUrl(pid);
+    if (!row.avatar_image)  row.avatar_image = row.avatar;
     if (!row.phone)         row.phone        = '';
     if (!row.country_code)  row.country_code = countryCode;
   }

@@ -11,8 +11,9 @@
       "http://localhost:3001",
       "https://888africa.com",
       "https://*.888bets.co.mz",
-      "https://*.betlion.co.zm"
+      "https://*.betlion.co.zm",
+      "https://casino-api-production-0d8f.up.railway.app"
     ],
-    "reasoning": "Fetches winners datasets from the local Smartico Bridge server and avatar images from brand CDNs."
+    "reasoning": "Fetches winners datasets from the local Smartico Bridge server, avatar images from brand CDNs, and casino game data/images from the Casino Asset API."
   }
 }

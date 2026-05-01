@@ -45,8 +45,7 @@
   .panel-lime  { background: var(--lime);  }
 
   .panel-hd {
-    padding: 0 22px;
-    min-height: 110px;
+    padding: 40px;
     cursor: pointer;
     user-select: none;
     display: flex;
@@ -86,7 +85,7 @@
   }
 
   .panel-body {
-    padding: 0 16px 25px;
+    padding: 0 40px 40px;
     display: flex;
     flex-direction: column;
     gap: 9px;
@@ -445,12 +444,24 @@
 
   /* ── Asset items ────────────────────────────────────────────────────── */
   .asset-item {
-    display: flex; align-items: center; gap: 6px; padding: 7px 10px;
+    display: flex; align-items: center; gap: 8px; padding: 6px 10px;
     background: var(--white); border: 1.5px solid var(--border);
     border-radius: var(--radius);
   }
-  .asset-item-name { flex: 1; font-size: 11px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .asset-thumb {
+    width: 52px; height: 52px; object-fit: contain; border-radius: 4px;
+    background: #f3f3f3; flex-shrink: 0; border: 1px solid var(--border);
+  }
+  .asset-thumb-empty {
+    width: 52px; height: 52px; border-radius: 4px; flex-shrink: 0;
+    background: #ececec; border: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px; color: #bbb;
+  }
+  .asset-item-meta { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .asset-item-name { font-size: 11px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .asset-item-count { font-size: 9px; color: var(--muted); }
+  .asset-item-actions { display: flex; flex-direction: column; gap: 4px; flex-shrink: 0; }
 
   /* ── Banners ────────────────────────────────────────────────────────── */
   .banner {
@@ -479,7 +490,45 @@
     border: 2px solid rgba(0,0,0,.15); border-top-color: rgba(0,0,0,.5);
     border-radius: 50%; animation: spin .7s linear infinite; margin-right: 4px;
   }
-  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes spin  { to { transform: rotate(360deg); } }
+  @keyframes cspin { to { transform: rotate(360deg); } }
+
+  /* ── Casino Game Library ─────────────────────────────────────────────── */
+  .ctab {
+    flex:1; padding:5px 4px; font-size:11px; font-family:inherit; font-weight:500;
+    color:#555; background:none; border:none; border-bottom:2px solid transparent;
+    cursor:pointer; transition:color .15s,border-color .15s;
+  }
+  .ctab:hover { color:#222; }
+  .ctab.active { color:#16a34a; border-bottom-color:#16a34a; }
+  .cpill {
+    padding:3px 9px; border-radius:12px; font-size:11px; font-family:inherit;
+    cursor:pointer; border:1px solid #ccc; background:#fff6; color:#555;
+    transition:all .15s; white-space:nowrap;
+  }
+  .cpill:hover { border-color:#16a34a; color:#222; }
+  .cpill.active { background:#bbf7d0; border-color:#16a34a; color:#15803d; font-weight:600; }
+  .cgame-card {
+    position:relative; border-radius:6px; overflow:hidden;
+    background:#0001; cursor:pointer; aspect-ratio:1/1;
+    border:1px solid transparent; transition:border-color .15s,transform .1s;
+    user-select:none; -webkit-user-select:none;
+  }
+  .cgame-card:hover { border-color:#16a34a; transform:scale(1.04); z-index:1; }
+  .cgame-card img { width:100%; height:100%; object-fit:cover; display:block; -webkit-user-drag:none; }
+  .cgame-card .ccard-overlay {
+    position:absolute; inset:0;
+    background:linear-gradient(to top,rgba(0,0,0,.75) 0%,transparent 55%);
+    opacity:0; transition:opacity .15s;
+    display:flex; flex-direction:column; justify-content:flex-end; padding:4px;
+  }
+  .cgame-card:hover .ccard-overlay { opacity:1; }
+  .ccard-name { font-size:9px; font-weight:600; color:#fff; line-height:1.2; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
+  .ccard-vendor { font-size:8px; color:rgba(255,255,255,.65); margin-top:1px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .cgame-card.inserting::after { content:""; position:absolute; inset:0; background:rgba(0,0,0,.4); }
+  .cgame-card .cspinner { display:none; position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); width:18px; height:18px; border:2px solid rgba(255,255,255,.3); border-top-color:#fff; border-radius:50%; animation:cspin .6s linear infinite; z-index:2; }
+  .cgame-card.inserting .cspinner { display:block; }
+  .cgame-card.done-ok::after { content:"✓"; position:absolute; inset:0; background:rgba(76,175,80,.35); display:flex; align-items:center; justify-content:center; font-size:20px; color:#fff; }
   hr { border: none; border-top: 1.5px solid var(--border); }
 
   /* ── Processing overlay ─────────────────────────────────────────────── */
@@ -558,15 +607,16 @@
 <body>
 
 <!-- ── Panel 1: Data Importer ──────────────────────────────────────── -->
-<div class="panel panel-pink open" id="panel-data">
+<div class="panel panel-pink" id="panel-data">
   <div class="panel-hd" onclick="togglePanel('data')">
     <div class="panel-hd-text">
 
       <div class="panel-title">Data importer</div>
       <div class="panel-subtitle">Winners &amp; game data</div>
     </div>
+    <div id="data-status-dot" style="width:7px;height:7px;border-radius:50%;background:#aaa;flex-shrink:0;transition:background .3s"></div>
   </div>
-  <div class="panel-body" id="panel-data-body">
+  <div class="panel-body hidden" id="panel-data-body">
 
     <!-- connection status -->
     <div class="status-row">
@@ -698,6 +748,7 @@
       </div>
     </div>
 
+    <div id="assetDebug" style="display:none;background:#1e1b4b;color:#a5f3fc;font-size:11px;font-family:monospace;padding:8px 10px;border-radius:6px;margin-bottom:6px;word-break:break-all;line-height:1.5"></div>
     <div id="assetList" style="display:flex;flex-direction:column;gap:5px"></div>
     <div id="assetBanner" style="font-size:10px;color:var(--muted);font-weight:600;min-height:14px"></div>
 
@@ -709,11 +760,52 @@
   <div class="panel-hd" onclick="togglePanel('casino')">
     <div class="panel-hd-text">
       <div class="panel-title">Casino game library</div>
-      <div class="panel-subtitle">Workspace</div>
+      <div class="panel-subtitle" id="casino-subtitle">Game library</div>
     </div>
+    <div id="casino-status-dot" style="width:7px;height:7px;border-radius:50%;background:#aaa;flex-shrink:0;transition:background .3s"></div>
   </div>
   <div class="panel-body hidden" id="panel-casino-body">
-    <div class="empty" style="padding:14px 0">Coming soon — games from your other project will appear here.</div>
+
+    <!-- Search -->
+    <div style="margin-bottom:10px">
+      <input id="casino-search" type="text" placeholder="Search games…" autocomplete="off" style="
+        width:100%;box-sizing:border-box;
+        background:#fff8;border:1px solid #0002;border-radius:8px;
+        padding:7px 10px 7px 30px;font-size:12px;font-family:inherit;
+        outline:none;
+        background-image:url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23666' stroke-width='2'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cline x1='21' y1='21' x2='16.65' y2='16.65'/%3E%3C/svg%3E\");
+        background-repeat:no-repeat;background-position:9px center;
+      ">
+    </div>
+
+    <!-- Tabs -->
+    <div id="casino-tabs" style="display:flex;gap:4px;margin-bottom:8px">
+      <button class="ctab active" data-tab="sites">Sites</button>
+      <button class="ctab" data-tab="vendors">Vendors</button>
+      <button class="ctab" data-tab="categories">Categories</button>
+      <button class="ctab" data-tab="collections">Collections</button>
+    </div>
+
+    <!-- Sub-filter pills -->
+    <div id="casino-pills" style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px;min-height:26px"></div>
+
+    <!-- Scrollable grid area -->
+    <div style="overflow-y:auto;max-height:300px;scrollbar-width:thin;scrollbar-color:#ccc transparent">
+
+      <!-- State message (loading / empty) -->
+      <div id="casino-state" style="display:none;flex-direction:column;align-items:center;gap:8px;padding:24px 0;color:#666;font-size:12px;text-align:center">
+        <div id="casino-state-spinner" style="width:20px;height:20px;border:2px solid #ccc;border-top-color:#555;border-radius:50%;animation:cspin .7s linear infinite"></div>
+        <span id="casino-state-text">Loading…</span>
+      </div>
+
+      <!-- Game grid -->
+      <div id="casino-grid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px"></div>
+
+    </div>
+
+    <!-- Footer count -->
+    <div id="casino-count" style="font-size:11px;color:#666;margin-top:8px;text-align:right"></div>
+
   </div>
 </div>
 
@@ -793,12 +885,16 @@ var _lastImageStats   = null; // { total, fetched, errors } — shown in inject-
 var _ceImgFetchErrors = null; // image fetch errors from createRowElements
 var autoScanT    = null;
 
-connect();
+// Ping only on load — no data fetch until the panel is opened
+pingServer();
 parent.postMessage({ pluginMessage: { type: 'get-selection' } }, '*');
-loadUploadPipelines();
+// loadUploadPipelines() deferred until data panel opens
 
 // ── Panel accordion ───────────────────────────────────────────────────────────
 var PANELS = ['data', 'assets', 'casino'];
+var _dataConnected = false;
+var _dataPanelInitDone = false;
+
 function togglePanel(name) {
   var isOpen = document.getElementById('panel-' + name).classList.contains('open');
   // Close all panels first
@@ -811,15 +907,33 @@ function togglePanel(name) {
     document.getElementById('panel-' + name).classList.add('open');
     document.getElementById('panel-' + name + '-body').classList.remove('hidden');
     if (name === 'assets') loadAssets();
+    if (name === 'data' && !_dataPanelInitDone) {
+      _dataPanelInitDone = true;
+      connect();
+      loadUploadPipelines();
+    }
   }
 }
 
 // ── Connection ────────────────────────────────────────────────────────────────
+// Lightweight ping — sets the header dot only, no data load
+async function pingServer() {
+  var dot = document.getElementById('data-status-dot');
+  try {
+    await api('/api/health');
+    if (dot) dot.style.background = '#22c55e'; // green
+  } catch (e) {
+    if (dot) dot.style.background = '#ef4444'; // red
+  }
+}
+
+// Full connect — called when data panel is first opened
 async function connect() {
   setStatus('Connecting…', null);
   try {
     await api('/api/health');
     setStatus('Online', true);
+    _dataConnected = true;
     loadDatasets();
     startPolling();
   } catch (e) {
@@ -839,10 +953,12 @@ function startPolling() {
 }
 
 function setStatus(t, ok) {
-  var dot = document.getElementById('statusDot');
-  var lbl = document.getElementById('connStatus');
+  var dot    = document.getElementById('statusDot');
+  var hdrDot = document.getElementById('data-status-dot');
+  var lbl    = document.getElementById('connStatus');
   lbl.textContent = t;
   dot.className = 'status-dot' + (ok === true ? ' ok' : ok === false ? ' err' : '');
+  if (hdrDot) hdrDot.style.background = ok === true ? '#22c55e' : ok === false ? '#ef4444' : '#aaa';
 }
 
 async function api(path, opts) {
@@ -1481,12 +1597,61 @@ window.onmessage = function(event) {
   if (msg.type === 'save-asset-result') {
     if (!msg.ok) { setAssetBanner('✕ ' + (msg.error || 'Could not serialise selection')); return; }
     if (!msg.nodes || !msg.nodes.length) { setAssetBanner('✕ Nothing serialised — select a frame or group first.'); return; }
-    _pendingAssetNodes = { name: msg.name, assetType: msg.assetType, nodeCount: msg.nodeCount, nodes: msg.nodes };
+
+    // ── Type summary — computed here from node data, no code.js reload needed ─
+    var _typeLabels = { FRAME:'frame', SECTION:'section', GROUP:'group', COMPONENT:'component',
+                        INSTANCE:'instance', TEXT:'text layer', VECTOR:'vector',
+                        RECTANGLE:'rectangle', ELLIPSE:'ellipse', LINE:'line' };
+    var _typeCounts = {};
+    for (var _ti = 0; _ti < msg.nodes.length; _ti++) {
+      var _nt = msg.nodes[_ti].type || 'NODE';
+      _typeCounts[_nt] = (_typeCounts[_nt] || 0) + 1;
+    }
+    var _typeParts = [];
+    for (var _tt in _typeCounts) {
+      var _tnc = _typeCounts[_tt];
+      _typeParts.push(_tnc + ' ' + ((_typeLabels[_tt] || _tt.toLowerCase()) + (_tnc > 1 ? 's' : '')));
+    }
+    var _derivedSummary = msg.typeSummary || _typeParts.join(' + ') || (msg.nodes.length + ' node' + (msg.nodes.length !== 1 ? 's' : ''));
+
+    // ── Canvas preview — instant colour-swatch from fill data ─────────────────
+    var _instantPreview = generateNodePreview(msg.nodes[0]);
+
+    _pendingAssetNodes = { name: msg.name, assetType: msg.assetType, nodeCount: msg.nodeCount,
+                           typeSummary: _derivedSummary, nodes: msg.nodes,
+                           previewDataUrl: _instantPreview };
     var nameEl = document.getElementById('assetNameInput');
     if (nameEl) nameEl.value = msg.name || '';
     var row = document.getElementById('assetNameRow');
     if (row) row.style.display = 'block';
+    // Disable Save until real preview arrives (or fails)
+    var _saveBtn = document.querySelector('#assetNameRow .btn-primary');
+    if (_saveBtn) { _saveBtn.disabled = true; _saveBtn.textContent = 'Generating…'; }
+    var dbg = document.getElementById('assetDebug');
+    if (dbg) { dbg.style.display = 'block'; dbg.textContent = 'code.js: ' + (msg.codeVersion || 'OLD — reload plugin'); }
     setAssetBanner('Name this asset and click Save ↑');
+  }
+
+  if (msg.type === 'save-asset-preview') {
+    if (msg.debug) {
+      var dbg2 = document.getElementById('assetDebug');
+      if (dbg2) { dbg2.style.display = 'block'; dbg2.textContent += '\n▶ ' + msg.debug; }
+      return;
+    }
+    // Re-enable Save button now that preview is resolved (success or fail)
+    var _saveBtn2 = document.querySelector('#assetNameRow .btn-primary');
+    if (_saveBtn2) { _saveBtn2.disabled = false; _saveBtn2.textContent = 'Save'; }
+    if (_pendingAssetNodes) {
+      if (msg.dataUrl) {
+        _pendingAssetNodes.previewDataUrl = msg.dataUrl;
+        var dbg4 = document.getElementById('assetDebug');
+        if (dbg4) { dbg4.textContent += '\n✓ preview ready — ' + (msg.byteLen || '?') + ' bytes → now click Save'; }
+      } else if (msg.error) {
+        var dbg3 = document.getElementById('assetDebug');
+        if (dbg3) { dbg3.style.display = 'block'; dbg3.textContent += '\n✕ export error: ' + msg.error; }
+        setAssetBanner('Name this asset and click Save ↑');
+      }
+    }
   }
 
   if (msg.type === 'restore-asset-result') {
@@ -1649,6 +1814,61 @@ async function createRowElements() {
   }}, '*');
 }
 
+// ── Asset preview thumbnail generator ─────────────────────────────────────────
+// Generates an instant canvas thumbnail from the node's fill colour.
+// This works entirely in the UI from data already received — no exportAsync needed.
+// If the real Figma export later arrives via save-asset-preview it upgrades this.
+function generateNodePreview(node) {
+  try {
+    if (!node) return null;
+    var w = Math.max(node.width  || 100, 1);
+    var h = Math.max(node.height || 100, 1);
+    var MAX = 160;
+    var canvas = document.createElement('canvas');
+    if (w >= h) { canvas.width = MAX; canvas.height = Math.max(4, Math.round(MAX * h / w)); }
+    else         { canvas.height = MAX; canvas.width = Math.max(4, Math.round(MAX * w / h)); }
+    var ctx = canvas.getContext('2d');
+
+    // Checkerboard background (signals transparency)
+    var sq = 8;
+    for (var row = 0; row < canvas.height; row += sq) {
+      for (var col = 0; col < canvas.width; col += sq) {
+        ctx.fillStyle = ((row / sq + col / sq) % 2 === 0) ? '#e5e7eb' : '#f9fafb';
+        ctx.fillRect(col, row, sq, sq);
+      }
+    }
+
+    // Walk fills — use first visible solid colour
+    var fills = node.fills || [];
+    for (var fi = 0; fi < fills.length; fi++) {
+      var f = fills[fi];
+      if (!f || f.visible === false) continue;
+      if (f.type === 'SOLID' && f.color) {
+        var r = Math.round((f.color.r || 0) * 255);
+        var g = Math.round((f.color.g || 0) * 255);
+        var b = Math.round((f.color.b || 0) * 255);
+        var a = (f.opacity !== undefined && f.opacity !== null) ? f.opacity : 1;
+        ctx.fillStyle = 'rgba(' + r + ',' + g + ',' + b + ',' + a + ')';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        break;
+      }
+      if (f.type === 'IMAGE') {
+        // Show a photo-icon placeholder
+        ctx.fillStyle = '#d1d5db';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#9ca3af';
+        ctx.font = Math.round(canvas.width * 0.35) + 'px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('🖼', canvas.width / 2, canvas.height / 2);
+        break;
+      }
+    }
+
+    return canvas.toDataURL('image/png');
+  } catch(e) { return null; }
+}
+
 // ── Asset library ─────────────────────────────────────────────────────────────
 var savedAssets        = [];
 var _pendingAssetNodes = null;
@@ -1670,11 +1890,25 @@ function renderAssets() {
     list.innerHTML = '<div class="empty" style="padding:6px 0">No saved assets yet.</div>'; return;
   }
   list.innerHTML = savedAssets.map(function(a) {
+    var thumb = a.preview
+      ? '<img class="asset-thumb" src="' + esc(a.preview) + '" alt="">'
+      : '<div class="asset-thumb-empty">▣</div>';
     return '<div class="asset-item">' +
-      '<span class="asset-item-name" title="' + esc(a.name) + '">' + esc(a.name) + '</span>' +
-      '<span class="asset-item-count">' + (a.nodeCount || 1) + ' node(s)</span>' +
-      '<button class="btn btn-sm" onclick="restoreAsset(\'' + esc(a.id) + '\')">↩ Restore</button>' +
-      '<button class="btn btn-sm" style="color:#b91c1c" onclick="deleteAsset(\'' + esc(a.id) + '\')" title="Delete">✕</button>' +
+      thumb +
+      '<div class="asset-item-meta">' +
+        '<div class="asset-item-name" title="' + esc(a.name) + '">' + esc(a.name) + '</div>' +
+        '<div class="asset-item-count">' + (function() {
+          if (a.typeSummary) return a.typeSummary;
+          var _tl = { FRAME:'frame', SECTION:'section', GROUP:'group', COMPONENT:'component', INSTANCE:'instance', TEXT:'text layer', VECTOR:'vector', RECTANGLE:'rectangle', ELLIPSE:'ellipse' };
+          var _n = a.nodeCount || 1;
+          var _lbl = (_tl[a.type] || (a.type ? a.type.toLowerCase() : 'node')) + (_n > 1 ? 's' : '');
+          return _n + ' ' + _lbl;
+        })() + '</div>' +
+      '</div>' +
+      '<div class="asset-item-actions">' +
+        '<button class="btn btn-sm" style="background:#2563eb;color:#fff;border-color:#2563eb" onclick="restoreAsset(\'' + esc(a.id) + '\')">↩ Restore</button>' +
+        '<button class="btn btn-sm" style="color:#b91c1c" onclick="deleteAsset(\'' + esc(a.id) + '\')" title="Delete">✕</button>' +
+      '</div>' +
     '</div>';
   }).join('');
 }
@@ -1705,7 +1939,10 @@ async function confirmSaveAsset() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: name, type: _pendingAssetNodes.assetType || 'FRAME',
-                             nodeCount: _pendingAssetNodes.nodeCount || 1, nodes: _pendingAssetNodes.nodes }),
+                             nodeCount: _pendingAssetNodes.nodeCount || 1,
+                             typeSummary: _pendingAssetNodes.typeSummary || null,
+                             nodes: _pendingAssetNodes.nodes,
+                             preview: _pendingAssetNodes.previewDataUrl || null }),
     });
     _pendingAssetNodes = null;
     var row = document.getElementById('assetNameRow');
@@ -1837,6 +2074,334 @@ function toggleSelDetail() {
 function toggleSettings() {}   // kept for compat — settings now hidden
 function toggleUpload()   {}   // kept for compat — upload always visible
 function toggleAssets()   { togglePanel('assets'); }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Casino Game Library
+// ═══════════════════════════════════════════════════════════════════════════
+(function() {
+  var CASINO_API = "https://casino-api-production-0d8f.up.railway.app";
+
+  // ── Vendor / category classification helpers ──────────────────────────────
+  var VENDOR_CATS = ['split the pot','splitthepot','smartsoft','smartsoft gaming','7777 gaming','7777gaming','rubyplay','ruby play','fazi','fazi interactive','spribe','playson'];
+  function vendorKey(v) { return String(v||'').toLowerCase().replace(/[^a-z0-9]+/g,''); }
+  function isVendorLike(v) {
+    var k = vendorKey(v);
+    if (!k) return false;
+    for (var i=0;i<VENDOR_CATS.length;i++) { var vk=vendorKey(VENDOR_CATS[i]); if (k===vk||k.indexOf(vk)>=0||vk.indexOf(k)>=0) return true; }
+    return false;
+  }
+  var GENERIC_CATS = new Set(['all','all games','featured','new','new games','popular','slots','slot','live','live casino','table games','table','jackpots','crash','instant','virtual','bingo','sports','promotions','recommended']);
+  function isGenericCat(n) { return GENERIC_CATS.has((n||'').trim().toLowerCase()); }
+  var CAT_EN = {'michezo yote':'All Games','fast games':'Fast Games','jogos em dastaque':'Featured Games','jogos em destaque':'Featured Games','jogos crash':'Crash Games','crash games':'Crash Games','jogos frutados':'Fruit Games','jogos populares':'Popular Games','hits quentes':'Hot Hits','mesa e cartas':'Table & Card Games','games':'Games','kasino lite games':'Kasino Lite Games'};
+  function canonicalVendor(v) {
+    var raw=String(v||'').trim(); var k=vendorKey(raw); if (!k) return null;
+    if (k.indexOf('splitthepot')>=0) return 'Split The Pot';
+    if (k.indexOf('7777gaming')>=0)  return '7777 Gaming';
+    if (k.indexOf('fazi')>=0)        return 'Fazi';
+    if (k.indexOf('playson')>=0)     return 'Playson';
+    if (k.indexOf('smartsoft')>=0)   return 'Smartsoft';
+    if (k.indexOf('rubyplay')>=0||k.indexOf('ruby')>=0) return 'Rubyplay';
+    if (k.indexOf('spribe')>=0)      return 'Spribe';
+    if (/^https?:\/\//i.test(raw)||raw.indexOf('/')>=0||raw.length>48) return null;
+    var cleaned=raw.replace(/[_-]+/g,' ').replace(/\s+/g,' ').trim();
+    if (!cleaned||isGenericCat(cleaned)) return null;
+    return cleaned.split(' ').map(function(w){return w?w[0].toUpperCase()+w.slice(1).toLowerCase():'';}).join(' ');
+  }
+  function canonicalCategory(v) {
+    var raw=String(v||'').trim(); if (!raw||isVendorLike(raw)) return null;
+    return CAT_EN[raw.toLowerCase()]||null;
+  }
+  function gameVendor(game) {
+    var d=canonicalVendor(game.vendor||game.publisher); if (d) return d;
+    var sites=Array.isArray(game.sites)?game.sites:[];
+    for (var i=0;i<sites.length;i++) { var f=canonicalVendor(sites[i].category)||canonicalVendor(sites[i].game_url); if (f) return f; }
+    return null;
+  }
+  function siteLabel(k) {
+    var m={'angola':'🇦🇴 Angola','bantu_angola':'🇦🇴 Angola','mozambique':'🇲🇿 Mozambique','elephant_mozambique':'🇲🇿 Mozambique','tanzania':'🇹🇿 Tanzania','zambia':'🇿🇲 Zambia','malawi':'🇲🇼 Malawi'};
+    return m[k]||k;
+  }
+  function siteCode(k) {
+    var m={'angola':'AO','bantu_angola':'AO','mozambique':'MZ','elephant_mozambique':'MZ','tanzania':'TZ','zambia':'ZM','malawi':'MW','global':'ALL'};
+    return m[k]||String(k||'').slice(0,2).toUpperCase();
+  }
+
+  // ── State ──────────────────────────────────────────────────────────────────
+  var cActiveTab='sites', cActiveFilter=null;
+  var cAllGames=[], cMasterGames=[];
+  var cSiteMeta=[], cVendorList=[], cCatList=[], cCollectionList=[];
+  var cCache={sites:{},vendors:{},categories:{},collections:{}};
+  var cInited=false;
+
+  // ── DOM refs ───────────────────────────────────────────────────────────────
+  function $c(id) { return document.getElementById(id); }
+
+  function casinoApiFetch(path) {
+    return fetch(CASINO_API+path).then(function(r){ if (!r.ok) throw new Error('HTTP '+r.status); return r.json(); });
+  }
+
+  function cShowState(text) {
+    var s=$c('casino-state'); s.style.display='flex';
+    $c('casino-state-text').textContent=text||'Loading…';
+    $c('casino-state-spinner').style.display=text?'block':'block';
+    $c('casino-grid').innerHTML='';
+    $c('casino-count').textContent='';
+  }
+  function cHideState() { $c('casino-state').style.display='none'; }
+
+  // ── Subtitle updater ────────────────────────────────────────────────────────
+  function setCasinoSubtitle(total) {
+    var el = document.getElementById('casino-subtitle');
+    if (el) el.textContent = total > 0 ? total.toLocaleString() + ' games' : 'Game library';
+  }
+
+  // ── Startup ping — sets dot + subtitle without opening the panel ───────────
+  casinoApiFetch('/api/games/stats').then(function(stats) {
+    var bySite = stats.by_site || [];
+    var total  = bySite.reduce(function(a, s){ return a + (Number(s.count) || 0); }, 0);
+    $c('casino-status-dot').style.background = '#22c55e';
+    setCasinoSubtitle(total);
+  }).catch(function() {
+    $c('casino-status-dot').style.background = '#ef4444';
+    var el = document.getElementById('casino-subtitle');
+    if (el) el.textContent = 'Unavailable';
+  });
+
+  // ── Init (lazy — runs on first panel open) ─────────────────────────────────
+  function casinoInit() {
+    if (cInited) return;
+    cInited=true;
+    cShowState('Connecting…');
+    casinoApiFetch('/api/games/stats').then(function(stats) {
+      $c('casino-status-dot').style.background='#22c55e';
+      cSiteMeta=stats.by_site.map(function(s){return {key:s.site,label:siteLabel(s.site),count:s.count};});
+      var total=cSiteMeta.reduce(function(a,s){return a+(Number(s.count)||0);},0);
+      setCasinoSubtitle(total);
+      cSiteMeta=[{key:'__all__',label:'🌍 All Sites',count:total}].concat(cSiteMeta);
+
+      return Promise.all([
+        casinoApiFetch('/api/games/categories').catch(function(){return {categories:[]};}),
+        casinoApiFetch('/api/categories/publishers').catch(function(){return [];}),
+        casinoApiFetch('/api/games').catch(function(){return {games:[]};})
+      ]);
+    }).then(function(results) {
+      var allCats=results[0], publishers=results[1], allGamesRes=results[2];
+      var vendorCounts={}, catCounts={};
+
+      var pubs=Array.isArray(publishers)?publishers:[];
+      pubs.forEach(function(p){ var cv=canonicalVendor(p.publisher); if (cv) vendorCounts[cv]=(vendorCounts[cv]||0)+(Number(p.count)||0); });
+
+      (allCats.categories||[]).forEach(function(c){ var cc=canonicalCategory(c.category); if (cc) catCounts[cc]=(catCounts[cc]||0)+(Number(c.count)||0); });
+
+      cMasterGames=allGamesRes.games||[];
+      // Counts already come from the publishers + categories APIs above.
+      // We only fall back to counting from master games if those APIs returned
+      // nothing, to avoid double-counting the same games twice.
+      if (!Object.keys(vendorCounts).length) {
+        cMasterGames.forEach(function(g) {
+          var cv=gameVendor(g); if (cv) vendorCounts[cv]=(vendorCounts[cv]||0)+1;
+        });
+      }
+      if (!Object.keys(catCounts).length) {
+        cMasterGames.forEach(function(g) {
+          (Array.isArray(g.sites)?g.sites:[]).forEach(function(s){ var cc=canonicalCategory(s.category); if (cc) catCounts[cc]=(catCounts[cc]||0)+1; });
+        });
+      }
+
+      cVendorList=Object.keys(vendorCounts).filter(function(n){return vendorCounts[n]>0;}).map(function(n){return {name:n,count:vendorCounts[n]};}).sort(function(a,b){return b.count-a.count;});
+      cCatList=Object.keys(catCounts).map(function(n){return {category:n,count:catCounts[n]};}).sort(function(a,b){return b.count-a.count;});
+
+      // Collections
+      var siteKeys=cSiteMeta.filter(function(s){return s.key&&s.key!=='__all__';}).map(function(s){return s.key;});
+      return Promise.all(siteKeys.map(function(key) {
+        return casinoApiFetch('/api/collections?site='+encodeURIComponent(key)).catch(function(){return [];});
+      })).then(function(rows) {
+        var flat=[].concat.apply([],rows);
+        cCollectionList=flat.filter(function(c){return c&&c.slug&&c.site&&c.title;}).map(function(c){
+          return {value:c.site+'::'+c.slug, label:c.title+' '+siteCode(c.site), count:Number(c.game_count)||0, site:c.site, slug:c.slug};
+        }).sort(function(a,b){return b.count-a.count||a.label.localeCompare(b.label);});
+      });
+    }).then(function() {
+      cRenderPills();
+      cSelectFilter(cSiteMeta[0]?cSiteMeta[0].key:null);
+    }).catch(function(err) {
+      $c('casino-status-dot').style.background='#ef4444';
+      cShowState('Cannot connect to API: '+err.message);
+    });
+  }
+
+  // Hook into the panel toggle so we lazy-init on first open
+  var _origToggle=window.togglePanel;
+  window.togglePanel=function(name) {
+    _origToggle(name);
+    if (name==='casino') { setTimeout(casinoInit, 50); }
+  };
+
+  // ── Tabs ───────────────────────────────────────────────────────────────────
+  document.getElementById('casino-tabs').addEventListener('click', function(e) {
+    var btn=e.target.closest('.ctab'); if (!btn) return;
+    cActiveTab=btn.dataset.tab; cActiveFilter=null;
+    document.querySelectorAll('.ctab').forEach(function(b){b.classList.toggle('active',b===btn);});
+    cRenderPills();
+    var list=cActiveTab==='sites'?cSiteMeta:cActiveTab==='vendors'?cVendorList:cActiveTab==='categories'?cCatList:cCollectionList;
+    var first=list[0];
+    cSelectFilter(first?(first.key||first.name||first.category||first.value):null);
+  });
+
+  // ── Search ─────────────────────────────────────────────────────────────────
+  document.getElementById('casino-search').addEventListener('input', function() {
+    var el=this; clearTimeout(el._t);
+    var q=el.value.trim();
+    el._t=setTimeout(function(){
+      if (q.length>=2) cGlobalSearch(q); else cApplySearch();
+    }, 250);
+  });
+
+  // ── Pills ──────────────────────────────────────────────────────────────────
+  function cRenderPills() {
+    var row=$c('casino-pills'); row.innerHTML='';
+    var pills=[];
+    if (cActiveTab==='sites') pills=cSiteMeta.map(function(s){return {value:s.key,label:s.label+' ('+s.count+')'};});
+    else if (cActiveTab==='vendors') pills=cVendorList.map(function(v){return {value:v.name,label:v.name+' ('+v.count+')'};});
+    else if (cActiveTab==='categories') pills=cCatList.map(function(c){return {value:c.category,label:c.category+' ('+c.count+')'};});
+    else pills=cCollectionList.map(function(c){return {value:c.value,label:c.label+' ('+c.count+')'};});
+    pills.forEach(function(p) {
+      var btn=document.createElement('button');
+      btn.className='cpill'+(p.value===cActiveFilter?' active':'');
+      btn.textContent=p.label; btn.dataset.value=p.value;
+      btn.addEventListener('click', function(){cSelectFilter(p.value);});
+      row.appendChild(btn);
+    });
+  }
+
+  function cSelectFilter(value) {
+    cActiveFilter=value;
+    document.querySelectorAll('.cpill').forEach(function(p){p.classList.toggle('active',p.dataset.value===value);});
+    cLoadGames();
+  }
+
+  // ── Load games ─────────────────────────────────────────────────────────────
+  function cLoadGames() {
+    if (!cActiveFilter) { cAllGames=[]; cRenderGrid([]); return; }
+    var cache=cCache[cActiveTab];
+    if (cache[cActiveFilter]) { cAllGames=cache[cActiveFilter]; cApplySearch(); return; }
+    cShowState('Loading games…');
+    var p;
+    if (cActiveTab==='sites') {
+      var url=cActiveFilter==='__all__'?'/api/games':'/api/games?site='+encodeURIComponent(cActiveFilter);
+      p=casinoApiFetch(url).then(function(d){return d.games||[];});
+    } else if (cActiveTab==='vendors') {
+      var v=cActiveFilter.toLowerCase();
+      if (cMasterGames.length) { p=Promise.resolve(cMasterGames.filter(function(g){var n=gameVendor(g);return n&&n.toLowerCase()===v;})); }
+      else { p=casinoApiFetch('/api/categories/publishers/'+encodeURIComponent(cActiveFilter)+'/games').then(function(d){return d.games||[];}); }
+    } else if (cActiveTab==='categories') {
+      var af=cActiveFilter;
+      p=Promise.resolve(cMasterGames.filter(function(g){return (Array.isArray(g.sites)?g.sites:[]).some(function(s){return canonicalCategory(s.category)===af;});}));
+    } else {
+      var parts=cActiveFilter.split('::'); var site=parts[0], slug=parts[1];
+      p=casinoApiFetch('/api/collections/'+encodeURIComponent(slug)+'?site='+encodeURIComponent(site)).then(function(d){return d.games||[];});
+    }
+    p.then(function(games) {
+      cache[cActiveFilter]=games; cAllGames=games; cApplySearch();
+    }).catch(function(err) { cShowState('Failed to load: '+err.message); });
+  }
+
+  function cApplySearch() {
+    var q=$c('casino-search').value.trim().toLowerCase();
+    var filtered=q?cAllGames.filter(function(g){return g.name.toLowerCase().indexOf(q)>=0;}):cAllGames;
+    cHideState(); cRenderGrid(filtered);
+    if (!filtered.length) cShowState(q?'No results for "'+q+'"':'No games found');
+  }
+
+  function cGlobalSearch(q) {
+    cShowState('Searching…');
+    casinoApiFetch('/api/games/search?q='+encodeURIComponent(q)).then(function(d) {
+      var r=d.games||d; cHideState(); cRenderGrid(r);
+      if (!r.length) cShowState('No results for "'+q+'"');
+    }).catch(function(){cShowState('Search failed');});
+  }
+
+  // ── Render grid ────────────────────────────────────────────────────────────
+  function bestImg(game) {
+    var sites=Array.isArray(game.sites)?game.sites:[];
+    if (cActiveFilter&&cActiveTab==='sites') { var m=sites.find(function(s){return s.site===cActiveFilter;}); if (m&&m.image_url) return m.image_url; }
+    return sites[0]?sites[0].image_url:null;
+  }
+
+  function cProxyUrl(url) { return url?CASINO_API+'/api/proxy-image?url='+encodeURIComponent(url):''; }
+
+  function cRenderGrid(games) {
+    var grid=$c('casino-grid'); grid.innerHTML='';
+    $c('casino-count').textContent=games.length?games.length+' game'+(games.length!==1?'s':''):'';
+    if (!games.length) return;
+    var frag=document.createDocumentFragment();
+    games.forEach(function(game) {
+      var imgUrl=bestImg(game); if (!imgUrl) return;
+      var card=document.createElement('div');
+      card.className='cgame-card'; card.title=game.name;
+      card.dataset.img=imgUrl; card.dataset.name=game.name;
+      var vendor=gameVendor(game)||'';
+      card.innerHTML='<img src="'+cProxyUrl(imgUrl)+'" loading="lazy" alt="'+game.name+'"><div class="cspinner"></div><div class="ccard-overlay"><div class="ccard-name">'+game.name+'</div>'+(vendor?'<div class="ccard-vendor">'+vendor+'</div>':'')+'</div>';
+      card.addEventListener('click', function(){cInsertGame(card,game);});
+      frag.appendChild(card);
+    });
+    grid.appendChild(frag);
+  }
+
+  // ── Insert into Figma ──────────────────────────────────────────────────────
+  async function cInsertGame(card, game) {
+    if (card.classList.contains('inserting')) return;
+    card.classList.add('inserting');
+    try {
+      var res=await fetch(cProxyUrl(card.dataset.img));
+      if (!res.ok) throw new Error('HTTP '+res.status);
+      var blob=await res.blob();
+      var jpegBlob=await cToJpeg(blob);
+      var buf=await jpegBlob.arrayBuffer();
+      var bytes=Array.from(new Uint8Array(buf));
+      var dims=await cImgDims(jpegBlob);
+      parent.postMessage({pluginMessage:{type:'casino-insert-image',bytes:bytes,width:dims[0],height:dims[1],name:card.dataset.name||game.name||'Game Image'}},'*');
+    } catch(err) {
+      card.classList.remove('inserting');
+    }
+  }
+
+  async function cToJpeg(blob) {
+    if (blob.type==='image/jpeg') return blob;
+    var bmp=await createImageBitmap(blob);
+    var canvas=document.createElement('canvas');
+    canvas.width=bmp.width; canvas.height=bmp.height;
+    var ctx=canvas.getContext('2d');
+    ctx.fillStyle='#fff'; ctx.fillRect(0,0,canvas.width,canvas.height);
+    ctx.drawImage(bmp,0,0); bmp.close();
+    return new Promise(function(res,rej){canvas.toBlob(function(b){b?res(b):rej(new Error('JPEG failed'));},'image/jpeg',0.92);});
+  }
+
+  function cImgDims(blob) {
+    return new Promise(function(res) {
+      var url=URL.createObjectURL(blob), img=new Image();
+      img.onload=function(){ var w=img.naturalWidth||200,h=img.naturalHeight||200; URL.revokeObjectURL(url); var s=Math.min(1,200/w); res([Math.round(w*s),Math.round(h*s)]); };
+      img.onerror=function(){URL.revokeObjectURL(url);res([200,200]);};
+      img.src=url;
+    });
+  }
+
+  // Handle success/error messages back from code.js
+  var _origOnMsg=window.onmessage;
+  window.onmessage=function(event) {
+    if (_origOnMsg) _origOnMsg.call(window,event);
+    var msg=event.data&&event.data.pluginMessage;
+    if (!msg) return;
+    if (msg.type==='casino-insert-success') {
+      var card=document.querySelector('.cgame-card.inserting');
+      if (card) { card.classList.remove('inserting'); card.classList.add('done-ok'); setTimeout(function(){card.classList.remove('done-ok');},1200); }
+    }
+    if (msg.type==='casino-insert-error') {
+      var card=document.querySelector('.cgame-card.inserting');
+      if (card) card.classList.remove('inserting');
+    }
+  };
+})();
 </script>
 </body>
 </html>

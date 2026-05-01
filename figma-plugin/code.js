@@ -546,6 +546,10 @@ figma.ui.onmessage = async function(msg) {
     function serializeNode(node) {
       var out = { type: node.type, name: node.name };
 
+      // Store the node's own ID so that restore can find and clone the original
+      // node if it still exists in this document (same-file save/restore workflow).
+      try { out.id = node.id; } catch(_) {}
+
       // ── Geometry ──────────────────────────────────────────────────────────
       try { out.x = node.x; out.y = node.y; } catch(_) {}
       try { out.width  = node.width;  } catch(_) {}
@@ -736,13 +740,101 @@ figma.ui.onmessage = async function(msg) {
     }
 
     var assetName = sel.length === 1 ? sel[0].name : 'Selection (' + sel.length + ' nodes)';
+
+    // ── Build a human-readable type summary e.g. "1 section + 4 frames" ──
+    var typeCounts = {};
+    for (var ti = 0; ti < sel.length; ti++) {
+      var nt = sel[ti].type;
+      typeCounts[nt] = (typeCounts[nt] || 0) + 1;
+    }
+    var typeLabels = {
+      FRAME: 'frame', SECTION: 'section', GROUP: 'group',
+      COMPONENT: 'component', INSTANCE: 'instance',
+      TEXT: 'text layer', VECTOR: 'vector', ELLIPSE: 'ellipse',
+      RECTANGLE: 'rectangle', LINE: 'line', POLYGON: 'polygon',
+      STAR: 'star', BOOLEAN_OPERATION: 'boolean group',
+      COMPONENT_SET: 'component set', SLICE: 'slice'
+    };
+    var typeParts = [];
+    for (var tt in typeCounts) {
+      var tnc = typeCounts[tt];
+      var tlabel = (typeLabels[tt] || tt.toLowerCase()) + (tnc > 1 ? 's' : '');
+      typeParts.push(tnc + ' ' + tlabel);
+    }
+    var typeSummary = typeParts.join(' + ') || (nodes.length + ' node' + (nodes.length !== 1 ? 's' : ''));
+
+    // ── Send nodes first (may be a large payload) ─────────────────────────
     try {
       figma.ui.postMessage({ type: 'save-asset-result', ok: true,
         name: assetName, assetType: sel.length === 1 ? sel[0].type : 'GROUP',
-        nodeCount: nodes.length, nodes: nodes });
+        nodeCount: nodes.length, typeSummary: typeSummary, nodes: nodes,
+        codeVersion: 'v5-preview-debug' });
     } catch (pmErr) {
       figma.ui.postMessage({ type: 'save-asset-result', ok: false,
         error: 'Payload too large for postMessage — select fewer/simpler nodes (' + pmErr.message + ')' });
+      return;
+    }
+
+    // ── Export a preview thumbnail ─────────────────────────────────────────
+    // code.js (Figma sandbox) does NOT have btoa — so we just send the raw
+    // Uint8Array bytes. The UI iframe (full browser context) converts to
+    // base64 and upgrades the canvas-swatch preview to a real PNG render.
+    // SECTION nodes are not directly exportable — copy children into a
+    // temporary frame, export that, then immediately remove it.
+    var previewNode = sel[0];
+    var tempWrapper = null;
+    figma.ui.postMessage({ type: 'save-asset-preview', debug: 'step1: node=' + previewNode.type + ' ' + previewNode.name });
+    try {
+      if (previewNode.type === 'SECTION') {
+        tempWrapper = figma.createFrame();
+        tempWrapper.name = '__preview_tmp__';
+        tempWrapper.clipsContent = true;
+        tempWrapper.fills = [{ type: 'SOLID', color: { r:1, g:1, b:1 } }];
+        var pw = Math.max(previewNode.width  || 100, 1);
+        var ph = Math.max(previewNode.height || 100, 1);
+        tempWrapper.resize(pw, ph);
+        figma.currentPage.appendChild(tempWrapper);
+        var sectionKids = Array.from(previewNode.children || []);
+        for (var ki = 0; ki < sectionKids.length; ki++) {
+          try { tempWrapper.appendChild(sectionKids[ki].clone()); } catch(_) {}
+        }
+        previewNode = tempWrapper;
+      }
+
+      figma.ui.postMessage({ type: 'save-asset-preview', debug: 'step2: calling exportAsync on ' + previewNode.type });
+      // Export at 0.1× — keeps PNG tiny (typically < 20 KB)
+      var pngBytes = await previewNode.exportAsync({
+        format: 'PNG',
+        constraint: { type: 'SCALE', value: 0.1 }
+      });
+      figma.ui.postMessage({ type: 'save-asset-preview', debug: 'step3: export done, bytes=' + pngBytes.length });
+
+      // Pure-JS base64 encoder — no btoa needed (unavailable in Figma sandbox).
+      // Sends a plain string data URL; strings always transfer correctly via postMessage.
+      var B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+      var b64 = '';
+      var bl = pngBytes.length;
+      for (var b64i = 0; b64i < bl; b64i += 3) {
+        var b0 = pngBytes[b64i];
+        var b1 = (b64i + 1 < bl) ? pngBytes[b64i + 1] : 0;
+        var b2 = (b64i + 2 < bl) ? pngBytes[b64i + 2] : 0;
+        b64 += B64[b0 >> 2];
+        b64 += B64[((b0 & 3) << 4) | (b1 >> 4)];
+        b64 += B64[((b1 & 15) << 2) | (b2 >> 6)];
+        b64 += B64[b2 & 63];
+      }
+      if (bl % 3 === 1) b64 = b64.slice(0, -2) + '==';
+      else if (bl % 3 === 2) b64 = b64.slice(0, -1) + '=';
+
+      figma.ui.postMessage({
+        type: 'save-asset-preview',
+        dataUrl: 'data:image/png;base64,' + b64,
+        byteLen: bl   // for debug display in the UI
+      });
+    } catch(thumbErr) {
+      figma.ui.postMessage({ type: 'save-asset-preview', error: thumbErr.message });
+    } finally {
+      if (tempWrapper) { try { tempWrapper.remove(); } catch(_) {} }
     }
     return;
   }
@@ -798,20 +890,43 @@ figma.ui.onmessage = async function(msg) {
         var a = rt[0][0], b = rt[0][1], tx = rt[0][2];
         var c = rt[1][0], d = rt[1][1], ty = rt[1][2];
 
-        // For INSTANCE nodes the size is already set via resizeWithoutConstraints,
-        // so we must NOT apply any scale from the transform matrix — that would
-        // double-scale the node.  Strip scale: extract the rotation angle from the
-        // column-vector directions and rebuild a pure rotation+translation matrix.
+        // INSTANCE: check whether scale is baked into the stored transform.
+        //
+        // • Scale baked in (scale-tool was used on the original):
+        //     Apply the FULL matrix — scale + rotation + translation.
+        //     resizeWithoutConstraints was intentionally skipped above, so the
+        //     matrix is the only thing that defines the visual size.
+        //
+        // • No scale in matrix (instance was resized normally):
+        //     resizeWithoutConstraints already set the correct size above.
+        //     Strip scale (≈ identity anyway) and apply rotation + translation only
+        //     so we don't accidentally fight the override size.
         if (node.type === 'INSTANCE') {
-          var angle = Math.atan2(c, a); // rotation angle in radians
-          var cos = Math.cos(angle), sin = Math.sin(angle);
-          try {
-            node.relativeTransform = [[cos, -sin, tx], [sin, cos, ty]];
+          var iSx = Math.sqrt(a * a + c * c);
+          var iSy = Math.sqrt(b * b + d * d);
+          var iHasScale = Math.abs(iSx - 1) > 0.01 || Math.abs(iSy - 1) > 0.01;
+
+          if (iHasScale) {
+            // Apply full matrix — scale encodes the visual size.
+            try {
+              node.relativeTransform = [[a, b, tx], [c, d, ty]];
+              return;
+            } catch(_) {}
+            // Fallback: position only (scale lost, but at least no double-scale)
+            try { node.x = tx; node.y = ty; } catch(_) {}
             return;
-          } catch(_) {}
-          try { node.x = tx; node.y = ty; } catch(_) {}
-          try { if (angle !== 0) node.rotation = -(angle * 180 / Math.PI); } catch(_) {}
-          return;
+          } else {
+            // No scale — strip the (identity) scale to be safe, keep rotation + translation.
+            var angle = Math.atan2(c, a);
+            var cos = Math.cos(angle), sin = Math.sin(angle);
+            try {
+              node.relativeTransform = [[cos, -sin, tx], [sin, cos, ty]];
+              return;
+            } catch(_) {}
+            try { node.x = tx; node.y = ty; } catch(_) {}
+            try { if (angle !== 0) node.rotation = -(angle * 180 / Math.PI); } catch(_) {}
+            return;
+          }
         }
 
         // All other node types: apply the full stored matrix.
@@ -892,6 +1007,49 @@ figma.ui.onmessage = async function(msg) {
     async function restoreNode(def, parent, skipPosition) {
       var node;
       try {
+
+        // ── CLONE-FIRST SHORTCUT ──────────────────────────────────────────────
+        // When restoring within the same Figma file, the original node usually
+        // still exists (user saves a template, then restores a copy next to it).
+        // Cloning is vastly more reliable than JSON-based recreation: it perfectly
+        // preserves component scale, variant selection, fills, effects — anything
+        // we may have failed to capture in the serialised snapshot.
+        //
+        // We clone for ALL node types, not just INSTANCE, so that frame children,
+        // vectors, groups, etc. are also perfectly preserved.
+        //
+        // If the original no longer exists (deleted, or cross-file restore), we
+        // fall through to the normal JSON-based recreation path below.
+        if (def.id) {
+          try {
+            var origNode = figma.getNodeById(def.id);
+            // Only use the clone if the type still matches (guard against ID
+            // reuse after delete+recreate in the same session, which is unlikely
+            // but possible).
+            if (origNode && origNode.type === def.type) {
+              var cloneNode = origNode.clone();
+              cloneNode.name = def.name || 'Restored';
+
+              // Append to parent (or page if no parent / SECTION type).
+              if (def.type === 'SECTION' || !parent) {
+                figma.currentPage.appendChild(cloneNode);
+              } else {
+                parent.appendChild(cloneNode);
+              }
+
+              // Restore auto-layout child role before position so the engine
+              // does not override our relativeTransform assignment below.
+              if (def.layoutPositioning != null && 'layoutPositioning' in cloneNode) {
+                try { cloneNode.layoutPositioning = def.layoutPositioning; } catch(_) {}
+              }
+
+              if (!skipPosition) applyPositionAndTransform(cloneNode, def);
+              return cloneNode;
+            }
+          } catch(_) {}
+          // Clone failed — fall through to JSON-based recreation.
+        }
+
         // ── GROUP: special-case — figma.group() needs pre-existing nodes ─────
         //
         // The double-counting trap:
@@ -961,13 +1119,6 @@ figma.ui.onmessage = async function(msg) {
             var master = figma.getNodeById(def.componentId);
             if (master && master.type === 'COMPONENT') {
               node = master.createInstance();
-              // Immediately size the instance via resizeWithoutConstraints —
-              // this bypasses constrainProportions, auto-layout sizing modes,
-              // and any component-level constraints.  We do it RIGHT HERE
-              // before append so the node has correct dimensions from the start.
-              if (def.width > 0 && def.height > 0) {
-                try { node.resizeWithoutConstraints(def.width, def.height); } catch(_) {}
-              }
             }
           } catch(_) {}
         }
@@ -1025,9 +1176,8 @@ figma.ui.onmessage = async function(msg) {
         }
 
         // ── Size ─────────────────────────────────────────────────────────
-        // VECTOR: set paths first (they establish the geometry), then resize.
-        // INSTANCE: disable proportional lock so both axes scale independently.
-        // Others: resize immediately, with resizeWithoutConstraints as fallback.
+        // Node is now in the document tree (appended above) and layoutPositioning
+        // is set, so resize calls will take effect correctly.
         if (def.type === 'VECTOR') {
           if (def.vectorPaths && def.vectorPaths.length) {
             try { node.vectorPaths = def.vectorPaths; } catch(_) {}
@@ -1038,14 +1188,32 @@ figma.ui.onmessage = async function(msg) {
             }
           }
         } else if (def.type !== 'TEXT' && def.type !== 'LINE' && def.width > 0 && def.height > 0) {
-          if (def.type !== 'INSTANCE') {
-            // INSTANCE was already sized above via resizeWithoutConstraints.
-            // All other node types: resize now.
-            try { node.resize(def.width, def.height); } catch(_) {
-              try { node.resizeWithoutConstraints(def.width, def.height); } catch(_) {}
+          if (def.type === 'INSTANCE') {
+            // Detect whether scale was baked into the relativeTransform (scale tool).
+            // When scale IS baked in, the matrix itself encodes the visual size —
+            // calling resizeWithoutConstraints would set an OVERRIDE size that then
+            // conflicts with the transform scale, causing double-scaling.
+            // When there is NO scale in the matrix (instance was resized with the
+            // resize handle), we must resize explicitly because the matrix is identity
+            // and the override width/height is the only record of the intended size.
+            var defRt = def.relativeTransform;
+            var instanceHasScale = false;
+            if (defRt && defRt[0] && defRt[1]) {
+              var rta = defRt[0][0], rtc = defRt[1][0];
+              var rtb = defRt[0][1], rtd = defRt[1][1];
+              var rtSx = Math.sqrt(rta * rta + rtc * rtc);
+              var rtSy = Math.sqrt(rtb * rtb + rtd * rtd);
+              instanceHasScale = Math.abs(rtSx - 1) > 0.01 || Math.abs(rtSy - 1) > 0.01;
             }
-          } else if (node && node.type !== 'INSTANCE') {
-            // Component wasn't found — node is a plain FRAME fallback; resize it.
+            if (!instanceHasScale) {
+              // No scale in matrix — the override size must be applied explicitly.
+              try { node.resizeWithoutConstraints(def.width, def.height); } catch(_) {
+                try { node.resize(def.width, def.height); } catch(_) {}
+              }
+            }
+            // If instanceHasScale: skip resize — applyPositionAndTransform will
+            // apply the full matrix (including scale) which defines the visual size.
+          } else {
             try { node.resize(def.width, def.height); } catch(_) {
               try { node.resizeWithoutConstraints(def.width, def.height); } catch(_) {}
             }
@@ -1237,6 +1405,43 @@ figma.ui.onmessage = async function(msg) {
 
     figma.ui.postMessage({ type: 'restore-asset-result', ok: true,
       count: restored.length, errors: restoreErrors });
+    return;
+  }
+
+  // ── Casino Game Library: insert a game image into the canvas ────────────
+  if (msg.type === 'casino-insert-image') {
+    try {
+      var cImg = figma.createImage(new Uint8Array(msg.bytes));
+      var cRect = figma.createRectangle();
+      cRect.name = msg.name || 'Game Image';
+      var cW = Math.max(1, Math.round(msg.width  || 200));
+      var cH = Math.max(1, Math.round(msg.height || 200));
+      cRect.resize(cW, cH);
+      cRect.fills = [{ type: 'IMAGE', imageHash: cImg.hash, scaleMode: 'FILL' }];
+      cRect.strokes = [];
+
+      // Place into selected frame/group if one is selected, else onto the page.
+      var cSel = figma.currentPage.selection;
+      var cParent = figma.currentPage;
+      var cCx = figma.viewport.center.x;
+      var cCy = figma.viewport.center.y;
+      if (cSel.length === 1) {
+        var cNode = cSel[0];
+        if (cNode.type === 'FRAME' || cNode.type === 'GROUP' || cNode.type === 'COMPONENT') {
+          cParent = cNode;
+          cCx = cNode.x + cNode.width  / 2;
+          cCy = cNode.y + cNode.height / 2;
+        }
+      }
+      cParent.appendChild(cRect);
+      cRect.x = cCx - cW / 2;
+      cRect.y = cCy - cH / 2;
+      figma.currentPage.selection = [cRect];
+      figma.viewport.scrollAndZoomIntoView([cRect]);
+      figma.ui.postMessage({ type: 'casino-insert-success', name: msg.name });
+    } catch (ce) {
+      figma.ui.postMessage({ type: 'casino-insert-error', message: ce.message });
+    }
     return;
   }
 

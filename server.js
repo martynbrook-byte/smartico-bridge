@@ -2388,7 +2388,7 @@ app.get('/api/assets', async (_req, res) => {
       try {
         const raw = await fsp.readFile(path.join(ASSETS_DIR, f), 'utf8');
         const r = JSON.parse(raw);
-        list.push({ id: r.id, name: r.name, type: r.type, nodeCount: r.nodeCount || 1, savedAt: r.savedAt });
+        list.push({ id: r.id, name: r.name, type: r.type, nodeCount: r.nodeCount || 1, typeSummary: r.typeSummary || null, savedAt: r.savedAt, preview: r.preview || null });
       } catch (_) {}
     }
     list.sort((a, b) => String(b.savedAt || '').localeCompare(String(a.savedAt || '')));
@@ -2398,7 +2398,7 @@ app.get('/api/assets', async (_req, res) => {
   }
 });
 
-app.post('/api/assets', express.json({ limit: '20mb' }), async (req, res) => {
+app.post('/api/assets', express.json({ limit: '30mb' }), async (req, res) => {
   try {
     const body = req.body || {};
     if (!body.nodes) return res.status(400).json({ error: 'nodes is required' });
@@ -2406,12 +2406,14 @@ app.post('/api/assets', express.json({ limit: '20mb' }), async (req, res) => {
       id:        crypto.randomUUID(),
       name:      typeof body.name === 'string' && body.name.trim() ? body.name.trim() : 'Untitled asset',
       type:      typeof body.type === 'string' ? body.type : 'FRAME',
-      nodeCount: typeof body.nodeCount === 'number' ? body.nodeCount : 1,
-      nodes:     body.nodes,
-      savedAt:   new Date().toISOString(),
+      nodeCount:   typeof body.nodeCount === 'number' ? body.nodeCount : 1,
+      typeSummary: typeof body.typeSummary === 'string' ? body.typeSummary : null,
+      nodes:       body.nodes,
+      preview:     typeof body.preview === 'string' ? body.preview : null,
+      savedAt:     new Date().toISOString(),
     };
     await fsp.writeFile(path.join(ASSETS_DIR, `${record.id}.json`), JSON.stringify(record, null, 2));
-    res.json({ asset: { id: record.id, name: record.name, type: record.type, nodeCount: record.nodeCount, savedAt: record.savedAt } });
+    res.json({ asset: { id: record.id, name: record.name, type: record.type, nodeCount: record.nodeCount, typeSummary: record.typeSummary, savedAt: record.savedAt } });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

@@ -320,68 +320,101 @@
   .sel-name { color: var(--text); font-weight: 700; font-size: 11px; }
 
   /* ── Bind panel ─────────────────────────────────────────────────────── */
+  /* ── Bind panel — Figma layers look ──────────────────────────────── */
   .bind-panel {
-    background: var(--white);
-    border: 1.5px solid var(--border);
+    background: #1e1e1e;
     border-radius: var(--radius);
-    padding: 9px 11px;
+    overflow: hidden;
     display: flex;
     flex-direction: column;
-    gap: 7px;
   }
-  .bind-hint { font-size: 10px; color: var(--muted); text-align: center; padding: 4px 0; }
-  .bind-sel-row {
+  .bind-hint {
+    font-size: 10px; color: #888; text-align: center;
+    padding: 10px 0; font-style: italic;
+  }
+  /* Frame row (the selected data row header) */
+  .bind-frame-row {
     display: flex; align-items: center; gap: 6px;
-    background: rgba(0,0,0,.06); border-radius: 6px; padding: 4px 8px;
+    padding: 5px 8px;
+    background: #2c2d30;
+    font-size: 11px; font-weight: 600; color: #ccc;
+    user-select: none;
+    border-bottom: 1px solid #3a3a3c;
   }
-  .bind-sel-row-label { font-size: 10px; color: var(--muted); flex-shrink: 0; }
-  .bind-sel-row-val   { font-size: 11px; color: var(--text); font-weight: 700; flex: 1; }
-  .bind-cols { display: flex; flex-wrap: wrap; gap: 5px; max-height: 180px; overflow-y: auto; }
-  .bind-col-chip {
-    background: rgba(0,0,0,.07); border: 1.5px solid rgba(0,0,0,.1);
-    border-radius: 6px; padding: 2px 7px; font-size: 10px; font-family: var(--font);
-    cursor: pointer; transition: all .12s; white-space: nowrap; font-weight: 600;
+  .bind-frame-icon {
+    width: 14px; height: 14px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    color: #888; font-size: 10px;
   }
-  .bind-col-chip:hover  { border-color: rgba(0,0,0,.3); }
-  .bind-col-chip.active { border-color: rgba(0,0,0,.5); background: rgba(0,0,0,.1); }
-  .bind-img-chip {
-    display: flex; flex-direction: column; align-items: center; gap: 4px;
-    background: rgba(0,0,0,.07); border: 1.5px solid rgba(0,0,0,.1);
-    border-radius: 8px; padding: 6px 8px; cursor: pointer; transition: all .12s;
-    font-size: 10px; color: var(--muted); width: 78px; flex-shrink: 0; font-weight: 600;
+  .bind-frame-name {
+    flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-size: 11px; color: #ccc;
   }
-  .bind-img-chip:hover  { border-color: rgba(0,0,0,.3); }
-  .bind-img-chip.active { border-color: rgba(0,0,0,.5); background: rgba(0,0,0,.1); }
-  .bind-img-thumb {
-    width: 50px; height: 50px; border-radius: 50%; object-fit: cover;
-    background: rgba(0,0,0,.1); display: block;
+  /* Toggle caret */
+  .bind-toggle-caret {
+    font-size: 11px; color: #666; flex-shrink: 0;
+    transition: transform .2s; user-select: none;
   }
-  .bind-img-thumb.rect { border-radius: 6px; }
-  .bind-img-label { font-size: 9px; text-align: center; max-width: 70px;
-                    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .bind-preview {
-    font-family: monospace; font-size: 11px; color: var(--text);
-    background: rgba(0,0,0,.07); border: 1.5px solid rgba(0,0,0,.1);
-    border-radius: 6px; padding: 3px 8px; text-align: center; font-weight: 700;
+  .bind-list-collapsed .bind-toggle-caret { transform: rotate(-90deg); }
+  /* Layer rows */
+  .bind-layer-list { display: flex; flex-direction: column; overflow-y: auto; max-height: 120px; }
+  /* Collapsible body */
+  #bindCollapsible {
+    overflow: hidden;
+    max-height: 400px;
+    opacity: 1;
+    transition: max-height .25s ease, opacity .2s ease;
   }
-  .bind-preview.empty { color: var(--muted); background: none; border-color: transparent; }
+  .bind-list-collapsed #bindCollapsible { max-height: 0; opacity: 0; }
+  .bind-layer-row {
+    display: flex; align-items: center; gap: 0;
+    padding: 3px 8px 3px 22px;
+    cursor: pointer;
+    user-select: none;
+    border-bottom: 1px solid transparent;
+    transition: background .08s;
+  }
+  .bind-layer-row:hover  { background: #3a3a3c; }
+  .bind-layer-row.active { background: #0d99ff22; outline: 1px solid #0d99ff55; }
+  .bind-layer-type {
+    width: 16px; flex-shrink: 0;
+    font-size: 10px; font-weight: 700; color: #888;
+    font-family: var(--font); text-align: center;
+    margin-right: 4px;
+  }
+  .bind-layer-type.img  { color: #c792ea; }
+  .bind-layer-type.text { color: #888; }
+  .bind-layer-name {
+    flex: 1; font-size: 11px; color: #ddd;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .bind-layer-name.img-col { color: #c792ea; }
+  /* Action bar below the layer list */
+  .bind-action-bar {
+    padding: 8px;
+    background: #2c2d30;
+    border-top: 1px solid #3a3a3c;
+    display: flex; flex-direction: column; gap: 6px;
+  }
   .btn-bind {
-    background: rgba(0,0,0,.8); border: none; border-radius: var(--radius);
+    background: #0d99ff; border: none; border-radius: 5px;
     color: #fff; font-weight: 700; font-family: var(--font);
-    width: 100%; padding: 7px; font-size: 11px; cursor: pointer; transition: all .15s;
+    width: 100%; padding: 6px; font-size: 11px; cursor: pointer; transition: all .15s;
   }
-  .btn-bind:hover:not(:disabled) { background: rgba(0,0,0,.95); }
-  .btn-bind:disabled { opacity: .45; }
-  .bind-ok { font-size: 10px; color: #065f46; text-align: center; display: none; font-weight: 600; }
-  .bind-divider { border: none; border-top: 1.5px solid var(--border); margin: 4px 0; }
+  .btn-bind:hover:not(:disabled) { background: #0b87e0; }
+  .btn-bind:disabled { opacity: .35; cursor: default; }
+  .bind-ok { font-size: 10px; color: #4ade80; text-align: center; display: none; font-weight: 600; }
+  .bind-divider { border: none; border-top: 1px solid #3a3a3c; margin: 0; }
   .btn-create-elems {
-    background: rgba(0,0,0,.08); border: 1.5px solid rgba(0,0,0,.18);
-    color: var(--text); width: 100%; padding: 7px; font-size: 11px; font-weight: 700;
-    border-radius: var(--radius); cursor: pointer; transition: all .15s; font-family: var(--font);
+    background: #BB00FF; border: none;
+    color: #fff; width: 100%; padding: 10px; font-size: 13px; font-weight: 800;
+    border-radius: 5px; cursor: pointer; transition: background .15s;
+    font-family: var(--font-display); letter-spacing: 0.02em; text-align: center;
   }
-  .btn-create-elems:hover:not(:disabled) { background: rgba(0,0,0,.14); }
-  .btn-create-elems:disabled { opacity: .5; cursor: default; }
-  .create-ok { font-size: 10px; color: #065f46; text-align: center; display: none; margin-top: 4px; font-weight: 600; }
+  .btn-create-elems:hover:not(:disabled) { background: #9900DD; }
+  .btn-create-elems:disabled { opacity: .4; cursor: default; }
+  .create-ok { font-size: 10px; color: #4ade80; text-align: center; display: none; margin-top: 4px; font-weight: 600; }
   .create-ok.show { display: block; }
 
   /* ── Ref groups ─────────────────────────────────────────────────────── */
@@ -495,6 +528,31 @@
     color: rgba(0,0,0,.5);
     text-align: center;
   }
+  .proc-result-icon {
+    font-size: 48px; line-height: 1;
+  }
+  .proc-result-stats {
+    display: flex; flex-direction: column; gap: 6px;
+    width: 100%; background: rgba(0,0,0,.08);
+    border-radius: 12px; padding: 12px 16px;
+  }
+  .proc-stat-row {
+    display: flex; align-items: center; justify-content: space-between;
+    font-family: var(--font); font-size: 12px; font-weight: 600;
+    color: var(--text);
+  }
+  .proc-stat-row .proc-stat-val {
+    font-weight: 800; font-size: 14px;
+  }
+  .proc-stat-row .proc-stat-val.ok    { color: #1a7a1a; }
+  .proc-stat-row .proc-stat-val.warn  { color: #a05000; }
+  .proc-ok-btn {
+    background: var(--text); color: #fff; border: none;
+    border-radius: 50px; padding: 12px 40px;
+    font-family: var(--font-display); font-size: 16px; font-weight: 800;
+    letter-spacing: 0.02em; cursor: pointer; transition: opacity .15s;
+  }
+  .proc-ok-btn:hover { opacity: .8; }
 </style>
 </head>
 <body>
@@ -581,21 +639,21 @@
       <div class="bind-panel">
         <div class="bind-hint" id="bindHint">← Click a row in the data preview above</div>
         <div id="bindRowInfo" style="display:none">
-          <div class="bind-sel-row">
-            <span class="bind-sel-row-label">Row</span>
-            <span class="bind-sel-row-val" id="bindRowVal">—</span>
-            <span class="bind-sel-row-label" id="bindRowSrc" style="font-size:9px"></span>
+          <!-- Frame header row -->
+          <div class="bind-frame-row" onclick="toggleBindList()" style="cursor:pointer">
+            <div class="bind-frame-icon">▤</div>
+            <div class="bind-frame-name" id="bindRowVal">Row —</div>
+            <div style="font-size:9px;color:#666;margin-right:4px" id="bindRowSrc"></div>
+            <div class="bind-toggle-caret" id="bindToggleCaret">▾</div>
           </div>
-          <div style="font-size:10px;color:var(--muted);margin:5px 0 3px;font-weight:600" id="bindColsLabel">
-            Pick a column to rename the selected layer:
+          <!-- Collapsible body: layer list + action bar -->
+          <div id="bindCollapsible">
+            <div class="bind-layer-list" id="bindCols"></div>
+            <div class="bind-action-bar">
+              <button class="btn-create-elems" id="createElemsBtn" onclick="createRowElements()">Add row to stage</button>
+              <div class="create-ok" id="createOk"></div>
+            </div>
           </div>
-          <div class="bind-cols" id="bindCols"></div>
-          <div class="bind-preview empty" id="bindPreview">#column.row</div>
-          <button class="btn-bind" id="bindBtn" onclick="bindLayer()" disabled>Rename Layer</button>
-          <div class="bind-ok" id="bindOk"></div>
-          <hr class="bind-divider">
-          <button class="btn-create-elems" id="createElemsBtn" onclick="createRowElements()">📐 Create all as Figma elements</button>
-          <div class="create-ok" id="createOk"></div>
         </div>
       </div>
     </div>
@@ -661,10 +719,20 @@
 
 <!-- Processing overlay -->
 <div class="processing-overlay" id="procOverlay">
-  <div class="proc-ring"></div>
-  <div style="text-align:center">
-    <div class="proc-label" id="procLabel">Injecting</div>
-    <div class="proc-sub"   id="procSub"></div>
+  <!-- spinner state -->
+  <div id="procSpinner" style="display:flex;flex-direction:column;align-items:center;gap:20px">
+    <div class="proc-ring"></div>
+    <div style="text-align:center">
+      <div class="proc-label" id="procLabel">Injecting</div>
+      <div class="proc-sub"   id="procSub"></div>
+    </div>
+  </div>
+  <!-- result state -->
+  <div id="procResult" style="display:none;flex-direction:column;align-items:center;gap:16px;width:100%;padding:0 24px">
+    <div class="proc-result-icon" id="procResultIcon">✓</div>
+    <div class="proc-label" id="procResultTitle">Done</div>
+    <div class="proc-result-stats" id="procResultStats"></div>
+    <button class="proc-ok-btn" onclick="dismissInjectResult()">OK</button>
   </div>
 </div>
 
@@ -675,6 +743,41 @@
 
 <script>
 var serverUrl    = 'https://smartico-bridge-production.up.railway.app';
+
+// Convert any image URL → PNG bytes via canvas.
+// Figma's createImage() only accepts JPEG and PNG — WebP/AVIF/etc. will fail.
+// We fetch through our proxy (CORS), draw to canvas, export as PNG.
+async function fetchImageAsPng(imageUrl) {
+  var proxyUrl = serverUrl + '/api/proxy-image?url=' + encodeURIComponent(imageUrl);
+  var res = await fetch(proxyUrl);
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  var blob = await res.blob();
+  return new Promise(function(resolve, reject) {
+    var img    = new Image();
+    var objUrl = URL.createObjectURL(blob);
+    img.onload = function() {
+      try {
+        var canvas = document.createElement('canvas');
+        canvas.width  = img.naturalWidth  || 256;
+        canvas.height = img.naturalHeight || 256;
+        var ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+        URL.revokeObjectURL(objUrl);
+        canvas.toBlob(function(pngBlob) {
+          if (!pngBlob) { reject(new Error('canvas export failed')); return; }
+          pngBlob.arrayBuffer().then(function(buf) {
+            resolve(Array.from(new Uint8Array(buf)));
+          }).catch(reject);
+        }, 'image/png');
+      } catch (err) { reject(err); }
+    };
+    img.onerror = function() {
+      URL.revokeObjectURL(objUrl);
+      reject(new Error('Image load failed'));
+    };
+    img.src = objUrl;
+  });
+}
 var allDatasets  = [];
 var activeDataset = null;
 var hiddenCardIds = new Set(); // dataset IDs hidden from the active list
@@ -682,10 +785,12 @@ var dsFilter = 'active'; // 'active' | 'hidden'
 var scannedRefs  = [];
 var scannedGroups = [];
 var openGroups   = {};
-var figmaSel     = [];
-var lastSelKey   = '';
-var pollTimer    = null;
-var POLL_MS      = 4000;
+var figmaSel       = [];
+var lastSelKey     = '';
+var pollTimer      = null;
+var POLL_MS        = 4000;
+var _lastImageStats   = null; // { total, fetched, errors } — shown in inject-result banner
+var _ceImgFetchErrors = null; // image fetch errors from createRowElements
 var autoScanT    = null;
 
 connect();
@@ -1135,6 +1240,9 @@ function renderRefList() {
 function showProcessing(label, sub) {
   document.getElementById('procLabel').textContent = label || 'Injecting…';
   document.getElementById('procSub').textContent   = sub   || '';
+  // Ensure spinner is visible, result is hidden
+  document.getElementById('procSpinner').style.display = 'flex';
+  document.getElementById('procResult').style.display  = 'none';
   // Hide all panels so only the overlay is visible
   ['panel-data','panel-assets','panel-casino'].forEach(function(id) {
     var el = document.getElementById(id);
@@ -1156,6 +1264,36 @@ function hideProcessing() {
       show('previewSection'); show('selSection'); show('refsSection'); show('injectBar');
     }
   }, 350);
+}
+function showInjectResult(msg, imgStats) {
+  // Switch overlay from spinner → result panel
+  document.getElementById('procSpinner').style.display = 'none';
+  document.getElementById('procResult').style.display  = 'flex';
+
+  var hasWarning = (msg.errors && msg.errors.length) || (imgStats && imgStats.errors && imgStats.errors.length);
+  document.getElementById('procResultIcon').textContent  = hasWarning ? '⚠' : '✓';
+  document.getElementById('procResultTitle').textContent = hasWarning ? 'Done with warnings' : 'Injected!';
+
+  var rows = '';
+  function statRow(label, val, cls) {
+    return '<div class="proc-stat-row"><span>' + label + '</span>' +
+           '<span class="proc-stat-val ' + (cls || '') + '">' + val + '</span></div>';
+  }
+  rows += statRow('Layers updated', msg.count + ' / ' + msg.total, msg.count === msg.total ? 'ok' : 'warn');
+  if (imgStats && imgStats.total > 0) {
+    var imgOk = imgStats.fetched + ' / ' + imgStats.total;
+    rows += statRow('Images injected', imgOk, imgStats.fetched === imgStats.total ? 'ok' : 'warn');
+    if (imgStats.errors && imgStats.errors.length) {
+      rows += statRow('Image errors', imgStats.errors.length, 'warn');
+    }
+  }
+  if (msg.errors && msg.errors.length) {
+    rows += statRow('Layer errors', msg.errors.length, 'warn');
+  }
+  document.getElementById('procResultStats').innerHTML = rows;
+}
+function dismissInjectResult() {
+  hideProcessing();
 }
 
 async function inject() {
@@ -1207,9 +1345,20 @@ async function inject() {
         values[ref] = rtVal !== undefined && rtVal !== null ? rtVal : '';
         continue;
       }
+      // 1. Exact match (case-insensitive)
       var matchedCol = null;
       for (var c = 0; c < headers.length; c++) {
         if (headers[c].toLowerCase() === colName) { matchedCol = headers[c]; break; }
+      }
+      // 2. Prefix/suffix fuzzy match — so #avatar.1 also matches avatar_image,
+      //    and #prize.1 also matches prize_amount etc.
+      if (!matchedCol) {
+        for (var c2 = 0; c2 < headers.length; c2++) {
+          var hl = headers[c2].toLowerCase();
+          if (hl.indexOf(colName) === 0 || hl.slice(-(colName.length)) === colName) {
+            matchedCol = headers[c2]; break;
+          }
+        }
       }
       if (!matchedCol || rowIdx < 0 || rowIdx >= rows.length) continue;
       var val = rows[rowIdx][matchedCol];
@@ -1218,18 +1367,20 @@ async function inject() {
         imagesToFetch.push({ ref: ref, url: val });
       }
     }
+    var fetchedCount = 0;
+    var fetchErrors  = [];
     showProcessing('Loading images…', imagesToFetch.length + ' to fetch');
     for (var f = 0; f < imagesToFetch.length; f++) {
       try {
-        // Route through the server proxy to avoid CORS restrictions in the plugin iframe.
-        var proxyUrl = serverUrl + '/api/proxy-image?url=' + encodeURIComponent(imagesToFetch[f].url);
-        var res = await fetch(proxyUrl);
-        if (res.ok) {
-          var buf = await res.arrayBuffer();
-          imageMap[imagesToFetch[f].ref] = Array.from(new Uint8Array(buf));
-        }
-      } catch (_) {}
+        // Fetch via proxy and convert to PNG via canvas.
+        // Figma createImage() only supports JPEG/PNG — WebP/AVIF will fail otherwise.
+        imageMap[imagesToFetch[f].ref] = await fetchImageAsPng(imagesToFetch[f].url);
+        fetchedCount++;
+      } catch (fe) {
+        fetchErrors.push(imagesToFetch[f].ref + ': ' + fe.message);
+      }
     }
+    _lastImageStats = { total: imagesToFetch.length, fetched: fetchedCount, errors: fetchErrors };
     showProcessing('Injecting into Figma…', scannedRefs.length + ' layer ref(s)');
     parent.postMessage({ pluginMessage: { type: 'inject-refs', values: values, imageMap: imageMap } }, '*');
   } catch (e) {
@@ -1287,13 +1438,9 @@ window.onmessage = function(event) {
   }
 
   if (msg.type === 'rename-result') {
-    var btn2 = document.getElementById('bindBtn');
-    if (btn2) btn2.disabled = false;
     if (msg.ok) {
       if (figmaSel.length) figmaSel[0].name = msg.newName;
       updateSelBox();
-      var okEl = document.getElementById('bindOk');
-      if (okEl) { okEl.textContent = '✓ Renamed to ' + msg.newName; okEl.style.display = 'block'; }
     } else {
       showBanner('Rename failed: ' + (msg.error || 'unknown error'), 'err');
     }
@@ -1307,22 +1454,28 @@ window.onmessage = function(event) {
     if (msg.ok) {
       var errs  = msg.errors && msg.errors.length;
       var ceMsg = '✓ Created ' + msg.count + ' element(s)';
-      if (errs) ceMsg += ' · ⚠ ' + errs + ' issue(s)';
+      if (errs) ceMsg += ' · ⚠ ' + msg.errors.slice(0, 2).join(', ');
+      if (_ceImgFetchErrors && _ceImgFetchErrors.length)
+        ceMsg += ' · 🖼 image fetch failed: ' + _ceImgFetchErrors.join(', ');
       if (ceOk) { ceOk.textContent = ceMsg; ceOk.classList.add('show'); }
     } else {
       showBanner('Create failed: ' + (msg.error || 'unknown error'), 'err');
     }
+    _ceImgFetchErrors = null;
     return;
   }
 
   if (msg.type === 'inject-result') {
-    hideProcessing();
-    updateInjectBtn(); // restores correct enabled/disabled state based on selection
-    if (!msg.ok) { showBanner('✕ ' + msg.error, 'err'); return; }
-    var errs = (msg.errors || []).length;
-    var txt  = '✓ Injected ' + msg.count + ' of ' + msg.total + ' layer(s)';
-    if (errs) txt += ' · ⚠ ' + errs + ' warning(s)';
-    showBanner(txt, errs ? 'info' : 'ok');
+    updateInjectBtn();
+    if (!msg.ok) {
+      hideProcessing();
+      showBanner('✕ ' + msg.error, 'err');
+      return;
+    }
+    // Switch overlay to result view
+    var imgStats = _lastImageStats;
+    _lastImageStats = null;
+    showInjectResult(msg, imgStats);
   }
 
   if (msg.type === 'save-asset-result') {
@@ -1344,6 +1497,12 @@ window.onmessage = function(event) {
 };
 
 // ── Bind layer ────────────────────────────────────────────────────────────────
+var _bindListCollapsed = false;
+function toggleBindList() {
+  _bindListCollapsed = !_bindListCollapsed;
+  var ri = document.getElementById('bindRowInfo');
+  if (ri) ri.classList.toggle('bind-list-collapsed', _bindListCollapsed);
+}
 var bindRowIndex  = null;
 var bindRowSource = null;
 var bindColName   = null;
@@ -1353,13 +1512,6 @@ function refreshBindSection() {
   // Only show the bind panel after a row has been clicked in the preview table
   show('bindSection', hasDataset && bindRowIndex !== null);
   if (!hasDataset) return;
-  document.getElementById('bindOk').style.display = 'none';
-  var lbl = document.getElementById('bindColsLabel');
-  if (lbl) {
-    lbl.textContent = figmaSel.length === 1
-      ? 'Pick a column to rename the selected layer:'
-      : 'Pick a column to preview its ref name:';
-  }
   renderBindRowPanel();
 }
 
@@ -1381,70 +1533,66 @@ function renderBindRowPanel() {
   if (bindRowIndex === null) { hint.style.display = ''; rowInfo.style.display = 'none'; return; }
   hint.style.display = 'none'; rowInfo.style.display = '';
   document.getElementById('bindRowVal').textContent = 'Row ' + bindRowIndex;
-  document.getElementById('bindRowSrc').textContent = bindRowSource === 'rules' ? 'rule data' : 'winners data';
-  var chips = '';
+  document.getElementById('bindRowSrc').textContent = bindRowSource === 'rules' ? 'rule data' : 'raw data';
+
+  var rows    = '';
+  var IMAGE_URL = /\.(jpe?g|png|gif|webp|svg|bmp|ico|avif)(\?.*)?$/i;
+  var IMAGE_COL = /image|img|photo|pic|avatar|logo|banner|thumb|icon/i;
+
   if (bindRowSource === 'rules') {
     var rt   = (activeDataset && activeDataset.ruleTable) ? activeDataset.ruleTable : [];
     var rRow = rt[bindRowIndex - 1] || {};
     ['RULE', 'TOTALS'].forEach(function(col) {
       var val    = rRow[col] !== undefined ? String(rRow[col]) : '—';
       var active = col === bindColName ? ' active' : '';
-      chips += '<span class="bind-col-chip' + active + '" onclick="selectBindCol(\'' + col + '\')">' +
-               col.toLowerCase() + ' <span style="color:var(--muted)">→ ' + esc(trunc(val, 14)) + '</span></span>';
+      rows += '<div class="bind-layer-row' + active + '" onclick="selectBindCol(\'' + jsEsc(col) + '\')">' +
+              '<div class="bind-layer-type text">T</div>' +
+              '<div class="bind-layer-name">' + esc(col.toLowerCase()) + '</div>' +
+              '<div style="font-size:10px;color:#555;flex-shrink:0;max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(trunc(val, 12)) + '</div>' +
+              '</div>';
     });
   } else {
-    var rows    = (activeDataset && activeDataset.rows)    ? activeDataset.rows    : [];
+    var rowList = (activeDataset && activeDataset.rows)    ? activeDataset.rows    : [];
     var headers = (activeDataset && activeDataset.headers) ? activeDataset.headers : [];
-    var dRow    = rows[bindRowIndex - 1] || {};
+    var dRow    = rowList[bindRowIndex - 1] || {};
     headers.forEach(function(h) {
       var val    = dRow[h] !== undefined ? String(dRow[h]) : '—';
       var active = h === bindColName ? ' active' : '';
       var lh     = h.toLowerCase();
-      var isImg  = val.indexOf('http') === 0 && (
-        lh.indexOf('avatar') !== -1 || lh.indexOf('image') !== -1 ||
-        val.match(/\.(jpg|jpeg|png|webp|gif)(\?|$)/i)
-      );
-      if (isImg) {
-        var isCircle = lh.indexOf('avatar') !== -1;
-        chips += '<div class="bind-img-chip' + active + '" onclick="selectBindCol(\'' + jsEsc(h) + '\')">' +
-                   '<img class="bind-img-thumb' + (isCircle ? '' : ' rect') + '" src="' + esc(val) + '" onerror="this.style.opacity=\'0.3\'">' +
-                   '<span class="bind-img-label">' + esc(h) + '</span>' +
-                 '</div>';
-      } else {
-        chips += '<span class="bind-col-chip' + active + '" onclick="selectBindCol(\'' + jsEsc(h) + '\')">' +
-                 esc(h) + ' <span style="color:var(--muted)">→ ' + esc(trunc(val, 14)) + '</span></span>';
-      }
+      var isImg  = typeof val === 'string' && val.indexOf('http') === 0 &&
+                   (IMAGE_COL.test(lh) || IMAGE_URL.test(val));
+      var typeClass = isImg ? 'img' : 'text';
+      var typeLabel = isImg ? '▣' : 'T';
+      var nameClass = isImg ? 'bind-layer-name img-col' : 'bind-layer-name';
+      var preview   = isImg
+        ? '<img src="' + esc(val) + '" style="width:18px;height:18px;object-fit:cover;border-radius:3px;flex-shrink:0;margin-left:4px" onerror="this.style.display=\'none\'">'
+        : '<div style="font-size:10px;color:#555;flex-shrink:0;max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(trunc(val, 12)) + '</div>';
+      rows += '<div class="bind-layer-row' + active + '" onclick="selectBindCol(\'' + jsEsc(h) + '\')">' +
+              '<div class="bind-layer-type ' + typeClass + '">' + typeLabel + '</div>' +
+              '<div class="' + nameClass + '">' + esc(h) + '</div>' +
+              preview +
+              '</div>';
     });
   }
-  document.getElementById('bindCols').innerHTML = chips;
+
+  document.getElementById('bindCols').innerHTML = rows || '<div style="font-size:10px;color:#555;padding:8px 22px">No columns</div>';
   updateBindPreview();
 }
 
 function selectBindCol(colName) {
   bindColName = colName;
-  document.querySelectorAll('.bind-col-chip, .bind-img-chip').forEach(function(c){ c.classList.remove('active'); });
   renderBindRowPanel();
   updateBindPreview();
   if (figmaSel.length && bindRowIndex !== null) bindLayer();
 }
 
 function updateBindPreview() {
-  var prev = document.getElementById('bindPreview');
-  var btn  = document.getElementById('bindBtn');
-  if (!prev) return;
-  if (!bindColName || bindRowIndex === null) {
-    prev.textContent = '#column.row'; prev.className = 'bind-preview empty';
-    if (btn) btn.disabled = true; return;
-  }
-  var name = '#' + bindColName.toLowerCase().replace(/\s+/g, '_') + '.' + bindRowIndex;
-  prev.textContent = name; prev.className = 'bind-preview';
-  if (btn) btn.disabled = false;
+  // Ref preview element removed — nothing to update
 }
 
 function bindLayer() {
   if (!figmaSel.length || bindColName === null || bindRowIndex === null) return;
   var newName = '#' + bindColName.toLowerCase().replace(/\s+/g, '_') + '.' + bindRowIndex;
-  document.getElementById('bindBtn').disabled = true;
   parent.postMessage({ pluginMessage: { type: 'rename-node', nodeId: figmaSel[0].id, newName: newName } }, '*');
 }
 
@@ -1479,16 +1627,21 @@ async function createRowElements() {
     }
   }
   if (ceBtn) ceBtn.textContent = '⟳ Fetching images…';
+  var imgFetchErrors = [];
   for (var j = 0; j < columns.length; j++) {
     var col = columns[j];
     if (!col.isImage || !col.value) continue;
     var safeName = col.name.toLowerCase().replace(/[^a-z0-9_]/g, '_');
     var imgKey   = safeName + '.' + bindRowIndex;
     try {
-      var resp = await fetch(serverUrl + '/api/proxy-image?url=' + encodeURIComponent(col.value));
-      if (resp.ok) { var buf = await resp.arrayBuffer(); imageMap[imgKey] = Array.from(new Uint8Array(buf)); }
-    } catch (_) {}
+      // Convert to PNG via canvas — Figma createImage() doesn't support WebP/AVIF.
+      imageMap[imgKey] = await fetchImageAsPng(col.value);
+    } catch (fe) {
+      imgFetchErrors.push(col.name + ': ' + fe.message);
+      col.imageFailed = true;
+    }
   }
+  _ceImgFetchErrors = imgFetchErrors.length ? imgFetchErrors : null;
   if (ceBtn) ceBtn.textContent = '⟳ Creating…';
   parent.postMessage({ pluginMessage: {
     type: 'create-row-elements', columns: columns, rowIndex: bindRowIndex, imageMap: imageMap,

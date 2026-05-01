@@ -464,7 +464,7 @@ figma.ui.onmessage = async function(msg) {
     frame.itemSpacing             = 16;
     frame.paddingTop = frame.paddingBottom = 16;
     frame.paddingLeft = frame.paddingRight = 20;
-    frame.fills                   = [];       // transparent background
+    frame.fills                   = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 }, opacity: 1 }]; // white background
 
     var created = 0;
     var errors  = [];
@@ -564,6 +564,7 @@ figma.ui.onmessage = async function(msg) {
       try { out.opacity   = node.opacity;   } catch(_) {}
       try { out.blendMode = node.blendMode; } catch(_) {}
       try { out.locked    = node.locked;    } catch(_) {}
+      try { out.isMask    = node.isMask;    } catch(_) {}
 
       // ── Fills, strokes, effects ───────────────────────────────────────────
       try { out.fills = safeJson(node.fills) || []; } catch(_) {}
@@ -704,9 +705,11 @@ figma.ui.onmessage = async function(msg) {
       }
 
       // ── Children ──────────────────────────────────────────────────────────
-      // Don't descend into INSTANCE children — we'll handle those at restore
-      // time by creating a real instance from the component.
-      if ('children' in node && node.type !== 'INSTANCE') {
+      // For INSTANCE nodes we still capture children so that text/fill/size
+      // overrides on component children are preserved.  At restore time we
+      // do NOT create new child nodes; instead we walk the instance's existing
+      // children by name and apply the stored overrides.
+      if ('children' in node) {
         try {
           if (node.children.length) {
             out.children = [];
@@ -767,6 +770,7 @@ figma.ui.onmessage = async function(msg) {
           }
           if (n.fontName && n.fontName.family) fontMap[n.fontName.family + '::' + n.fontName.style] = n.fontName;
         }
+        // Descend into all children — including instance children (now serialised)
         if (n.children) collectFonts(n.children);
       }
     }
@@ -791,24 +795,94 @@ figma.ui.onmessage = async function(msg) {
     function applyPositionAndTransform(node, def) {
       if (def.relativeTransform) {
         var rt = def.relativeTransform;
-        // Always prefer the full relativeTransform matrix over x/y.
-        // For non-rotated nodes these are equivalent, but for VECTOR nodes the
-        // bbox position (x/y) can shift after setVectorPaths+resize while the
-        // matrix tx/ty stays anchored at the original pivot — so using the
-        // matrix is more reliable in all cases.
+        var a = rt[0][0], b = rt[0][1], tx = rt[0][2];
+        var c = rt[1][0], d = rt[1][1], ty = rt[1][2];
+
+        // For INSTANCE nodes the size is already set via resizeWithoutConstraints,
+        // so we must NOT apply any scale from the transform matrix — that would
+        // double-scale the node.  Strip scale: extract the rotation angle from the
+        // column-vector directions and rebuild a pure rotation+translation matrix.
+        if (node.type === 'INSTANCE') {
+          var angle = Math.atan2(c, a); // rotation angle in radians
+          var cos = Math.cos(angle), sin = Math.sin(angle);
+          try {
+            node.relativeTransform = [[cos, -sin, tx], [sin, cos, ty]];
+            return;
+          } catch(_) {}
+          try { node.x = tx; node.y = ty; } catch(_) {}
+          try { if (angle !== 0) node.rotation = -(angle * 180 / Math.PI); } catch(_) {}
+          return;
+        }
+
+        // All other node types: apply the full stored matrix.
         try {
-          node.relativeTransform = [[rt[0][0], rt[0][1], rt[0][2]], [rt[1][0], rt[1][1], rt[1][2]]];
+          node.relativeTransform = [[a, b, tx], [c, d, ty]];
           return;
         } catch(_) {
-          // Setter unavailable on this node (auto-layout child in flow) — fall through
+          // Setter unavailable (auto-layout child in flow) — fall through
           try { if (typeof def.rotation === 'number' && def.rotation !== 0) node.rotation = def.rotation; } catch(_) {}
         }
       } else if (typeof def.rotation === 'number' && def.rotation !== 0) {
         try { node.rotation = def.rotation; } catch(_) {}
       }
-      // Fallback: plain x/y (no relativeTransform stored, or setter threw above)
+      // Fallback: plain x/y
       try { if (typeof def.x === 'number') node.x = def.x; } catch(_) {}
       try { if (typeof def.y === 'number') node.y = def.y; } catch(_) {}
+    }
+
+    // applyInstanceChildOverrides — walk an instance's live children and apply
+    // property overrides stored in defChildren, matched by name recursively.
+    // Conservative: only text content, fills, visibility — never position or
+    // size (the component controls layout; fighting it breaks things).
+    async function applyInstanceChildOverrides(liveChildren, defChildren) {
+      for (var di = 0; di < defChildren.length; di++) {
+        var childDef = defChildren[di];
+        var match = null;
+        for (var li = 0; li < liveChildren.length; li++) {
+          if (liveChildren[li].name === childDef.name) { match = liveChildren[li]; break; }
+        }
+        if (!match) continue;
+
+        // Visibility + opacity
+        if (childDef.visible === false && 'visible' in match) { try { match.visible = false; } catch(_) {} }
+        if (typeof childDef.opacity === 'number' && 'opacity' in match) { try { match.opacity = childDef.opacity; } catch(_) {} }
+
+        // Fills + effects (colour overrides)
+        if (childDef.fills != null && 'fills' in match) { try { match.fills = childDef.fills; } catch(_) {} }
+        if (childDef.effects != null && 'effects' in match && childDef.effects.length) { try { match.effects = childDef.effects; } catch(_) {} }
+
+        // Text content overrides — font, size, characters, segments
+        if (match.type === 'TEXT' && childDef.type === 'TEXT') {
+          var pFont = (childDef.fontName && childDef.fontName.family) ? childDef.fontName : fallbackFont;
+          var pSize = (typeof childDef.fontSize === 'number' && childDef.fontSize > 0) ? childDef.fontSize : 14;
+          try { match.fontName = pFont; } catch(_) {}
+          try { match.fontSize = pSize; } catch(_) {}
+          try { match.characters = childDef.characters || ''; } catch(_) {}
+          try { if (childDef.textCase)      match.textCase      = childDef.textCase;      } catch(_) {}
+          try { if (childDef.letterSpacing) match.letterSpacing = childDef.letterSpacing; } catch(_) {}
+          try { if (childDef.lineHeight)    match.lineHeight    = childDef.lineHeight;    } catch(_) {}
+          if (childDef.textSegments && childDef.textSegments.length >= 1) {
+            for (var tsgi = 0; tsgi < childDef.textSegments.length; tsgi++) {
+              var tseg = childDef.textSegments[tsgi];
+              if (tseg.start >= tseg.end) continue;
+              try { if (tseg.fontName && tseg.fontName.family) match.setRangeFontName(tseg.start, tseg.end, tseg.fontName); } catch(_) {}
+              try { if (typeof tseg.fontSize === 'number') match.setRangeFontSize(tseg.start, tseg.end, tseg.fontSize); } catch(_) {}
+              try { if (tseg.fills && tseg.fills.length) match.setRangeFills(tseg.start, tseg.end, tseg.fills); } catch(_) {}
+              try { if (tseg.textCase      != null) match.setRangeTextCase(tseg.start, tseg.end, tseg.textCase); } catch(_) {}
+              try { if (tseg.letterSpacing != null) match.setRangeLetterSpacing(tseg.start, tseg.end, tseg.letterSpacing); } catch(_) {}
+              try { if (tseg.lineHeight    != null) match.setRangeLineHeight(tseg.start, tseg.end, tseg.lineHeight); } catch(_) {}
+              try { if (tseg.textDecoration) match.setRangeTextDecoration(tseg.start, tseg.end, tseg.textDecoration); } catch(_) {}
+            }
+          }
+          try { if (childDef.textAlignHorizontal) match.textAlignHorizontal = childDef.textAlignHorizontal; } catch(_) {}
+          try { if (childDef.textAlignVertical)   match.textAlignVertical   = childDef.textAlignVertical;   } catch(_) {}
+        }
+
+        // Recurse into nested children
+        if (childDef.children && childDef.children.length && 'children' in match) {
+          await applyInstanceChildOverrides(match.children, childDef.children);
+        }
+      }
     }
 
     // restoreNode(def, parent, skipPosition)
@@ -887,6 +961,13 @@ figma.ui.onmessage = async function(msg) {
             var master = figma.getNodeById(def.componentId);
             if (master && master.type === 'COMPONENT') {
               node = master.createInstance();
+              // Immediately size the instance via resizeWithoutConstraints —
+              // this bypasses constrainProportions, auto-layout sizing modes,
+              // and any component-level constraints.  We do it RIGHT HERE
+              // before append so the node has correct dimensions from the start.
+              if (def.width > 0 && def.height > 0) {
+                try { node.resizeWithoutConstraints(def.width, def.height); } catch(_) {}
+              }
             }
           } catch(_) {}
         }
@@ -927,6 +1008,22 @@ figma.ui.onmessage = async function(msg) {
           parent.appendChild(node);
         }
 
+        // ── Auto-layout child role — set IMMEDIATELY after append ──────────
+        // This MUST happen before resize/position.  If the parent has auto-layout
+        // and this child is 'ABSOLUTE', the auto-layout engine will otherwise
+        // override our resize() and relativeTransform calls made below.
+        // Setting ABSOLUTE first opts the child out of flow management so all
+        // subsequent size and position calls land correctly.
+        if (def.layoutPositioning != null && 'layoutPositioning' in node) {
+          try { node.layoutPositioning = def.layoutPositioning; } catch(_) {}
+        }
+        if (def.layoutAlign != null && 'layoutAlign' in node) {
+          try { node.layoutAlign = def.layoutAlign; } catch(_) {}
+        }
+        if (def.layoutGrow != null && 'layoutGrow' in node) {
+          try { node.layoutGrow = def.layoutGrow; } catch(_) {}
+        }
+
         // ── Size ─────────────────────────────────────────────────────────
         // VECTOR: set paths first (they establish the geometry), then resize.
         // INSTANCE: disable proportional lock so both axes scale independently.
@@ -941,15 +1038,17 @@ figma.ui.onmessage = async function(msg) {
             }
           }
         } else if (def.type !== 'TEXT' && def.type !== 'LINE' && def.width > 0 && def.height > 0) {
-          if (def.type === 'INSTANCE') {
-            // Components may have constrainProportions=true or fixed sizing;
-            // clear both so the explicit width × height is honoured exactly.
-            try { node.constrainProportions = false; } catch(_) {}
-            try { node.primaryAxisSizingMode  = 'FIXED'; } catch(_) {}
-            try { node.counterAxisSizingMode  = 'FIXED'; } catch(_) {}
-          }
-          try { node.resize(def.width, def.height); } catch(_) {
-            try { node.resizeWithoutConstraints(def.width, def.height); } catch(_) {}
+          if (def.type !== 'INSTANCE') {
+            // INSTANCE was already sized above via resizeWithoutConstraints.
+            // All other node types: resize now.
+            try { node.resize(def.width, def.height); } catch(_) {
+              try { node.resizeWithoutConstraints(def.width, def.height); } catch(_) {}
+            }
+          } else if (node && node.type !== 'INSTANCE') {
+            // Component wasn't found — node is a plain FRAME fallback; resize it.
+            try { node.resize(def.width, def.height); } catch(_) {
+              try { node.resizeWithoutConstraints(def.width, def.height); } catch(_) {}
+            }
           }
         }
 
@@ -962,6 +1061,7 @@ figma.ui.onmessage = async function(msg) {
         if (typeof def.opacity   === 'number' && 'opacity'   in node) { try { node.opacity   = def.opacity;   } catch(_) {} }
         if (typeof def.blendMode === 'string' && 'blendMode' in node) { try { node.blendMode = def.blendMode; } catch(_) {} }
         if (def.visible === false && 'visible' in node)                { try { node.visible   = false;         } catch(_) {} }
+        if (def.isMask  === true  && 'isMask'  in node)                { try { node.isMask    = true;          } catch(_) {} }
 
         // ── Corner radius ─────────────────────────────────────────────────
         if (typeof def.cornerRadius === 'number' && 'cornerRadius' in node) {
@@ -973,21 +1073,6 @@ figma.ui.onmessage = async function(msg) {
             node.bottomLeftRadius  = def.bottomLeftRadius  || 0;
             node.bottomRightRadius = def.bottomRightRadius || 0;
           } catch(_) {}
-        }
-
-        // ── Auto-layout child role ────────────────────────────────────────
-        // MUST be set BEFORE position — 'ABSOLUTE' opts the child out of the
-        // parent's auto-layout flow so the manual x/y below takes effect.
-        // Without this, absolute-positioned children land in the flow and
-        // get wrong positions and sizes.
-        if (def.layoutPositioning != null && 'layoutPositioning' in node) {
-          try { node.layoutPositioning = def.layoutPositioning; } catch(_) {}
-        }
-        if (def.layoutAlign != null && 'layoutAlign' in node) {
-          try { node.layoutAlign = def.layoutAlign; } catch(_) {}
-        }
-        if (def.layoutGrow != null && 'layoutGrow' in node) {
-          try { node.layoutGrow = def.layoutGrow; } catch(_) {}
         }
 
         // ── Auto-layout (frame-level) ─────────────────────────────────────
@@ -1021,25 +1106,27 @@ figma.ui.onmessage = async function(msg) {
 
         // ── Text ──────────────────────────────────────────────────────────
         if (def.type === 'TEXT') {
-          // Primary font/size must be set BEFORE characters
+          // Safe order:
+          //   1. font + size
+          //   2. characters (node defaults to HEIGHT auto-resize, box expands to fit)
+          //   3. per-segment overrides
+          //   4. alignment + paragraph props
+          //   5. textAutoResize — set AFTER characters so the box has already grown
+          //   6. if mode is NONE, force exact stored dimensions (box is now fixed)
           var primaryFont = (def.fontName && def.fontName.family) ? def.fontName : fallbackFont;
           var primarySize = (typeof def.fontSize === 'number' && def.fontSize > 0) ? def.fontSize : 14;
           try { node.fontName = primaryFont; } catch(_) { try { node.fontName = fallbackFont; } catch(_) {} }
           try { node.fontSize = primarySize; } catch(_) {}
           try { node.characters = def.characters || ''; } catch(_) {}
 
-          // Node-level text style properties — applied before per-segment overrides
-          // so they act as the default for the whole node.
-          // textCase (UPPER/LOWER/TITLE/ORIGINAL) must be set even for single-style
-          // text — this is the all-caps / small-caps transform.
+          // Node-level text style
           try { if (def.textCase)       node.textCase       = def.textCase;       } catch(_) {}
           try { if (def.letterSpacing)  node.letterSpacing  = def.letterSpacing;  } catch(_) {}
           try { if (def.lineHeight)     node.lineHeight     = def.lineHeight;     } catch(_) {}
           try { if (def.paragraphSpacing != null) node.paragraphSpacing = def.paragraphSpacing; } catch(_) {}
           try { if (def.paragraphIndent  != null) node.paragraphIndent  = def.paragraphIndent;  } catch(_) {}
 
-          // Per-segment overrides — covers mixed fonts, sizes, colours, textCase etc.
-          // Run for ANY number of segments (>= 1), not just mixed (> 1).
+          // Per-segment overrides
           if (def.textSegments && def.textSegments.length >= 1) {
             for (var sgi = 0; sgi < def.textSegments.length; sgi++) {
               var seg = def.textSegments[sgi];
@@ -1047,7 +1134,6 @@ figma.ui.onmessage = async function(msg) {
               try { if (seg.fontName && seg.fontName.family) node.setRangeFontName(seg.start, seg.end, seg.fontName); } catch(_) {}
               try { if (typeof seg.fontSize === 'number' && seg.fontSize > 0) node.setRangeFontSize(seg.start, seg.end, seg.fontSize); } catch(_) {}
               try { if (seg.fills && seg.fills.length) node.setRangeFills(seg.start, seg.end, seg.fills); } catch(_) {}
-              // textCase — null-check, not truthiness, so 'ORIGINAL' (falsy?) still applies
               try { if (seg.textCase      != null) node.setRangeTextCase(seg.start, seg.end, seg.textCase); } catch(_) {}
               try { if (seg.letterSpacing != null) node.setRangeLetterSpacing(seg.start, seg.end, seg.letterSpacing); } catch(_) {}
               try { if (seg.lineHeight    != null) node.setRangeLineHeight(seg.start, seg.end, seg.lineHeight); } catch(_) {}
@@ -1057,13 +1143,28 @@ figma.ui.onmessage = async function(msg) {
 
           try { if (def.textAlignHorizontal) node.textAlignHorizontal = def.textAlignHorizontal; } catch(_) {}
           try { if (def.textAlignVertical)   node.textAlignVertical   = def.textAlignVertical;   } catch(_) {}
-          try { if (def.textAutoResize)      node.textAutoResize      = def.textAutoResize;      } catch(_) {}
+
+          // Apply resize mode last — after content is set so the box has correct dimensions.
+          // For NONE (fixed box), also force the stored width × height.
+          try { if (def.textAutoResize) node.textAutoResize = def.textAutoResize; } catch(_) {}
+          if (def.textAutoResize === 'NONE' && def.width > 0 && def.height > 0) {
+            try { node.resize(def.width, def.height); } catch(_) {
+              try { node.resizeWithoutConstraints(def.width, def.height); } catch(_) {}
+            }
+          }
         }
 
-        // ── Children (skip for INSTANCE — the component handles its own children) ──
-        if (def.children && def.children.length && 'children' in node && node.type !== 'INSTANCE') {
-          for (var ci = 0; ci < def.children.length; ci++) {
-            await restoreNode(def.children[ci], node);
+        // ── Children ──────────────────────────────────────────────────────────
+        if (def.children && def.children.length && 'children' in node) {
+          if (node.type === 'INSTANCE') {
+            // INSTANCE: children already exist (created by the component).
+            // We cannot add/remove them, but we CAN apply overrides by matching
+            // stored child defs to live children by name, recursively.
+            await applyInstanceChildOverrides(node.children, def.children);
+          } else {
+            for (var ci = 0; ci < def.children.length; ci++) {
+              await restoreNode(def.children[ci], node);
+            }
           }
         }
 

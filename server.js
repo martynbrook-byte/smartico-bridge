@@ -1620,6 +1620,7 @@ app.get('/api/settings', async (_req, res) => {
 
 // Export full settings as a downloadable JSON file — use as a manual backup
 // before committing so you can restore without rebuilding rules/mappings.
+// Includes the full asset library (nodes + preview images + type summaries).
 app.get('/api/settings/export', async (_req, res) => {
   try {
     const [s, pipelines] = await Promise.all([readSettings(), listPipelines()]);
@@ -1627,10 +1628,19 @@ app.get('/api/settings/export', async (_req, res) => {
     const fullPipelines = await Promise.all(
       pipelines.map(p => getPipeline(p.id).catch(() => null))
     ).then(ps => ps.filter(Boolean));
+    // Fetch full asset records (including nodes tree and preview images)
+    let fullAssets = [];
+    try {
+      const assetFiles = (await fsp.readdir(ASSETS_DIR)).filter(f => f.endsWith('.json'));
+      fullAssets = (await Promise.all(
+        assetFiles.map(f => fsp.readFile(path.join(ASSETS_DIR, f), 'utf8')
+          .then(raw => JSON.parse(raw)).catch(() => null))
+      )).filter(Boolean);
+    } catch (_) {}
     const stamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-');
     res.setHeader('Content-Disposition', `attachment; filename="smartico-backup-${stamp}.json"`);
     res.setHeader('Content-Type', 'application/json');
-    res.send(JSON.stringify({ settings: s, pipelines: fullPipelines }, null, 2));
+    res.send(JSON.stringify({ settings: s, pipelines: fullPipelines, assets: fullAssets }, null, 2));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

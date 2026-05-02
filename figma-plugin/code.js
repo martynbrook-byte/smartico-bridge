@@ -61,6 +61,46 @@ var REF_PATTERN = /^#{1,2}([a-zA-Z0-9_]+)\.(\d+)$/;
 // ## prefix = component swap, single # = text/image/variant (default behaviour)
 var FRAMEY_TYPES = { FRAME: 1, COMPONENT: 1, COMPONENT_SET: 1, INSTANCE: 1, SECTION: 1, GROUP: 1 };
 
+// ── Component index cache ────────────────────────────────────────────────────
+// Two caches: one per-page ('page' scope) and one for the full document.
+// Each is invalidated when the active page changes.
+var _compCachePage = null; // { pageId, index }
+var _compCacheDoc  = null; // { pageId, index } — keyed on page too so stale on page switch
+
+function buildComponentIndex(scope) {
+  // scope: 'page' (default, fast) | 'document' (full doc, slower)
+  var useDoc = (scope === 'document');
+  var pageId = figma.currentPage.id;
+
+  // Return cached index if the page hasn't changed
+  if (useDoc) {
+    if (_compCacheDoc && _compCacheDoc.pageId === pageId) return _compCacheDoc.index;
+  } else {
+    if (_compCachePage && _compCachePage.pageId === pageId) return _compCachePage.index;
+  }
+
+  var index = { byLowerName: {}, byLastSegment: {} };
+  try {
+    var root  = useDoc ? figma.root : figma.currentPage;
+    var comps = root.findAllWithCriteria({ types: ['COMPONENT'] });
+    for (var i = 0; i < comps.length; i++) {
+      var c   = comps[i];
+      var nm  = String(c.name || '');
+      var low = nm.toLowerCase();
+      index.byLowerName[low] = c;
+      var eqIdx = nm.indexOf('=');
+      if (eqIdx !== -1) {
+        var tail = nm.slice(eqIdx + 1).trim().toLowerCase();
+        if (tail && !index.byLastSegment[tail]) index.byLastSegment[tail] = c;
+      }
+    }
+  } catch (e) { /* older APIs — leave empty */ }
+
+  if (useDoc) { _compCacheDoc  = { pageId: pageId, index: index }; }
+  else        { _compCachePage = { pageId: pageId, index: index }; }
+  return index;
+}
+
 function walk(node, visitor) {
   visitor(node);
   if ('children' in node) {
@@ -162,9 +202,10 @@ figma.ui.onmessage = async function(msg) {
   // msg.values:   { 'prize.1': 'Free Flight 20MT', 'profile_name.1': 'João', ... }
   // msg.imageMap: { 'avatar.1': [/* byte array */], ... }
   if (msg.type === 'inject-refs') {
-    var values   = msg.values   || {};
-    var imageMap = msg.imageMap || {};
-    var sel2     = figma.currentPage.selection;
+    var values      = msg.values      || {};
+    var imageMap    = msg.imageMap    || {};
+    var searchScope = msg.searchScope || 'page'; // 'page' | 'document'
+    var sel2        = figma.currentPage.selection;
 
     if (!sel2.length) {
       figma.ui.postMessage({ type: 'inject-result', ok: false, error: 'Nothing selected in Figma.' });
@@ -252,35 +293,39 @@ figma.ui.onmessage = async function(msg) {
       });
     }
 
-    // Build a local-component lookup once if any swap is queued. findAll can be
-    // heavyish on very large documents, so we only do it when needed.
-    var componentIndex = null;
-    function buildComponentIndex() {
-      if (componentIndex) return componentIndex;
-      componentIndex = { byLowerName: {}, byLastSegment: {} };
+    // ── Pre-load all unique fonts in parallel ──────────────────────────────
+    // Collecting fonts up front and awaiting them together is dramatically
+    // faster than calling loadNodeFont() (one await per node) in the main loop.
+    var fontSet = {};
+    for (var fp = 0; fp < pending.length; fp++) {
+      if (pending[fp].type !== 'text') continue;
       try {
-        var comps = figma.root.findAllWithCriteria({ types: ['COMPONENT'] });
-        for (var i = 0; i < comps.length; i++) {
-          var c = comps[i];
-          var nm = String(c.name || '');
-          var low = nm.toLowerCase();
-          componentIndex.byLowerName[low] = c;
-          // Variant components tend to be named "Variant=Value"; also index by the value side.
-          var eqIdx = nm.indexOf('=');
-          if (eqIdx !== -1) {
-            var tail = nm.slice(eqIdx + 1).trim().toLowerCase();
-            if (tail && !componentIndex.byLastSegment[tail]) componentIndex.byLastSegment[tail] = c;
-          }
+        var tn   = pending[fp].node;
+        var tlen = tn.characters ? tn.characters.length : 0;
+        var font = tlen > 0 ? tn.getRangeFontName(0, tlen) : null;
+        if (font && typeof font === 'object' && font.family) {
+          fontSet[font.family + '::' + font.style] = { family: font.family, style: font.style };
+        } else {
+          fontSet['Inter::Regular'] = { family: 'Inter', style: 'Regular' };
         }
-      } catch (e) { /* older doc APIs — leave index empty */ }
-      return componentIndex;
+      } catch (_fe) {
+        fontSet['Inter::Regular'] = { family: 'Inter', style: 'Regular' };
+      }
+    }
+    var fontKeys = Object.keys(fontSet);
+    if (fontKeys.length) {
+      await Promise.all(fontKeys.map(function(fk) {
+        return figma.loadFontAsync(fontSet[fk]).catch(function() {
+          return figma.loadFontAsync({ family: 'Inter', style: 'Regular' }).catch(function() {});
+        });
+      }));
     }
 
     for (var p = 0; p < pending.length; p++) {
       var item = pending[p];
       try {
         if (item.type === 'text') {
-          await loadNodeFont(item.node);
+          // Font already loaded in the parallel pre-load step above
           item.node.characters = String(values[item.key] !== null && values[item.key] !== undefined ? values[item.key] : '');
           count++;
         } else if (item.type === 'image') {
@@ -333,7 +378,7 @@ figma.ui.onmessage = async function(msg) {
           // 2. Global component lookup by name
           if (!swapped) {
             try {
-              var cidx = buildComponentIndex();
+              var cidx = buildComponentIndex(searchScope);
               var gComp = cidx.byLowerName[lowerVal] || cidx.byLastSegment[lowerVal] || null;
               if (gComp) { item.node.swapComponent(gComp); swapped = true; }
             } catch (_gErr) { /* ignore */ }
@@ -371,7 +416,7 @@ figma.ui.onmessage = async function(msg) {
             errors.push(item.node.name + ': swap value is empty');
             continue;
           }
-          var idx = buildComponentIndex();
+          var idx = buildComponentIndex(searchScope);
           var lookup = target.toLowerCase();
           var comp = idx.byLowerName[lookup] || idx.byLastSegment[lookup] || null;
           if (!comp) {
@@ -767,8 +812,7 @@ figma.ui.onmessage = async function(msg) {
     try {
       figma.ui.postMessage({ type: 'save-asset-result', ok: true,
         name: assetName, assetType: sel.length === 1 ? sel[0].type : 'GROUP',
-        nodeCount: nodes.length, typeSummary: typeSummary, nodes: nodes,
-        codeVersion: 'v5-preview-debug' });
+        nodeCount: nodes.length, typeSummary: typeSummary, nodes: nodes });
     } catch (pmErr) {
       figma.ui.postMessage({ type: 'save-asset-result', ok: false,
         error: 'Payload too large for postMessage — select fewer/simpler nodes (' + pmErr.message + ')' });
@@ -783,7 +827,6 @@ figma.ui.onmessage = async function(msg) {
     // temporary frame, export that, then immediately remove it.
     var previewNode = sel[0];
     var tempWrapper = null;
-    figma.ui.postMessage({ type: 'save-asset-preview', debug: 'step1: node=' + previewNode.type + ' ' + previewNode.name });
     try {
       if (previewNode.type === 'SECTION') {
         tempWrapper = figma.createFrame();
@@ -801,14 +844,11 @@ figma.ui.onmessage = async function(msg) {
         previewNode = tempWrapper;
       }
 
-      figma.ui.postMessage({ type: 'save-asset-preview', debug: 'step2: calling exportAsync on ' + previewNode.type });
       // Export at 0.1× — keeps PNG tiny (typically < 20 KB)
       var pngBytes = await previewNode.exportAsync({
         format: 'PNG',
         constraint: { type: 'SCALE', value: 0.1 }
       });
-      figma.ui.postMessage({ type: 'save-asset-preview', debug: 'step3: export done, bytes=' + pngBytes.length });
-
       // Pure-JS base64 encoder — no btoa needed (unavailable in Figma sandbox).
       // Sends a plain string data URL; strings always transfer correctly via postMessage.
       var B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
@@ -828,8 +868,7 @@ figma.ui.onmessage = async function(msg) {
 
       figma.ui.postMessage({
         type: 'save-asset-preview',
-        dataUrl: 'data:image/png;base64,' + b64,
-        byteLen: bl   // for debug display in the UI
+        dataUrl: 'data:image/png;base64,' + b64
       });
     } catch(thumbErr) {
       figma.ui.postMessage({ type: 'save-asset-preview', error: thumbErr.message });

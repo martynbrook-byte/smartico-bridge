@@ -712,6 +712,20 @@
 
     <!-- inject -->
     <div id="injectBar" style="display:none">
+      <!-- Component search scope toggle -->
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;padding:6px 10px;background:rgba(187,0,255,0.08);border-radius:8px;border:1px solid rgba(187,0,255,0.18)">
+        <span style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:0.03em">COMPONENT SEARCH</span>
+        <div style="display:flex;align-items:center;gap:0;border-radius:6px;overflow:hidden;border:1px solid rgba(187,0,255,0.3)">
+          <button id="scopeBtnPage" onclick="setSearchScope('page')" style="
+            padding:4px 10px;font-size:10px;font-weight:700;letter-spacing:0.04em;border:none;cursor:pointer;
+            background:#BB00FF;color:#fff;transition:background .12s;
+          ">THIS PAGE</button>
+          <button id="scopeBtnDoc" onclick="setSearchScope('document')" style="
+            padding:4px 10px;font-size:10px;font-weight:700;letter-spacing:0.04em;border:none;cursor:pointer;
+            background:transparent;color:#BB00FF;transition:background .12s;
+          ">FULL DOC</button>
+        </div>
+      </div>
       <button id="injectBtn" onclick="inject()" style="
         width:100%; padding:16px 12px; border:none; border-radius:var(--radius);
         background:#BB00FF; color:#fff;
@@ -748,7 +762,6 @@
       </div>
     </div>
 
-    <div id="assetDebug" style="display:none;background:#1e1b4b;color:#a5f3fc;font-size:11px;font-family:monospace;padding:8px 10px;border-radius:6px;margin-bottom:6px;word-break:break-all;line-height:1.5"></div>
     <div id="assetList" style="display:flex;flex-direction:column;gap:5px"></div>
     <div id="assetBanner" style="font-size:10px;color:var(--muted);font-weight:600;min-height:14px"></div>
 
@@ -875,6 +888,21 @@ var activeDataset = null;
 var hiddenCardIds = new Set(); // dataset IDs hidden from the active list
 var dsFilter = 'active'; // 'active' | 'hidden'
 var scannedRefs  = [];
+// Component search scope: 'page' (default, fast) or 'document' (full doc search)
+var _searchScope = 'page';
+function setSearchScope(scope) {
+  _searchScope = scope;
+  var btnPage = document.getElementById('scopeBtnPage');
+  var btnDoc  = document.getElementById('scopeBtnDoc');
+  if (!btnPage || !btnDoc) return;
+  if (scope === 'page') {
+    btnPage.style.background = '#BB00FF'; btnPage.style.color = '#fff';
+    btnDoc.style.background  = 'transparent'; btnDoc.style.color = '#BB00FF';
+  } else {
+    btnDoc.style.background  = '#BB00FF'; btnDoc.style.color = '#fff';
+    btnPage.style.background = 'transparent'; btnPage.style.color = '#BB00FF';
+  }
+}
 var scannedGroups = [];
 var openGroups   = {};
 var figmaSel       = [];
@@ -1485,20 +1513,28 @@ async function inject() {
     }
     var fetchedCount = 0;
     var fetchErrors  = [];
-    showProcessing('Loading images…', imagesToFetch.length + ' to fetch');
-    for (var f = 0; f < imagesToFetch.length; f++) {
-      try {
-        // Fetch via proxy and convert to PNG via canvas.
-        // Figma createImage() only supports JPEG/PNG — WebP/AVIF will fail otherwise.
-        imageMap[imagesToFetch[f].ref] = await fetchImageAsPng(imagesToFetch[f].url);
-        fetchedCount++;
-      } catch (fe) {
-        fetchErrors.push(imagesToFetch[f].ref + ': ' + fe.message);
+    if (imagesToFetch.length) {
+      showProcessing('Loading images…', imagesToFetch.length + ' to fetch');
+      // Fetch all images in parallel — sequential awaits cause the main freeze
+      var imgResults = await Promise.allSettled(
+        imagesToFetch.map(function(it) {
+          return fetchImageAsPng(it.url).then(function(bytes) {
+            return { ref: it.ref, bytes: bytes };
+          });
+        })
+      );
+      for (var f = 0; f < imgResults.length; f++) {
+        if (imgResults[f].status === 'fulfilled') {
+          imageMap[imgResults[f].value.ref] = imgResults[f].value.bytes;
+          fetchedCount++;
+        } else {
+          fetchErrors.push(imagesToFetch[f].ref + ': ' + (imgResults[f].reason ? imgResults[f].reason.message : 'failed'));
+        }
       }
     }
     _lastImageStats = { total: imagesToFetch.length, fetched: fetchedCount, errors: fetchErrors };
     showProcessing('Injecting into Figma…', scannedRefs.length + ' layer ref(s)');
-    parent.postMessage({ pluginMessage: { type: 'inject-refs', values: values, imageMap: imageMap } }, '*');
+    parent.postMessage({ pluginMessage: { type: 'inject-refs', values: values, imageMap: imageMap, searchScope: _searchScope } }, '*');
   } catch (e) {
     hideProcessing();
     showBanner('Inject error: ' + e.message, 'err');
@@ -1627,28 +1663,17 @@ window.onmessage = function(event) {
     // Disable Save until real preview arrives (or fails)
     var _saveBtn = document.querySelector('#assetNameRow .btn-primary');
     if (_saveBtn) { _saveBtn.disabled = true; _saveBtn.textContent = 'Generating…'; }
-    var dbg = document.getElementById('assetDebug');
-    if (dbg) { dbg.style.display = 'block'; dbg.textContent = 'code.js: ' + (msg.codeVersion || 'OLD — reload plugin'); }
     setAssetBanner('Name this asset and click Save ↑');
   }
 
   if (msg.type === 'save-asset-preview') {
-    if (msg.debug) {
-      var dbg2 = document.getElementById('assetDebug');
-      if (dbg2) { dbg2.style.display = 'block'; dbg2.textContent += '\n▶ ' + msg.debug; }
-      return;
-    }
     // Re-enable Save button now that preview is resolved (success or fail)
     var _saveBtn2 = document.querySelector('#assetNameRow .btn-primary');
     if (_saveBtn2) { _saveBtn2.disabled = false; _saveBtn2.textContent = 'Save'; }
     if (_pendingAssetNodes) {
       if (msg.dataUrl) {
         _pendingAssetNodes.previewDataUrl = msg.dataUrl;
-        var dbg4 = document.getElementById('assetDebug');
-        if (dbg4) { dbg4.textContent += '\n✓ preview ready — ' + (msg.byteLen || '?') + ' bytes → now click Save'; }
       } else if (msg.error) {
-        var dbg3 = document.getElementById('assetDebug');
-        if (dbg3) { dbg3.style.display = 'block'; dbg3.textContent += '\n✕ export error: ' + msg.error; }
         setAssetBanner('Name this asset and click Save ↑');
       }
     }

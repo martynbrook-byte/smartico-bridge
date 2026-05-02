@@ -557,12 +557,11 @@
   .processing-overlay.closing {
     animation: overlay-shrink 0.35s cubic-bezier(0.4, 0, 0.6, 1) forwards;
   }
-  .proc-ring {
-    width: 52px; height: 52px;
-    border: 3px solid rgba(0,0,0,.15);
-    border-top-color: rgba(0,0,0,.7);
-    border-radius: 50%;
-    animation: spin .8s linear infinite;
+  .proc-gif {
+    width: 120px; height: 120px;
+    object-fit: contain;
+    image-rendering: auto;
+    border-radius: 8px;
   }
   .proc-label {
     font-family: var(--font-display);
@@ -826,7 +825,7 @@
 <div class="processing-overlay" id="procOverlay">
   <!-- spinner state -->
   <div id="procSpinner" style="display:flex;flex-direction:column;align-items:center;gap:20px">
-    <div class="proc-ring"></div>
+    <img id="procGif" class="proc-gif" src="" alt="">
     <div style="text-align:center">
       <div class="proc-label" id="procLabel">Injecting</div>
       <div class="proc-sub"   id="procSub"></div>
@@ -1381,9 +1380,23 @@ function renderRefList() {
 }
 
 // ── Inject ────────────────────────────────────────────────────────────────────
+var _procGifs = [
+  'images/EeyFKV.gif',
+  'images/Run.gif',
+  'images/dcdd35m-4d53c6c9-160a-471a-861a-38f9744ebbd3.gif',
+  'images/fc2d823098f3088662096487d56c2016.gif',
+  'images/player-stand-1.gif',
+  'images/shootrun.gif',
+  'images/475c2d90f80522543f729007d27e7dae.gif',
+  'images/daniel-tolwinski-robocikanimacja.gif',
+  'images/polifolli-robot.gif'
+];
 function showProcessing(label, sub) {
   document.getElementById('procLabel').textContent = label || 'Injecting…';
   document.getElementById('procSub').textContent   = sub   || '';
+  // Pick a random gif each time
+  var gif = document.getElementById('procGif');
+  if (gif) gif.src = _procGifs[Math.floor(Math.random() * _procGifs.length)];
   // Ensure spinner is visible, result is hidden
   document.getElementById('procSpinner').style.display = 'flex';
   document.getElementById('procResult').style.display  = 'none';

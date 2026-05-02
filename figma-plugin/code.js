@@ -428,6 +428,23 @@ figma.ui.onmessage = async function(msg) {
             }
           }
 
+          // 4. Text child fallback — value is probably a number/string that should
+          //    be displayed as text inside the instance (e.g. #totals.5 = "9319").
+          //    Find the first accessible TEXT descendant and set its characters.
+          if (!swapped) {
+            try {
+              var textChild = null;
+              walk(item.node, function(tn) {
+                if (!textChild && tn.type === 'TEXT') textChild = tn;
+              });
+              if (textChild) {
+                await loadNodeFont(textChild);
+                textChild.characters = rawVal2;
+                swapped = true;
+              }
+            } catch (_tcErr) { /* leave swapped false */ }
+          }
+
           if (swapped) { count++; }
           else { errors.push(item.node.name + ': no variant or component matched "' + rawVal2 + '"'); }
 

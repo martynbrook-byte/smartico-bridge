@@ -101,6 +101,25 @@ function buildComponentIndex(scope) {
   return index;
 }
 
+// Check whether any variant property VALUE in a Figma component name matches
+// targetLower. Figma separates multi-property names with ", " (comma-space),
+// so values containing commas (e.g. "50,000 Cash") are never split incorrectly.
+function variantValueMatches(compName, targetLower) {
+  if (String(compName).toLowerCase() === targetLower) return true;
+  var remaining = String(compName);
+  while (remaining.length) {
+    var eqIdx = remaining.indexOf('=');
+    if (eqIdx === -1) break;
+    var afterEq = remaining.slice(eqIdx + 1);
+    // Next property segment starts at ", Letter" — the Figma convention
+    var nextSep = afterEq.search(/, [A-Za-z_]/);
+    var val = (nextSep !== -1 ? afterEq.slice(0, nextSep) : afterEq).trim();
+    if (val.toLowerCase() === targetLower) return true;
+    remaining = nextSep !== -1 ? afterEq.slice(nextSep + 2) : '';
+  }
+  return false;
+}
+
 function walk(node, visitor) {
   visitor(node);
   if ('children' in node) {
@@ -349,28 +368,6 @@ figma.ui.onmessage = async function(msg) {
           if (!rawVal2) { count++; continue; } // empty value — leave as-is
           var lowerVal = rawVal2.toLowerCase();
           var swapped = false;
-
-          // Helper: check whether any variant property VALUE in a component name
-          // matches targetLower. Figma separates properties with ", " (comma-space),
-          // so values that contain commas (e.g. "50,000 Cash") are not split.
-          function variantValueMatches(compName, targetLower) {
-            // Fast path: whole name matches
-            if (compName.toLowerCase() === targetLower) return true;
-            // Walk each "Prop=Value" segment, splitting on ", " not bare ","
-            // so that values like "50,000 Cash" stay intact.
-            var remaining = compName;
-            while (remaining.length) {
-              var eqIdx = remaining.indexOf('=');
-              if (eqIdx === -1) break;
-              var afterEq = remaining.slice(eqIdx + 1);
-              // Next segment starts at the next ", Word=" pattern
-              var nextSep = afterEq.search(/, [A-Za-z_]/);
-              var val = (nextSep !== -1 ? afterEq.slice(0, nextSep) : afterEq).trim();
-              if (val.toLowerCase() === targetLower) return true;
-              remaining = nextSep !== -1 ? afterEq.slice(nextSep + 2) : '';
-            }
-            return false;
-          }
 
           // 1. Sibling variant in the same COMPONENT_SET
           try {

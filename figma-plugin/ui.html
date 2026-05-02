@@ -1482,16 +1482,16 @@ var _pendingInject = false;
 async function inject() {
   if (!activeDataset) { showBanner('Select a dataset first', 'err'); return; }
   if (!_searchScope) { showBanner('Choose THIS PAGE or FULL DOC first', 'info'); return; }
-  if (!scannedRefs.length) {
-    _pendingInject = true;
-    scanRefs();
-    showBanner('Scanning layers…', 'info');
-    return;
-  }
   var btn = document.getElementById('injectBtn');
   btn.disabled = true;
-  showProcessing('Fetching images…', '');
   hideBanner();
+  if (!scannedRefs.length) {
+    _pendingInject = true;
+    showProcessing('Scanning layers…', 'Looking for #name.index refs');
+    scanRefs();
+    return;
+  }
+  showProcessing('Fetching images…', '');
   try {
     var rows    = activeDataset.rows || [];
     var headers = activeDataset.headers || [];
@@ -1609,7 +1609,15 @@ window.onmessage = function(event) {
   }
 
   if (msg.type === 'scan-result') {
-    if (!msg.ok) { _pendingInject = false; showBanner(msg.error, 'err'); return; }
+    if (!msg.ok) {
+      _pendingInject = false;
+      if (document.getElementById('procOverlay').classList.contains('active')) {
+        hideProcessing();
+      }
+      showBanner(msg.error, 'err');
+      var ib = document.getElementById('injectBtn'); if (ib) ib.disabled = false;
+      return;
+    }
     scannedRefs   = msg.refs   || [];
     scannedGroups = Array.isArray(msg.groups) ? msg.groups : [];
     openGroups    = {};
@@ -1618,7 +1626,11 @@ window.onmessage = function(event) {
     if (!scannedRefs.length) {
       _pendingInject = false;
       if (badge) { badge.textContent = 'No refs found'; badge.style.display = ''; }
-      hideBanner();
+      if (document.getElementById('procOverlay').classList.contains('active')) {
+        hideProcessing();
+        showBanner('No #name.index layers found in selection', 'info');
+      }
+      var ib2 = document.getElementById('injectBtn'); if (ib2) ib2.disabled = false;
     } else {
       var nF = scannedGroups.length || 1;
       if (badge) {
@@ -1626,9 +1638,13 @@ window.onmessage = function(event) {
         badge.style.display = '';
         badge.style.color = '#2d7a3a';
       }
-      hideBanner();
-      // Auto-fire inject if the user clicked Inject before the scan ran
-      if (_pendingInject) { _pendingInject = false; inject(); }
+      // If inject triggered the scan, continue straight to injecting
+      if (_pendingInject) {
+        _pendingInject = false;
+        document.getElementById('procLabel').textContent = 'Fetching images…';
+        document.getElementById('procSub').textContent   = '';
+        inject();
+      }
     }
     return;
   }

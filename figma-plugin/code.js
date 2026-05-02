@@ -389,8 +389,14 @@ figma.ui.onmessage = async function(msg) {
           // 2. Global component lookup by name
           if (!swapped) {
             try {
+              // Search chosen scope first, then always fall back to full document
+              // so components on other pages (library pages etc.) are always found.
               var cidx = buildComponentIndex(searchScope);
               var gComp = cidx.byLowerName[lowerVal] || cidx.byLastSegment[lowerVal] || null;
+              if (!gComp && searchScope !== 'document') {
+                var cidxDoc = buildComponentIndex('document');
+                gComp = cidxDoc.byLowerName[lowerVal] || cidxDoc.byLastSegment[lowerVal] || null;
+              }
               if (gComp) { item.node.swapComponent(gComp); swapped = true; }
             } catch (_gErr) { /* ignore */ }
           }

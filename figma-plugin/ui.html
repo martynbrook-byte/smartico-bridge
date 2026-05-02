@@ -1439,15 +1439,26 @@ function showInjectResult(msg, imgStats) {
            '<span class="proc-stat-val ' + (cls || '') + '">' + val + '</span></div>';
   }
   rows += statRow('Layers updated', msg.count + ' / ' + msg.total, msg.count === msg.total ? 'ok' : 'warn');
+  var allErrors = [];
   if (imgStats && imgStats.total > 0) {
     var imgOk = imgStats.fetched + ' / ' + imgStats.total;
     rows += statRow('Images injected', imgOk, imgStats.fetched === imgStats.total ? 'ok' : 'warn');
     if (imgStats.errors && imgStats.errors.length) {
       rows += statRow('Image errors', imgStats.errors.length, 'warn');
+      allErrors = allErrors.concat(imgStats.errors);
     }
   }
   if (msg.errors && msg.errors.length) {
     rows += statRow('Layer errors', msg.errors.length, 'warn');
+    allErrors = allErrors.concat(msg.errors);
+  }
+  if (allErrors.length) {
+    rows += '<div style="margin-top:10px;max-height:120px;overflow-y:auto;background:rgba(0,0,0,0.08);border-radius:8px;padding:8px 10px;text-align:left">' +
+      allErrors.map(function(e) {
+        return '<div style="font-size:10px;font-family:monospace;color:#7a0000;padding:2px 0;border-bottom:1px solid rgba(0,0,0,0.06)">' +
+          e.replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</div>';
+      }).join('') +
+    '</div>';
   }
   document.getElementById('procResultStats').innerHTML = rows;
 }

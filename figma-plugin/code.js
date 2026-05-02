@@ -350,6 +350,28 @@ figma.ui.onmessage = async function(msg) {
           var lowerVal = rawVal2.toLowerCase();
           var swapped = false;
 
+          // Helper: check whether any variant property VALUE in a component name
+          // matches targetLower. Figma separates properties with ", " (comma-space),
+          // so values that contain commas (e.g. "50,000 Cash") are not split.
+          function variantValueMatches(compName, targetLower) {
+            // Fast path: whole name matches
+            if (compName.toLowerCase() === targetLower) return true;
+            // Walk each "Prop=Value" segment, splitting on ", " not bare ","
+            // so that values like "50,000 Cash" stay intact.
+            var remaining = compName;
+            while (remaining.length) {
+              var eqIdx = remaining.indexOf('=');
+              if (eqIdx === -1) break;
+              var afterEq = remaining.slice(eqIdx + 1);
+              // Next segment starts at the next ", Word=" pattern
+              var nextSep = afterEq.search(/, [A-Za-z_]/);
+              var val = (nextSep !== -1 ? afterEq.slice(0, nextSep) : afterEq).trim();
+              if (val.toLowerCase() === targetLower) return true;
+              remaining = nextSep !== -1 ? afterEq.slice(nextSep + 2) : '';
+            }
+            return false;
+          }
+
           // 1. Sibling variant in the same COMPONENT_SET
           try {
             var mainComp = item.node.mainComponent;
@@ -358,19 +380,11 @@ figma.ui.onmessage = async function(msg) {
               for (var si = 0; si < siblings.length; si++) {
                 var sib = siblings[si];
                 if (sib.type !== 'COMPONENT') continue;
-                var sibName = String(sib.name || '').toLowerCase();
-                // Full name match
-                if (sibName === lowerVal) { item.node.swapComponent(sib); swapped = true; break; }
-                // Match the value side of "Property=Value" pairs (handles multi-property names too)
-                var parts2 = sib.name.split(',');
-                for (var pi = 0; pi < parts2.length; pi++) {
-                  var eq = parts2[pi].indexOf('=');
-                  if (eq !== -1) {
-                    var segVal = parts2[pi].slice(eq + 1).trim().toLowerCase();
-                    if (segVal === lowerVal) { item.node.swapComponent(sib); swapped = true; break; }
-                  }
+                if (variantValueMatches(sib.name, lowerVal)) {
+                  item.node.swapComponent(sib);
+                  swapped = true;
+                  break;
                 }
-                if (swapped) break;
               }
             }
           } catch (_sibErr) { /* ignore — fall through */ }
@@ -384,20 +398,24 @@ figma.ui.onmessage = async function(msg) {
             } catch (_gErr) { /* ignore */ }
           }
 
-          // 3. Fallback: variant property setProperties (legacy)
+          // 3. Fallback: variant property setProperties
+          // Try the column-matched property first, then try every property.
           if (!swapped) {
             try {
               var vp2 = item.node.variantProperties || null;
               if (vp2) {
+                // Find best matching property — column name match preferred
                 var matchedProp2 = null;
+                var anyProp2 = null;
                 for (var pk2 in vp2) {
-                  if (Object.prototype.hasOwnProperty.call(vp2, pk2) && pk2.toLowerCase() === item.column.toLowerCase()) {
-                    matchedProp2 = pk2; break;
-                  }
+                  if (!Object.prototype.hasOwnProperty.call(vp2, pk2)) continue;
+                  if (pk2.toLowerCase() === item.column.toLowerCase()) { matchedProp2 = pk2; break; }
+                  if (!anyProp2) anyProp2 = pk2; // keep first as fallback
                 }
-                if (matchedProp2) {
+                var useProp = matchedProp2 || anyProp2;
+                if (useProp) {
                   var props2 = {};
-                  props2[matchedProp2] = rawVal2;
+                  props2[useProp] = rawVal2;
                   item.node.setProperties(props2);
                   swapped = true;
                 }

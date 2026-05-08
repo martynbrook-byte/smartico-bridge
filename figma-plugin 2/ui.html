@@ -1059,9 +1059,15 @@
   <!-- spinner state -->
   <div id="procSpinner" style="display:flex;flex-direction:column;align-items:center;gap:20px">
     <img id="procGif" class="proc-gif" src="" alt="">
-    <div style="text-align:center">
+    <div style="text-align:center;width:100%">
       <div class="proc-label" id="procLabel">Injecting</div>
       <div class="proc-sub"   id="procSub"></div>
+      <div id="procProgressWrap" style="display:none;margin-top:12px;padding:0 24px">
+        <div style="background:rgba(0,0,0,.1);border-radius:99px;height:6px;overflow:hidden">
+          <div id="procProgressBar" style="height:100%;width:0%;background:rgba(0,0,0,.5);border-radius:99px;transition:width .3s"></div>
+        </div>
+        <div id="procProgressLabel" style="font-size:10px;font-weight:700;color:var(--muted);margin-top:5px;text-align:center"></div>
+      </div>
     </div>
   </div>
   <!-- result state -->
@@ -1880,6 +1886,13 @@ var _procGifs = [
 function showProcessing(label, sub) {
   document.getElementById('procLabel').textContent = label || 'Injecting…';
   document.getElementById('procSub').textContent   = sub   || '';
+  // Reset progress bar
+  var pw = document.getElementById('procProgressWrap');
+  var pb = document.getElementById('procProgressBar');
+  var pl = document.getElementById('procProgressLabel');
+  if (pw) pw.style.display = 'none';
+  if (pb) pb.style.width = '0%';
+  if (pl) pl.textContent = '';
   // Pick a random gif each time
   var gif = document.getElementById('procGif');
   if (gif) gif.src = _procGifs[Math.floor(Math.random() * _procGifs.length)];
@@ -2081,6 +2094,25 @@ window.onmessage = function(event) {
           scannedRefs = []; scannedGroups = []; renderRefList(); hideBanner();
         }
       }, 250);
+    }
+    return;
+  }
+
+  if (msg.type === 'inject-progress') {
+    var pw2 = document.getElementById('procProgressWrap');
+    var pb2 = document.getElementById('procProgressBar');
+    var pl2 = document.getElementById('procProgressLabel');
+    var lbl = document.getElementById('procLabel');
+    if (msg.phase === 'scan') {
+      if (lbl) lbl.textContent = 'Scanning layers…';
+    } else if (msg.phase === 'inject') {
+      if (lbl) lbl.textContent = 'Injecting into Figma…';
+      if (pw2 && msg.total > 0) {
+        pw2.style.display = '';
+        var pct = Math.round((msg.done / msg.total) * 100);
+        if (pb2) pb2.style.width = pct + '%';
+        if (pl2) pl2.textContent = msg.done + ' / ' + msg.total + ' layers';
+      }
     }
     return;
   }

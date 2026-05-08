@@ -29,7 +29,7 @@
 //   with and without "Variant=…" suffix). If a component matches, the instance
 //   is swapped to point at it.
 
-figma.showUI(__html__, { width: 440, height: 580, title: 'Smartico Bridge' });
+figma.showUI(__html__, { width: 440, height: 640, title: 'Smartico Bridge' });
 
 // ── Selection broadcast ──────────────────────────────────────────────────────
 // Push the current selection up to the UI. The UI uses this both to render the
@@ -168,18 +168,16 @@ figma.ui.onmessage = async function(msg) {
   // ── scan-refs: walk selection, collect refs grouped by containing frame ───
   if (msg.type === 'scan-refs') {
     var sel = figma.currentPage.selection;
-    if (!sel.length) {
-      figma.ui.postMessage({ type: 'scan-result', ok: false, error: 'Nothing selected in Figma. Select a frame or group first.' });
-      return;
-    }
+    // If nothing selected, fall back to scanning the whole page
+    var scanRoots = sel.length ? Array.from(sel) : Array.from(figma.currentPage.children);
 
     // groupsById preserves insertion order; frameOrder keeps stable rendering.
     var groupsById = {};
     var frameOrder = [];
     var refsFound  = {};
 
-    for (var s = 0; s < sel.length; s++) {
-      var root = sel[s];
+    for (var s = 0; s < scanRoots.length; s++) {
+      var root = scanRoots[s];
       (function(rootNode) {
         walk(rootNode, function(n) {
           var m = n.name.match(REF_PATTERN);
@@ -225,21 +223,30 @@ figma.ui.onmessage = async function(msg) {
     var imageMap    = msg.imageMap    || {};
     var searchScope = msg.searchScope || 'page'; // 'page' | 'document'
     var sel2        = figma.currentPage.selection;
+    // No selection → inject into the whole page
+    var injectRoots = sel2.length ? Array.from(sel2) : Array.from(figma.currentPage.children);
 
-    if (!sel2.length) {
-      figma.ui.postMessage({ type: 'inject-result', ok: false, error: 'Nothing selected in Figma.' });
-      return;
-    }
+    var errors    = [];
+    var count     = 0;
+    var pending   = [];
+    var startTime = Date.now();
+    var TIMEOUT_MS = 25000; // 25 seconds hard cap
 
-    var errors  = [];
-    var count   = 0;
-    var pending = [];
-
-    // Collect all matching nodes synchronously, then process async
-    for (var s2 = 0; s2 < sel2.length; s2++) {
-      walk(sel2[s2], function(n) {
+    // ── Collect matching nodes ─────────────────────────────────────────────
+    // Use Figma's native findAll (faster than JS walk on large pages).
+    figma.ui.postMessage({ type: 'inject-progress', phase: 'scan', done: 0, total: injectRoots.length });
+    for (var s2 = 0; s2 < injectRoots.length; s2++) {
+      var matchNodes;
+      try {
+        matchNodes = injectRoots[s2].findAll(function(n) { return REF_PATTERN.test(n.name); });
+      } catch (_findErr) {
+        matchNodes = [];
+        walk(injectRoots[s2], function(n) { if (REF_PATTERN.test(n.name)) matchNodes.push(n); });
+      }
+      for (var ni = 0; ni < matchNodes.length; ni++) {
+        var n = matchNodes[ni];
         var m2 = n.name.match(REF_PATTERN);
-        if (!m2) return;
+        if (!m2) continue;
         // REF_PATTERN captures:  m2[1] = column name, m2[2] = 1-based row
         // Prefix is read directly from the node name: `##` → swap, else default.
         var isSwap = n.name.indexOf('##') === 0;
@@ -303,14 +310,20 @@ figma.ui.onmessage = async function(msg) {
           } else {
             pending.push({ node: n, key: key, type: 'text' });
           }
-          return;
+          continue;
         }
         // RECTANGLE, ELLIPSE, FRAME etc. — direct image fill target
         if ('fills' in n && (key in imageMap)) {
           pending.push({ node: n, key: key, type: 'image' });
         }
-      });
-    }
+      } // end matchNodes loop
+    } // end injectRoots loop
+
+    // Pre-build component index once before the main loop
+    var cidxPre = buildComponentIndex(searchScope);
+    if (searchScope !== 'document') buildComponentIndex('document'); // warm doc cache too
+
+    figma.ui.postMessage({ type: 'inject-progress', phase: 'inject', done: 0, total: pending.length });
 
     // ── Pre-load all unique fonts in parallel ──────────────────────────────
     // Collecting fonts up front and awaiting them together is dramatically
@@ -341,6 +354,15 @@ figma.ui.onmessage = async function(msg) {
     }
 
     for (var p = 0; p < pending.length; p++) {
+      // Timeout guard
+      if (Date.now() - startTime > TIMEOUT_MS) {
+        errors.push('Timed out after 25s — ' + (pending.length - p) + ' item(s) skipped');
+        break;
+      }
+      // Progress update every 10 items
+      if (p % 10 === 0) {
+        figma.ui.postMessage({ type: 'inject-progress', phase: 'inject', done: p, total: pending.length });
+      }
       var item = pending[p];
       try {
         if (item.type === 'text') {
@@ -423,9 +445,7 @@ figma.ui.onmessage = async function(msg) {
                   swapped = true;
                 }
               }
-            } catch (_vpErr) {
-              errors.push(item.node.name + ': setProperties failed — ' + _vpErr.message);
-            }
+            } catch (_vpErr) { /* fall through to text-child fallback */ }
           }
 
           // 4. Text child fallback — value is probably a number/string that should
@@ -1522,7 +1542,131 @@ figma.ui.onmessage = async function(msg) {
     return;
   }
 
+
+  // ── Image Tools: export a layer ──────────────────────────────────
+  if (msg.type === 'export') {
+    var icNode = figma.getNodeById(msg.nodeId);
+    if (!icNode || !('exportAsync' in icNode)) {
+      figma.ui.postMessage({ type: 'export-error', exportId: msg.exportId,
+        error: 'Layer not found (id: ' + msg.nodeId + ')' });
+      return;
+    }
+    try {
+      var icBytes = await icNode.exportAsync({
+        format: 'PNG',
+        constraint: { type: 'SCALE', value: msg.scale || 1 }
+      });
+      figma.ui.postMessage({ type: 'export-result', exportId: msg.exportId,
+        bytes: Array.from(icBytes) });
+    } catch (icErr) {
+      figma.ui.postMessage({ type: 'export-error', exportId: msg.exportId,
+        error: 'exportAsync threw: ' + String(icErr) });
+    }
+    return;
+  }
+
+  // ── Image Tools: export PDFs ─────────────────────────────────────
+  if (msg.type === 'export-pdf') {
+    var pdfResults = [];
+    for (var pi = 0; pi < (msg.nodeIds || []).length; pi++) {
+      var pdfNode = figma.getNodeById(msg.nodeIds[pi]);
+      if (!pdfNode || !('exportAsync' in pdfNode)) continue;
+      try {
+        var pdfBytes = await pdfNode.exportAsync({ format: 'PDF' });
+        pdfResults.push({ nodeId: msg.nodeIds[pi], name: pdfNode.name, bytes: Array.from(pdfBytes) });
+      } catch (pe) {
+        pdfResults.push({ nodeId: msg.nodeIds[pi], name: pdfNode.name, error: String(pe) });
+      }
+    }
+    figma.ui.postMessage({ type: 'pdf-results', results: pdfResults });
+    return;
+  }
+
+  // ── Image Tools: refresh layer list ──────────────────────────────
+  if (msg.type === 'refresh') {
+    await ic_refreshLayers();
+    return;
+  }
+
   if (msg.type === 'close') {
     figma.closePlugin();
   }
 };
+
+
+// ════════════════════════════════════════════════════════════════════
+// IMAGE TOOLS — code.js helpers
+// ════════════════════════════════════════════════════════════════════
+
+function ic_resolveScale(constraint, nodeWidth) {
+  if (!constraint) return 1;
+  switch (constraint.type) {
+    case 'SCALE':  return constraint.value;
+    case 'WIDTH':  return nodeWidth > 0 ? constraint.value / nodeWidth : 1;
+    default:       return 1;
+  }
+}
+
+function ic_buildLayerList() {
+  var layers = [];
+  for (var ni = 0; ni < figma.currentPage.selection.length; ni++) {
+    var node = figma.currentPage.selection[ni];
+    if (!('exportAsync' in node)) continue;
+    var nodeWidth  = 'width'  in node ? node.width  : 100;
+    var nodeHeight = 'height' in node ? node.height : 100;
+    var settings   = node.exportSettings;
+    if (settings && settings.length > 0) {
+      for (var si = 0; si < settings.length; si++) {
+        var s = settings[si];
+        var scale = ic_resolveScale(s.constraint, nodeWidth);
+        layers.push({
+          id: node.id, settingIndex: si,
+          name: node.name + (s.suffix || ''),
+          format: s.format, scale: scale,
+          width:  Math.round(nodeWidth  * scale),
+          height: Math.round(nodeHeight * scale)
+        });
+      }
+    } else {
+      layers.push({
+        id: node.id, settingIndex: -1,
+        name: node.name, format: 'PNG', scale: 1,
+        width: Math.round(nodeWidth), height: Math.round(nodeHeight)
+      });
+    }
+  }
+  return layers;
+}
+
+function ic_sendThumbnail(nodeId) {
+  var node = figma.getNodeById(nodeId);
+  if (!node || !('exportAsync' in node)) return;
+  var w = 'width'  in node ? node.width  : 100;
+  var h = 'height' in node ? node.height : 100;
+  var maxDim = Math.max(w, h, 1);
+  var thumbScale = Math.min(48 / maxDim, 2);
+  node.exportAsync({
+    format: 'PNG',
+    constraint: { type: 'SCALE', value: Math.max(thumbScale, 0.05) }
+  }).then(function(bytes) {
+    figma.ui.postMessage({ type: 'thumbnail', nodeId: nodeId, bytes: Array.from(bytes) });
+  }).catch(function() { /* non-fatal */ });
+}
+
+async function ic_refreshLayers() {
+  var layers = ic_buildLayerList();
+  figma.ui.postMessage({ type: 'layers', layers: layers });
+  var seen = {};
+  for (var i = 0; i < layers.length; i++) {
+    if (!seen[layers[i].id]) {
+      seen[layers[i].id] = true;
+      ic_sendThumbnail(layers[i].id);
+    }
+  }
+}
+
+// Also fire when selection changes
+figma.on('selectionchange', function() { ic_refreshLayers(); });
+
+// Kick off on load
+ic_refreshLayers();

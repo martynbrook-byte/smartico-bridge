@@ -1423,9 +1423,18 @@ function setStatus(t, ok) {
 async function api(path, opts) {
   opts = opts || {};
   if (!opts.headers) opts.headers = { 'Content-Type': 'application/json' };
-  var res = await fetch(serverUrl + path, opts);
-  if (!res.ok) { var t = await res.text().catch(function(){return '';}); throw new Error('HTTP ' + res.status + ': ' + t.slice(0,100)); }
-  return res.json();
+  var controller = new AbortController();
+  var timer = setTimeout(function() { controller.abort(); }, 10000);
+  try {
+    var res = await fetch(serverUrl + path, Object.assign({}, opts, { signal: controller.signal }));
+    clearTimeout(timer);
+    if (!res.ok) { var t = await res.text().catch(function(){return '';}); throw new Error('HTTP ' + res.status + ': ' + t.slice(0,100)); }
+    return res.json();
+  } catch(e) {
+    clearTimeout(timer);
+    if (e.name === 'AbortError') throw new Error('Request timed out');
+    throw e;
+  }
 }
 
 // ── Datasets ──────────────────────────────────────────────────────────────────
@@ -2684,7 +2693,11 @@ function toggleAssets()   { togglePanel('assets'); }
   function $c(id) { return document.getElementById(id); }
 
   function casinoApiFetch(path) {
-    return fetch(CASINO_API+path).then(function(r){ if (!r.ok) throw new Error('HTTP '+r.status); return r.json(); });
+    var controller = new AbortController();
+    var timer = setTimeout(function() { controller.abort(); }, 10000);
+    return fetch(CASINO_API+path, { signal: controller.signal })
+      .then(function(r) { clearTimeout(timer); if (!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
+      .catch(function(e) { clearTimeout(timer); throw e; });
   }
 
   function cShowState(text) {

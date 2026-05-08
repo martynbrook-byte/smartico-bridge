@@ -66,7 +66,7 @@
     font-family: var(--font);
     font-size: var(--fs-body);
     color: var(--text);
-    background: #14172a;
+    background: #272727;
     display: flex;
     flex-direction: column;
   }
@@ -78,7 +78,7 @@
     overflow-y: auto;
     overflow-x: hidden;
     padding: 10px;
-    padding-bottom: 20px;
+    padding-bottom: 32px;
     display: flex;
     flex-direction: column;
     gap: 10px;
@@ -89,11 +89,15 @@
   /* ── Bottom nav ──────────────────────────────────────────────────── */
   .app-nav {
     flex-shrink: 0;
-    background: #14172a;
+    position: relative;
+    z-index: 10;
+    background: #272727;
+    border-radius: 20px 20px 0 0;
+    margin-top: -16px;
     display: flex;
     align-items: center;
     justify-content: space-around;
-    padding: 10px 20px 12px;
+    padding: 14px 20px 12px;
     gap: 8px;
   }
   .nav-btn {

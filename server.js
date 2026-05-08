@@ -599,6 +599,8 @@ async function listDatasets() {
         isProcessed:     r.isProcessed || false,
         sourceDatasetId: r.sourceDatasetId || null,
         ruleSetName:     r.ruleSetName || null,
+        pipelineId:      r.pipelineId   || null,
+        pipelineName:    r.pipelineName || null,
         metrics:         r.metrics || null,
         ruleTable:       Array.isArray(r.ruleTable) ? r.ruleTable : (r.metrics ? buildRuleTable(r.metrics) : []),
         maxRows:         r.maxRows ?? null,

@@ -1968,103 +1968,129 @@ function dismissInjectResult() {
 }
 
 var _pendingInject = false;
+
+var IMAGE_EXTS     = /\.(jpe?g|png|gif|webp|svg|bmp|ico|avif|tiff?)(\?.*)?$/i;
+var IMAGE_COL_HINT = /image|img|photo|pic|avatar|logo|banner|thumb|icon/i;
+function looksLikeImageUrl(val, colName) {
+  if (typeof val !== 'string') return false;
+  if (val.indexOf('http') !== 0) return false;
+  try { var _p = new URL(val).pathname; if (IMAGE_EXTS.test(_p)) return true; } catch (_) {}
+  if (IMAGE_COL_HINT.test(colName)) return true;
+  return false;
+}
+
+// Build a full values map from ALL dataset rows+cols (no scan needed).
+// Used by page/document scope inject to skip the slow pre-scan step.
+function buildFullValuesMap(rows, headers, ruleTable) {
+  var values = {};
+  var imagesToFetch = [];
+  syncHiddenRows();
+  for (var ri = 0; ri < rows.length; ri++) {
+    if (hiddenRowIndices.has(ri)) continue;
+    for (var hi = 0; hi < headers.length; hi++) {
+      var col = headers[hi];
+      var key = col.toLowerCase() + '.' + (ri + 1);
+      var val = rows[ri][col];
+      values[key] = val !== undefined && val !== null ? String(val) : '';
+      if (looksLikeImageUrl(values[key], col)) imagesToFetch.push({ ref: key, url: values[key] });
+    }
+    // rule/totals pseudo-cols
+    if (ri < ruleTable.length) {
+      values['rule.'   + (ri + 1)] = ruleTable[ri].RULE   !== undefined ? String(ruleTable[ri].RULE)   : '';
+      values['totals.' + (ri + 1)] = ruleTable[ri].TOTALS !== undefined ? String(ruleTable[ri].TOTALS) : '';
+    }
+  }
+  return { values: values, imagesToFetch: imagesToFetch };
+}
+
 async function inject() {
   if (!activeDataset) { showBanner('Select a dataset first', 'err'); return; }
-  if (!_searchScope) { setSearchScope('page'); } // default to page if nothing chosen
+  if (!_searchScope) { setSearchScope('page'); }
   var btn = document.getElementById('injectBtn');
   btn.disabled = true;
   hideBanner();
+
+  var rows      = activeDataset.rows      || [];
+  var headers   = activeDataset.headers   || [];
+  var ruleTable = Array.isArray(activeDataset.ruleTable) ? activeDataset.ruleTable : [];
+
+  // ── Page / Document scope: skip scan, build values map (text only — no image bytes) ──
+  // Image pre-fetching is skipped here because fetching all image URLs across all rows
+  // produces megabytes of binary data that crashes the plugin sandbox via postMessage.
+  // Use SELECTED scope for layouts that require image injection.
+  if (_searchScope === 'page' || _searchScope === 'document') {
+    showProcessing('Injecting into Figma…', '');
+    try {
+      var built = buildFullValuesMap(rows, headers, ruleTable);
+      _lastImageStats = { total: 0, fetched: 0, errors: [] };
+      parent.postMessage({ pluginMessage: { type: 'inject-refs', values: built.values, imageMap: {}, searchScope: _searchScope } }, '*');
+    } catch (e) {
+      hideProcessing();
+      showBanner('Inject error: ' + e.message, 'err');
+      updateInjectBtn();
+    }
+    return;
+  }
+
+  // ── Selection scope: scan selection first (fast), then inject ──
   if (!scannedRefs.length) {
     _pendingInject = true;
-    showProcessing('Scanning layers…', 'Looking for #name.index refs');
+    showProcessing('Scanning selection…', 'Looking for #name.index refs');
     scanRefs();
     return;
   }
   showProcessing('Fetching images…', '');
   try {
-    var rows    = activeDataset.rows || [];
-    var headers = activeDataset.headers || [];
-    var ruleTable = Array.isArray(activeDataset.ruleTable) ? activeDataset.ruleTable : [];
-    var values  = {};
-    var imageMap = {};
-    var imagesToFetch = [];
-
-    // Detect any value that looks like an image URL — by extension OR column name hint.
-    // This means designers don't need to name columns anything special; any cell
-    // containing a URL ending in a known image extension is auto-fetched.
-    var IMAGE_EXTS = /\.(jpe?g|png|gif|webp|svg|bmp|ico|avif|tiff?)(\?.*)?$/i;
-    var IMAGE_COL_HINT = /image|img|photo|pic|avatar|logo|banner|thumb|icon/i;
-    function looksLikeImageUrl(val, colName) {
-      if (typeof val !== 'string') return false;
-      if (val.indexOf('http') !== 0) return false;
-      // Extension match (most reliable)
-      try { var path = new URL(val).pathname; if (IMAGE_EXTS.test(path)) return true; } catch (_) {}
-      // Column name hint (fallback for CDN/signed URLs without extensions)
-      if (IMAGE_COL_HINT.test(colName)) return true;
-      return false;
-    }
+    var values2  = {};
+    var imageMap2 = {};
+    var imagesToFetch2 = [];
 
     syncHiddenRows();
     for (var r = 0; r < scannedRefs.length; r++) {
       var ref   = scannedRefs[r];
       var parts = ref.split('.');
       var colName = parts[0];
-      var rowIdx  = parseInt(parts[1], 10) - 1;   // 0-based
-      // Skip refs that point to a hidden row
+      var rowIdx  = parseInt(parts[1], 10) - 1;
       if (hiddenRowIndices.has(rowIdx)) continue;
       if (colName === 'rule' || colName === 'totals') {
         if (rowIdx < 0 || rowIdx >= ruleTable.length) continue;
         var rtRow = ruleTable[rowIdx] || {};
         var rtVal = colName === 'rule' ? rtRow.RULE : rtRow.TOTALS;
-        values[ref] = rtVal !== undefined && rtVal !== null ? rtVal : '';
+        values2[ref] = rtVal !== undefined && rtVal !== null ? rtVal : '';
         continue;
       }
-      // 1. Exact match (case-insensitive)
       var matchedCol = null;
       for (var c = 0; c < headers.length; c++) {
         if (headers[c].toLowerCase() === colName) { matchedCol = headers[c]; break; }
       }
-      // 2. Prefix/suffix fuzzy match — so #avatar.1 also matches avatar_image,
-      //    and #prize.1 also matches prize_amount etc.
       if (!matchedCol) {
         for (var c2 = 0; c2 < headers.length; c2++) {
           var hl = headers[c2].toLowerCase();
-          if (hl.indexOf(colName) === 0 || hl.slice(-(colName.length)) === colName) {
-            matchedCol = headers[c2]; break;
-          }
+          if (hl.indexOf(colName) === 0 || hl.slice(-(colName.length)) === colName) { matchedCol = headers[c2]; break; }
         }
       }
       if (!matchedCol || rowIdx < 0 || rowIdx >= rows.length) continue;
       var val = rows[rowIdx][matchedCol];
-      values[ref] = val !== undefined && val !== null ? val : '';
-      if (looksLikeImageUrl(val, colName)) {
-        imagesToFetch.push({ ref: ref, url: val });
-      }
+      values2[ref] = val !== undefined && val !== null ? val : '';
+      if (looksLikeImageUrl(val, colName)) imagesToFetch2.push({ ref: ref, url: val });
     }
-    var fetchedCount = 0;
-    var fetchErrors  = [];
-    if (imagesToFetch.length) {
-      showProcessing('Loading images…', imagesToFetch.length + ' to fetch');
-      // Fetch all images in parallel — sequential awaits cause the main freeze
-      var imgResults = await Promise.allSettled(
-        imagesToFetch.map(function(it) {
-          return fetchImageAsPng(it.url).then(function(bytes) {
-            return { ref: it.ref, bytes: bytes };
-          });
+    var fetchedCount2 = 0;
+    var fetchErrors2  = [];
+    if (imagesToFetch2.length) {
+      showProcessing('Loading images…', imagesToFetch2.length + ' to fetch');
+      var imgResults2 = await Promise.allSettled(
+        imagesToFetch2.map(function(it) {
+          return fetchImageAsPng(it.url).then(function(bytes) { return { ref: it.ref, bytes: bytes }; });
         })
       );
-      for (var f = 0; f < imgResults.length; f++) {
-        if (imgResults[f].status === 'fulfilled') {
-          imageMap[imgResults[f].value.ref] = imgResults[f].value.bytes;
-          fetchedCount++;
-        } else {
-          fetchErrors.push(imagesToFetch[f].ref + ': ' + (imgResults[f].reason ? imgResults[f].reason.message : 'failed'));
-        }
+      for (var f2 = 0; f2 < imgResults2.length; f2++) {
+        if (imgResults2[f2].status === 'fulfilled') { imageMap2[imgResults2[f2].value.ref] = imgResults2[f2].value.bytes; fetchedCount2++; }
+        else fetchErrors2.push(imagesToFetch2[f2].ref + ': ' + ((imgResults2[f2].reason || {}).message || 'failed'));
       }
     }
-    _lastImageStats = { total: imagesToFetch.length, fetched: fetchedCount, errors: fetchErrors };
+    _lastImageStats = { total: imagesToFetch2.length, fetched: fetchedCount2, errors: fetchErrors2 };
     showProcessing('Injecting into Figma…', scannedRefs.length + ' layer ref(s)');
-    parent.postMessage({ pluginMessage: { type: 'inject-refs', values: values, imageMap: imageMap, searchScope: _searchScope } }, '*');
+    parent.postMessage({ pluginMessage: { type: 'inject-refs', values: values2, imageMap: imageMap2, searchScope: _searchScope } }, '*');
   } catch (e) {
     hideProcessing();
     showBanner('Inject error: ' + e.message, 'err');

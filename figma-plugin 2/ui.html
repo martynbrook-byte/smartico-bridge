@@ -662,19 +662,20 @@
 
     <!-- inject -->
     <div id="injectBar" style="display:none">
-      <!-- Component search scope toggle -->
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;padding:6px 10px;background:rgba(187,0,255,0.08);border-radius:8px;border:1px solid rgba(187,0,255,0.18)">
-        <span style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:0.03em">COMPONENT SEARCH</span>
-        <div style="display:flex;align-items:center;gap:0;border-radius:6px;overflow:hidden;border:1px solid rgba(187,0,255,0.3)">
-          <button id="scopeBtnPage" onclick="setSearchScope('page')" style="
-            padding:4px 10px;font-size:10px;font-weight:700;letter-spacing:0.04em;border:none;cursor:pointer;
-            background:transparent;color:#BB00FF;transition:background .12s;
-          ">THIS PAGE</button>
-          <button id="scopeBtnDoc" onclick="setSearchScope('document')" style="
-            padding:4px 10px;font-size:10px;font-weight:700;letter-spacing:0.04em;border:none;cursor:pointer;
-            background:transparent;color:#BB00FF;transition:background .12s;
-          ">FULL DOC</button>
-        </div>
+      <!-- Inject scope selector -->
+      <div style="display:flex;align-items:center;gap:0;border-radius:6px;overflow:hidden;border:1px solid rgba(187,0,255,0.3);margin-bottom:8px;width:100%">
+        <button id="scopeBtnSel" onclick="setSearchScope('selection')" style="
+          flex:1;padding:6px 4px;font-size:10px;font-weight:700;letter-spacing:0.04em;border:none;cursor:pointer;
+          background:transparent;color:#BB00FF;transition:background .12s;
+        ">SELECTED</button>
+        <button id="scopeBtnPage" onclick="setSearchScope('page')" style="
+          flex:1;padding:6px 4px;font-size:10px;font-weight:700;letter-spacing:0.04em;border:none;cursor:pointer;
+          background:transparent;color:#BB00FF;transition:background .12s;border-left:1px solid rgba(187,0,255,0.3);border-right:1px solid rgba(187,0,255,0.3);
+        ">THIS PAGE</button>
+        <button id="scopeBtnDoc" onclick="setSearchScope('document')" style="
+          flex:1;padding:6px 4px;font-size:10px;font-weight:700;letter-spacing:0.04em;border:none;cursor:pointer;
+          background:transparent;color:#BB00FF;transition:background .12s;
+        ">FULL DOC</button>
       </div>
       <button id="injectBtn" onclick="inject()" style="
         width:100%; padding:16px 12px; border:none; border-radius:var(--radius);
@@ -1286,24 +1287,19 @@ var activeDataset = null;
 var hiddenCardIds = new Set(); // dataset IDs hidden from the active list
 var dsFilter = 'active'; // 'active' | 'hidden'
 var scannedRefs  = [];
-// Component search scope: null until user picks, then 'page' or 'document'
+// Component search scope: null until user picks, then 'selection'|'page'|'document'
 var _searchScope = null;
 function setSearchScope(scope) {
   _searchScope = scope;
-  var btnPage    = document.getElementById('scopeBtnPage');
-  var btnDoc     = document.getElementById('scopeBtnDoc');
-  var injectBtn  = document.getElementById('injectBtn');
-  if (btnPage && btnDoc) {
-    if (scope === 'page') {
-      btnPage.style.background = '#BB00FF'; btnPage.style.color = '#fff';
-      btnDoc.style.background  = 'transparent'; btnDoc.style.color = '#BB00FF';
-    } else {
-      btnDoc.style.background  = '#BB00FF'; btnDoc.style.color = '#fff';
-      btnPage.style.background = 'transparent'; btnPage.style.color = '#BB00FF';
-    }
-  }
-  // Unlock the inject button once a scope is chosen
-  if (injectBtn) { injectBtn.disabled = false; }
+  var btnSel  = document.getElementById('scopeBtnSel');
+  var btnPage = document.getElementById('scopeBtnPage');
+  var btnDoc  = document.getElementById('scopeBtnDoc');
+  [btnSel, btnPage, btnDoc].forEach(function(b) {
+    if (b) { b.style.background = 'transparent'; b.style.color = '#BB00FF'; }
+  });
+  var active = scope === 'selection' ? btnSel : scope === 'page' ? btnPage : btnDoc;
+  if (active) { active.style.background = '#BB00FF'; active.style.color = '#fff'; }
+  updateInjectBtn();
 }
 var scannedGroups = [];
 var openGroups   = {};
@@ -1758,7 +1754,9 @@ function renderPreview() {
 function refreshSel() { parent.postMessage({ pluginMessage: { type: 'get-selection' } }, '*'); }
 
 function updateInjectBtn() {
-  var enabled = figmaSel.length > 0;
+  var enabled = (_searchScope === 'page' || _searchScope === 'document')
+    ? (activeDataset != null)
+    : (figmaSel.length > 0 && activeDataset != null);
 
   var btn = document.getElementById('injectBtn');
   if (btn) {
@@ -1767,7 +1765,7 @@ function updateInjectBtn() {
     btn.style.color       = '#fff';
     btn.style.cursor      = enabled ? 'pointer' : 'not-allowed';
     btn.style.opacity     = enabled ? '1' : '0.4';
-    btn.title = enabled ? '' : 'Select a frame in Figma first';
+    btn.title = enabled ? '' : (!activeDataset ? 'Select a dataset first' : 'Select a frame in Figma first');
   }
 
   var saveBtn = document.getElementById('saveSelBtn');
@@ -1966,7 +1964,7 @@ function dismissInjectResult() {
 var _pendingInject = false;
 async function inject() {
   if (!activeDataset) { showBanner('Select a dataset first', 'err'); return; }
-  if (!_searchScope) { showBanner('Choose THIS PAGE or FULL DOC first', 'info'); return; }
+  if (!_searchScope) { setSearchScope('page'); }
   var btn = document.getElementById('injectBtn');
   btn.disabled = true;
   hideBanner();
@@ -2075,6 +2073,12 @@ window.onmessage = function(event) {
 
   if (msg.type === 'selection') {
     figmaSel = msg.nodes || [];
+    // Auto-switch scope: selection exists → 'selection'; cleared → revert to 'page'
+    if (figmaSel.length && _searchScope !== 'selection') {
+      setSearchScope('selection');
+    } else if (!figmaSel.length && _searchScope === 'selection') {
+      setSearchScope('page');
+    }
     updateSelBox();
     updateInjectBtn();
     var key = figmaSel.map(function(n){ return n.id; }).join('|');

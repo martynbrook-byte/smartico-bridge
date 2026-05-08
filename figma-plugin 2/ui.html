@@ -1576,18 +1576,27 @@ function renderDsList() {
     var eyeAction = isHiddenCard
       ? 'toggleCardHidden(\'' + esc(d.id) + '\')'
       : 'event.stopPropagation();dsEyeAction(\'' + esc(d.id) + '\',' + hiddenCount + ')';
-    var countryBadges = codes.map(function(c) {
-      return '<span class="ds-country-badge">' + esc(c) + '</span>';
-    }).join('');
+    // Parse version from filename e.g. "_v3_" or "_V12_"
+    var verMatch = (d.filename || '').match(/[_\-]v(\d+)[_\-\.]/i);
+    var version  = verMatch ? 'v' + verMatch[1] : '';
+    // Format upload date as "12 Jan 2025"
+    var dateStr  = '';
+    if (d.uploadedAt) {
+      var dt = new Date(d.uploadedAt);
+      if (!isNaN(dt)) {
+        var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+        dateStr = dt.getDate() + ' ' + months[dt.getMonth()] + ' ' + dt.getFullYear();
+      }
+    }
+    var chips = [];
+    if (version)  chips.push('<span class="ds-chip">' + esc(version) + '</span>');
+    if (dateStr)  chips.push('<span class="ds-chip">' + esc(dateStr) + '</span>');
+    chips = chips.concat(codes.map(function(c) { return '<span class="ds-country-badge">' + esc(c) + '</span>'; }));
+    chips.push('<span class="ds-chip">' + fmtNum(d.rowCount) + ' rows</span>');
+    chips.push('<span class="ds-chip">' + (d.headers||[]).length + ' cols</span>');
     return '<div class="ds-card' + sel + '" onclick="selectDataset(\'' + esc(d.id) + '\')" style="padding-right:36px">' +
-      '<div class="ds-name" style="display:flex;align-items:center;gap:5px">' +
-        esc(d.label || d.filename) +
-        (countryBadges ? '<span style="display:flex;gap:3px;margin-left:2px">' + countryBadges + '</span>' : '') +
-      '</div>' +
-      '<div class="ds-meta">' +
-        '<span>' + fmtNum(d.rowCount) + ' rows</span>' +
-        '<span>' + (d.headers||[]).length + ' cols</span>' +
-        (d.ruleSetName ? '<span class="ds-chip proc">' + esc(d.ruleSetName) + '</span>' : '') +
+      '<div style="display:flex;flex-wrap:wrap;align-items:center;gap:4px">' +
+        chips.join('') +
       '</div>' +
       '<button class="ds-eye-btn' + eyeCls + '" title="' + esc(eyeTip) + '"' +
         ' onclick="' + eyeAction + '">' +

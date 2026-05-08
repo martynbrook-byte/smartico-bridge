@@ -166,47 +166,55 @@ async function loadNodeFont(node) {
 figma.ui.onmessage = async function(msg) {
 
   // ── scan-refs / scan-page: find #name.index nodes ────────────────────────
-  // Uses findAllWithCriteria (type filter first) which is dramatically faster
-  // than a recursive JS walk on large pages with thousands of container nodes.
   if (msg.type === 'scan-refs' || msg.type === 'scan-page') {
     var scanScope = msg.scope || 'page';
     var sel = figma.currentPage.selection;
-
-    // scan-refs: use selection if available, else fall back to page
-    // scan-page: always scan page/doc (called when nothing is selected)
-    var scanRoots;
-    if (msg.type === 'scan-refs' && sel.length) {
-      scanRoots = Array.from(sel);
-    } else {
-      var scanRoot = (scanScope === 'document') ? figma.root : figma.currentPage;
-      scanRoots = Array.from(scanRoot.children);
-    }
 
     var groupsById = {};
     var frameOrder = [];
     var refsFound  = {};
 
-    // Only scan node types that can actually be injection targets
-    var INJECTABLE_TYPES = ['TEXT', 'INSTANCE', 'RECTANGLE', 'ELLIPSE', 'FRAME', 'COMPONENT'];
-
-    for (var s = 0; s < scanRoots.length; s++) {
-      var rootNode = scanRoots[s];
+    try {
       var candidates;
-      try {
-        candidates = rootNode.findAllWithCriteria({ types: INJECTABLE_TYPES });
-      } catch (_) {
+
+      if (msg.type === 'scan-refs' && sel.length) {
+        // Selection provided — scan only selected nodes (fast path)
         candidates = [];
-        walk(rootNode, function(n) {
-          if (INJECTABLE_TYPES.indexOf(n.type) !== -1) candidates.push(n);
-        });
+        for (var si = 0; si < sel.length; si++) {
+          var selNode = sel[si];
+          // Include the node itself if it matches
+          if (REF_PATTERN.test(selNode.name)) candidates.push(selNode);
+          // Then all TEXT + INSTANCE descendants only (the two types we actually write to)
+          if ('findAllWithCriteria' in selNode) {
+            var sub = selNode.findAllWithCriteria({ types: ['TEXT', 'INSTANCE'] });
+            for (var sj = 0; sj < sub.length; sj++) candidates.push(sub[sj]);
+          }
+        }
+      } else {
+        // No selection — scan whole page/doc for TEXT + INSTANCE only
+        // FRAME/RECT/ELLIPSE are included only when they have a direct REF name,
+        // so we check top-level children names separately (cheap).
+        var scanRoot = (scanScope === 'document') ? figma.root : figma.currentPage;
+        candidates = scanRoot.findAllWithCriteria({ types: ['TEXT', 'INSTANCE'] });
+        // Also check direct children of pages for named frames/rects
+        var pageChildren = (scanScope === 'document')
+          ? figma.root.children.reduce(function(a, pg) { return a.concat(Array.from(pg.children)); }, [])
+          : Array.from(figma.currentPage.children);
+        for (var pc = 0; pc < pageChildren.length; pc++) {
+          if (REF_PATTERN.test(pageChildren[pc].name)) candidates.push(pageChildren[pc]);
+        }
       }
+
       for (var ci = 0; ci < candidates.length; ci++) {
         var n = candidates[ci];
         var m = n.name.match(REF_PATTERN);
         if (!m) continue;
         var key = m[1].toLowerCase() + '.' + m[2];
         refsFound[key] = true;
-        var frame = findContainingFrame(n, rootNode);
+        // Walk up to find the nearest top-level frame for grouping
+        var frame = n;
+        var p = n.parent;
+        while (p && p.type !== 'PAGE' && p.type !== 'DOCUMENT') { frame = p; p = p.parent; }
         var gid = frame.id;
         if (!groupsById[gid]) {
           groupsById[gid] = { frameId: gid, frameName: frame.name, frameType: frame.type, refs: [] };
@@ -218,6 +226,9 @@ figma.ui.onmessage = async function(msg) {
         }
         if (!alreadyInGroup) groupsById[gid].refs.push(key);
       }
+    } catch (scanErr) {
+      figma.ui.postMessage({ type: 'scan-result', ok: false, error: 'Scan failed: ' + scanErr.message });
+      return;
     }
 
     var groups = [];

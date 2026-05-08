@@ -165,52 +165,71 @@ async function loadNodeFont(node) {
 // ── Message handler ──────────────────────────────────────────────────────────
 figma.ui.onmessage = async function(msg) {
 
-  // ── scan-refs: walk selection, collect refs grouped by containing frame ───
-  if (msg.type === 'scan-refs') {
+  // ── scan-refs / scan-page: find #name.index nodes ────────────────────────
+  // Uses findAllWithCriteria (type filter first) which is dramatically faster
+  // than a recursive JS walk on large pages with thousands of container nodes.
+  if (msg.type === 'scan-refs' || msg.type === 'scan-page') {
+    var scanScope = msg.scope || 'page';
     var sel = figma.currentPage.selection;
-    // If nothing selected, fall back to scanning the whole page
-    var scanRoots = sel.length ? Array.from(sel) : Array.from(figma.currentPage.children);
 
-    // groupsById preserves insertion order; frameOrder keeps stable rendering.
+    // scan-refs: use selection if available, else fall back to page
+    // scan-page: always scan page/doc (called when nothing is selected)
+    var scanRoots;
+    if (msg.type === 'scan-refs' && sel.length) {
+      scanRoots = Array.from(sel);
+    } else {
+      var scanRoot = (scanScope === 'document') ? figma.root : figma.currentPage;
+      scanRoots = Array.from(scanRoot.children);
+    }
+
     var groupsById = {};
     var frameOrder = [];
     var refsFound  = {};
 
-    for (var s = 0; s < scanRoots.length; s++) {
-      var root = scanRoots[s];
-      (function(rootNode) {
-        walk(rootNode, function(n) {
-          var m = n.name.match(REF_PATTERN);
-          if (!m) return;
-          // The flat key stays as "col.idx" (no # prefix) — that's the form
-          // the UI already indexes by and the inject-refs handler rebuilds.
-          // Variant/swap kind is reconstructed per-node at inject time.
-          var key = m[1].toLowerCase() + '.' + m[2];
-          refsFound[key] = true;
+    // Only scan node types that can actually be injection targets
+    var INJECTABLE_TYPES = ['TEXT', 'INSTANCE', 'RECTANGLE', 'ELLIPSE', 'FRAME', 'COMPONENT'];
 
-          var frame = findContainingFrame(n, rootNode);
-          var gid = frame.id;
-          if (!groupsById[gid]) {
-            groupsById[gid] = { frameId: gid, frameName: frame.name, frameType: frame.type, refs: [] };
-            frameOrder.push(gid);
-          }
-          var alreadyInGroup = false;
-          for (var r = 0; r < groupsById[gid].refs.length; r++) {
-            if (groupsById[gid].refs[r] === key) { alreadyInGroup = true; break; }
-          }
-          if (!alreadyInGroup) groupsById[gid].refs.push(key);
+    for (var s = 0; s < scanRoots.length; s++) {
+      var rootNode = scanRoots[s];
+      var candidates;
+      try {
+        candidates = rootNode.findAllWithCriteria({ types: INJECTABLE_TYPES });
+      } catch (_) {
+        candidates = [];
+        walk(rootNode, function(n) {
+          if (INJECTABLE_TYPES.indexOf(n.type) !== -1) candidates.push(n);
         });
-      })(root);
+      }
+      for (var ci = 0; ci < candidates.length; ci++) {
+        var n = candidates[ci];
+        var m = n.name.match(REF_PATTERN);
+        if (!m) continue;
+        var key = m[1].toLowerCase() + '.' + m[2];
+        refsFound[key] = true;
+        var frame = findContainingFrame(n, rootNode);
+        var gid = frame.id;
+        if (!groupsById[gid]) {
+          groupsById[gid] = { frameId: gid, frameName: frame.name, frameType: frame.type, refs: [] };
+          frameOrder.push(gid);
+        }
+        var alreadyInGroup = false;
+        for (var r = 0; r < groupsById[gid].refs.length; r++) {
+          if (groupsById[gid].refs[r] === key) { alreadyInGroup = true; break; }
+        }
+        if (!alreadyInGroup) groupsById[gid].refs.push(key);
+      }
     }
 
     var groups = [];
     for (var g = 0; g < frameOrder.length; g++) groups.push(groupsById[frameOrder[g]]);
 
     figma.ui.postMessage({
-      type:   'scan-result',
-      ok:     true,
-      refs:   Object.keys(refsFound),  // flat list retained for backwards compat
-      groups: groups,                  // new per-frame grouping for the UI
+      type:        'scan-result',
+      ok:          true,
+      refs:        Object.keys(refsFound),
+      groups:      groups,
+      autoScanned: msg.type === 'scan-page',
+      scope:       scanScope,
     });
     return;
   }
@@ -234,14 +253,16 @@ figma.ui.onmessage = async function(msg) {
 
     // ── Collect matching nodes ─────────────────────────────────────────────
     // Use Figma's native findAll (faster than JS walk on large pages).
+    var INJECTABLE_TYPES2 = ['TEXT', 'INSTANCE', 'RECTANGLE', 'ELLIPSE', 'FRAME', 'COMPONENT'];
     figma.ui.postMessage({ type: 'inject-progress', phase: 'scan', done: 0, total: injectRoots.length });
     for (var s2 = 0; s2 < injectRoots.length; s2++) {
       var matchNodes;
       try {
-        matchNodes = injectRoots[s2].findAll(function(n) { return REF_PATTERN.test(n.name); });
+        var typeFiltered = injectRoots[s2].findAllWithCriteria({ types: INJECTABLE_TYPES2 });
+        matchNodes = typeFiltered.filter(function(n) { return REF_PATTERN.test(n.name); });
       } catch (_findErr) {
         matchNodes = [];
-        walk(injectRoots[s2], function(n) { if (REF_PATTERN.test(n.name)) matchNodes.push(n); });
+        walk(injectRoots[s2], function(n) { if (INJECTABLE_TYPES2.indexOf(n.type) !== -1 && REF_PATTERN.test(n.name)) matchNodes.push(n); });
       }
       for (var ni = 0; ni < matchNodes.length; ni++) {
         var n = matchNodes[ni];

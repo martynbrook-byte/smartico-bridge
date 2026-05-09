@@ -1108,6 +1108,7 @@
       <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
     </svg>
   </button>
+  <button id="muteBtn" onclick="toggleMute()" style="background:transparent;border:none;cursor:pointer;font-size:16px;padding:4px;opacity:0.7;line-height:1" title="Toggle sounds"></button>
 </nav>
 
 <!-- Processing overlay — outside app-frame so parent transform doesn't capture fixed positioning -->
@@ -1380,6 +1381,7 @@ var autoScanT    = null;
 // Defer status ping so it doesn't block user-triggered requests on cold Railway starts
 setTimeout(pingServer, 1500);
 parent.postMessage({ pluginMessage: { type: 'get-selection' } }, '*');
+(function() { var b = document.getElementById('muteBtn'); if (b) b.textContent = _audioMuted ? '🔇' : '🔊'; })();
 // loadUploadPipelines() deferred until data panel opens
 
 // ── Panel accordion ───────────────────────────────────────────────────────────
@@ -1401,6 +1403,9 @@ function appScrollTop() {
     if (panel) panel.classList.remove('open');
     if (body)  body.classList.add('hidden');
   });
+  // Close settings overlay if open
+  var so = document.getElementById('settings-overlay');
+  if (so) so.classList.remove('open');
   var ac = document.getElementById('appContent');
   ac.scrollTo({ top: 0, behavior: 'smooth' });
 }
@@ -1460,9 +1465,11 @@ function togglePanel(name) {
 // Lightweight ping — sets the header dot only, no data load
 async function pingServer() {
   var dot = document.getElementById('data-status-dot');
+  var wasGreen = dot && dot.style.background === 'rgb(34, 197, 94)';
   try {
     await api('/api/health');
     if (dot) dot.style.background = '#22c55e'; // green
+    if (!wasGreen) playSound('ping');
   } catch (e) {
     if (dot) dot.style.background = '#ef4444'; // red
   }
@@ -1599,7 +1606,12 @@ function toggleCardHidden(id) {
   renderDsList();
 }
 
-function filterByPipeline() { renderDsList(); }
+function filterByPipeline() {
+  var pipelineId = document.getElementById('uploadPipelineSel').value;
+  var drop = document.getElementById('uploadDrop');
+  if (drop) drop.style.display = pipelineId ? '' : 'none';
+  renderDsList();
+}
 
 function renderDsList() {
   var el = document.getElementById('dsList');
@@ -1703,6 +1715,7 @@ async function selectDataset(id) {
   try {
     var full = await api('/api/figma/datasets/' + id);
     activeDataset = full;
+    playSound('ping');
     // Reset bind state so panel stays hidden until a row is clicked
     bindRowIndex  = null;
     bindRowSource = null;
@@ -1994,6 +2007,7 @@ function showInjectResult(msg, imgStats) {
   var hasWarning = (msg.errors && msg.errors.length) || (imgStats && imgStats.errors && imgStats.errors.length);
   document.getElementById('procResultIcon').textContent  = hasWarning ? '⚠' : '✓';
   document.getElementById('procResultTitle').textContent = hasWarning ? 'Done with warnings' : 'Injected!';
+  playSound(hasWarning ? 'warning' : 'success');
 
   var rows = '';
   function statRow(label, val, cls) {
@@ -2026,6 +2040,44 @@ function showInjectResult(msg, imgStats) {
 }
 function dismissInjectResult() {
   hideProcessing();
+}
+
+// ── Audio feedback ────────────────────────────────────────────────────────────
+var _audioMuted = localStorage.getItem('sb_muted') === '1';
+function toggleMute() {
+  _audioMuted = !_audioMuted;
+  localStorage.setItem('sb_muted', _audioMuted ? '1' : '0');
+  var btn = document.getElementById('muteBtn');
+  if (btn) btn.textContent = _audioMuted ? '🔇' : '🔊';
+}
+function playSound(type) {
+  if (_audioMuted) return;
+  try {
+    var ctx = new (window.AudioContext || window.webkitAudioContext)();
+    function note(freq, start, dur, vol, shape) {
+      var o = ctx.createOscillator(), g = ctx.createGain();
+      o.connect(g); g.connect(ctx.destination);
+      o.type = shape || 'sine'; o.frequency.value = freq;
+      g.gain.setValueAtTime(0, start);
+      g.gain.linearRampToValueAtTime(vol || 0.22, start + 0.012);
+      g.gain.exponentialRampToValueAtTime(0.0001, start + dur);
+      o.start(start); o.stop(start + dur + 0.05);
+    }
+    var t = ctx.currentTime;
+    if (type === 'success') {
+      note(523, t, 0.45, 0.20); note(659, t + 0.13, 0.45, 0.20); note(784, t + 0.26, 0.55, 0.20);
+    } else if (type === 'warning') {
+      note(659, t, 0.45, 0.18); note(523, t + 0.18, 0.45, 0.14);
+    } else if (type === 'error') {
+      note(260, t, 0.18, 0.20, 'sawtooth'); note(200, t + 0.14, 0.18, 0.18, 'sawtooth'); note(150, t + 0.28, 0.28, 0.18, 'sawtooth');
+    } else if (type === 'ping') {
+      note(880, t, 0.40, 0.14);
+    } else if (type === 'casino') {
+      note(880, t, 0.22, 0.18, 'triangle'); note(1109, t + 0.08, 0.22, 0.18, 'triangle');
+      note(1319, t + 0.16, 0.22, 0.18, 'triangle'); note(1568, t + 0.24, 0.32, 0.18, 'triangle');
+    }
+    setTimeout(function() { try { ctx.close(); } catch (_) {} }, 1800);
+  } catch (_) {}
 }
 
 var _pendingInject = false;
@@ -2265,6 +2317,7 @@ window.onmessage = function(event) {
     updateInjectBtn();
     if (!msg.ok) {
       hideProcessing();
+      playSound('error');
       showBanner('✕ ' + msg.error, 'err');
       return;
     }
@@ -2644,7 +2697,9 @@ var uploadPipelines = [];
 
 async function loadUploadPipelines() {
   var sel = document.getElementById('uploadPipelineSel');
+  var drop = document.getElementById('uploadDrop');
   sel.innerHTML = '<option value="">Loading…</option>';
+  if (drop) drop.style.display = 'none';
   try {
     var j = await api('/api/pipelines');
     uploadPipelines = (j.pipelines || []).filter(function(p) { return !p.archived; });
@@ -2836,6 +2891,7 @@ function toggleAssets()   { togglePanel('assets'); }
       var bySite = stats.by_site || [];
       var total  = bySite.reduce(function(a, s){ return a + (Number(s.count) || 0); }, 0);
       $c('casino-status-dot').style.background = '#22c55e';
+      playSound('casino');
       setCasinoSubtitle(total);
     }).catch(function() {
       $c('casino-status-dot').style.background = '#ef4444';
@@ -3072,6 +3128,7 @@ function toggleAssets()   { togglePanel('assets'); }
     if (msg.type==='casino-insert-success') {
       var card=document.querySelector('.cgame-card.inserting');
       if (card) { card.classList.remove('inserting'); card.classList.add('done-ok'); setTimeout(function(){card.classList.remove('done-ok');},1200); }
+      playSound('ping');
     }
     if (msg.type==='casino-insert-error') {
       var card=document.querySelector('.cgame-card.inserting');

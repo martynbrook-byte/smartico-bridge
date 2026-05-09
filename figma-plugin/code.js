@@ -67,6 +67,19 @@ var FRAMEY_TYPES = { FRAME: 1, COMPONENT: 1, COMPONENT_SET: 1, INSTANCE: 1, SECT
 var _compCachePage = null; // { pageId, index }
 var _compCacheDoc  = null; // { pageId, index } — keyed on page too so stale on page switch
 
+// ── Image injection batched state ────────────────────────────────────────────
+// Images are fetched in batches of IMG_BATCH_SIZE to avoid postMessage size
+// limits. code.js sends need-images for each batch, UI fetches and replies
+// with inject-images, code.js applies fills and requests the next batch.
+var IMG_BATCH_SIZE    = 10;
+var _imgPendingItems  = null; // ALL image items [{node, key, type:'image'}]
+var _imgBatchedRefs   = null; // deduplicated [{key, url}] for all images
+var _imgBatchOffset   = 0;    // index into _imgBatchedRefs of current batch start
+var _imgApplied       = null; // {key: true} — keys already written (multi-node dedup)
+var _imgPartialCount  = 0;
+var _imgPartialErrors = [];
+var _imgTotalItems    = 0;
+
 function buildComponentIndex(scope) {
   // scope: 'page' (default, fast) | 'document' (full doc, slower)
   var useDoc = (scope === 'document');
@@ -146,6 +159,12 @@ function findContainingFrame(node, rootNode) {
 function createImageFill(bytes) {
   var img = figma.createImage(new Uint8Array(bytes));
   return { type: 'IMAGE', scaleMode: 'FILL', imageHash: img.hash };
+}
+
+var IMAGE_URL_RE = /\.(jpe?g|png|gif|webp|svg|bmp|ico|avif|tiff?)(\?[^)]*)?$/i;
+function looksLikeImageUrl(val) {
+  if (typeof val !== 'string' || val.indexOf('http') !== 0) return false;
+  try { return IMAGE_URL_RE.test(new URL(val).pathname); } catch (_) { return false; }
 }
 
 async function loadNodeFont(node) {
@@ -251,10 +270,23 @@ figma.ui.onmessage = async function(msg) {
   if (msg.type === 'inject-refs') {
     var values      = msg.values      || {};
     var imageMap    = msg.imageMap    || {};
-    var searchScope = msg.searchScope || 'page'; // 'page' | 'document'
+    var searchScope = msg.searchScope || 'page'; // 'selection' | 'page' | 'document'
     var sel2        = figma.currentPage.selection;
-    // No selection → inject into the whole page
-    var injectRoots = sel2.length ? Array.from(sel2) : Array.from(figma.currentPage.children);
+
+    // Build inject roots based on explicit scope (not just whether selection exists)
+    var injectRoots;
+    if (searchScope === 'selection') {
+      injectRoots = sel2.length ? Array.from(sel2) : Array.from(figma.currentPage.children);
+    } else if (searchScope === 'document') {
+      injectRoots = [];
+      for (var pi = 0; pi < figma.root.children.length; pi++) {
+        var pg = figma.root.children[pi];
+        injectRoots = injectRoots.concat(Array.from(pg.children));
+      }
+    } else {
+      // 'page' scope
+      injectRoots = Array.from(figma.currentPage.children);
+    }
 
     var errors    = [];
     var count     = 0;
@@ -318,10 +350,13 @@ figma.ui.onmessage = async function(msg) {
         //   2. The parent FRAME/COMPONENT (if it directly wraps this text node)
         //   3. Fall back to the TEXT node itself (last resort)
         if (n.type === 'TEXT' && (key in values)) {
-          if (key in imageMap) {
+          // Queue as image if: bytes already in imageMap OR value looks like a URL
+          var valStr = values[key] !== null && values[key] !== undefined ? String(values[key]) : '';
+          var needsImage = (key in imageMap) || looksLikeImageUrl(valStr);
+          if (needsImage) {
             var imageTarget = null;
             var par = n.parent;
-            // 1. Sibling shape (RECTANGLE or ELLIPSE) — common pattern: rect + text label in a group
+            // 1. Sibling RECTANGLE or ELLIPSE — common pattern for avatar/image layers
             if (par && par.children) {
               for (var si = 0; si < par.children.length; si++) {
                 var sib = par.children[si];
@@ -331,7 +366,7 @@ figma.ui.onmessage = async function(msg) {
                 }
               }
             }
-            // 2. Parent frame (if it has fills and isn't the root selected node)
+            // 2. Parent frame/component
             if (!imageTarget && par && 'fills' in par && par.type !== 'DOCUMENT' && par.type !== 'PAGE') {
               imageTarget = par;
             }
@@ -343,14 +378,15 @@ figma.ui.onmessage = async function(msg) {
           }
           continue;
         }
-        // RECTANGLE, ELLIPSE, FRAME etc. — direct image fill target
-        if ('fills' in n && (key in imageMap)) {
-          pending.push({ node: n, key: key, type: 'image' });
+        // RECTANGLE, ELLIPSE, FRAME etc. — queue if value is image URL or bytes already available
+        if ('fills' in n && (key in values)) {
+          var valStr2 = values[key] !== null && values[key] !== undefined ? String(values[key]) : '';
+          if ((key in imageMap) || looksLikeImageUrl(valStr2)) {
+            pending.push({ node: n, key: key, type: 'image' });
+          }
         }
       } // end matchNodes loop
     } // end injectRoots loop
-
-    figma.ui.postMessage({ type: 'inject-progress', phase: 'inject', done: 0, total: pending.length });
 
     // ── Pre-load all unique fonts in parallel ──────────────────────────────
     // Collecting fonts up front and awaiting them together is dramatically
@@ -380,27 +416,41 @@ figma.ui.onmessage = async function(msg) {
       }));
     }
 
+    // ── Split: image items that need URL fetching vs everything else ──────────
+    var imageItems = []; // nodes needing image fills (no bytes yet in imageMap)
+    var otherItems = []; // text / instance / variant / swap / pre-loaded image
+    for (var sp = 0; sp < pending.length; sp++) {
+      if (pending[sp].type === 'image' && !(pending[sp].key in imageMap)) {
+        imageItems.push(pending[sp]);
+      } else {
+        otherItems.push(pending[sp]);
+      }
+    }
+
+    figma.ui.postMessage({ type: 'inject-progress', phase: 'inject', done: 0, total: pending.length });
+
     // Start timeout AFTER setup (scan + font loading can be slow on large files)
     var startTime  = Date.now();
     var TIMEOUT_MS = 30000; // 30 seconds covers actual write work
 
-    for (var p = 0; p < pending.length; p++) {
+    for (var p = 0; p < otherItems.length; p++) {
       // Timeout guard
       if (Date.now() - startTime > TIMEOUT_MS) {
-        errors.push('Timed out after 30s — ' + (pending.length - p) + ' item(s) skipped');
+        errors.push('Timed out after 30s — ' + (otherItems.length - p) + ' item(s) skipped');
         break;
       }
       // Progress update every 10 items
       if (p % 10 === 0) {
         figma.ui.postMessage({ type: 'inject-progress', phase: 'inject', done: p, total: pending.length });
       }
-      var item = pending[p];
+      var item = otherItems[p];
       try {
         if (item.type === 'text') {
           // Font already loaded in the parallel pre-load step above
           item.node.characters = String(values[item.key] !== null && values[item.key] !== undefined ? values[item.key] : '');
           count++;
         } else if (item.type === 'image') {
+          // imageMap already has bytes (pre-loaded path)
           item.node.fills = [createImageFill(imageMap[item.key])];
           count++;
         } else if (item.type === 'variant') {
@@ -520,6 +570,37 @@ figma.ui.onmessage = async function(msg) {
       }
     }
 
+    // ── Phase 2: ask UI to fetch image bytes for image nodes ─────────────────
+    if (imageItems.length > 0) {
+      // Deduplicate refs by key (multiple nodes can share the same image key)
+      var seenImgKeys = {};
+      var imageRefs   = [];
+      for (var ir = 0; ir < imageItems.length; ir++) {
+        var ik = imageItems[ir].key;
+        if (!seenImgKeys[ik] && values[ik]) {
+          seenImgKeys[ik] = true;
+          imageRefs.push({ key: ik, url: values[ik] });
+        }
+      }
+      // Store batched state
+      _imgPendingItems  = imageItems;
+      _imgBatchedRefs   = imageRefs;
+      _imgBatchOffset   = 0;
+      _imgApplied       = {};
+      _imgPartialCount  = count;
+      _imgPartialErrors = errors.slice();
+      _imgTotalItems    = pending.length;
+      // Send first batch only
+      figma.ui.postMessage({
+        type:       'need-images',
+        refs:       imageRefs.slice(0, IMG_BATCH_SIZE),
+        batchDone:  0,
+        batchTotal: imageRefs.length,
+        total:      pending.length
+      });
+      return; // inject-images handler drives remaining batches
+    }
+
     figma.ui.postMessage({
       type:   'inject-result',
       ok:     true,
@@ -530,12 +611,87 @@ figma.ui.onmessage = async function(msg) {
     return;
   }
 
+  // ── inject-images: apply one batch of image fills, request next if needed ───
+  if (msg.type === 'inject-images') {
+    if (!_imgPendingItems) {
+      figma.ui.postMessage({ type: 'inject-result', ok: false, error: 'No pending image state' });
+      return;
+    }
+    var imageMap3 = msg.imageMap || {};
+
+    // Apply fills for any node whose key is in this batch's imageMap
+    for (var ii = 0; ii < _imgPendingItems.length; ii++) {
+      var iitem = _imgPendingItems[ii];
+      if (_imgApplied[iitem.key]) continue; // already written by a previous batch
+      if (iitem.key in imageMap3) {
+        try {
+          iitem.node.fills = [createImageFill(imageMap3[iitem.key])];
+          _imgPartialCount++;
+          _imgApplied[iitem.key] = true;
+        } catch (imgErr) {
+          _imgPartialErrors.push(iitem.node.name + ': ' + imgErr.message);
+          _imgApplied[iitem.key] = true; // mark so we don't retry
+        }
+      }
+    }
+
+    // Advance batch cursor
+    _imgBatchOffset += IMG_BATCH_SIZE;
+
+    if (_imgBatchOffset < _imgBatchedRefs.length) {
+      // More batches to go — request next slice
+      var nextBatch = _imgBatchedRefs.slice(_imgBatchOffset, _imgBatchOffset + IMG_BATCH_SIZE);
+      figma.ui.postMessage({
+        type:       'need-images',
+        refs:       nextBatch,
+        batchDone:  _imgBatchOffset,
+        batchTotal: _imgBatchedRefs.length,
+        total:      _imgTotalItems
+      });
+      return;
+    }
+
+    // All batches done — report any keys that were never delivered
+    for (var im = 0; im < _imgPendingItems.length; im++) {
+      if (!_imgApplied[_imgPendingItems[im].key]) {
+        _imgPartialErrors.push(_imgPendingItems[im].node.name + ': image not fetched');
+      }
+    }
+
+    var finalCount  = _imgPartialCount;
+    var finalErrors = _imgPartialErrors.slice();
+    var finalTotal  = _imgTotalItems;
+
+    _imgPendingItems  = null;
+    _imgBatchedRefs   = null;
+    _imgBatchOffset   = 0;
+    _imgApplied       = null;
+    _imgPartialCount  = 0;
+    _imgPartialErrors = [];
+    _imgTotalItems    = 0;
+
+    figma.ui.postMessage({
+      type:   'inject-result',
+      ok:     true,
+      count:  finalCount,
+      total:  finalTotal,
+      errors: finalErrors,
+    });
+    return;
+  }
+
   // ── get-selection: report current selection to the UI ─────────────────────
   // Still supported for the initial UI load — the UI calls this once on
   // startup. After that the figma.on('selectionchange') hook above keeps the
   // UI in sync without polling.
   if (msg.type === 'get-selection') {
     postSelection();
+    return;
+  }
+
+  if (msg.type === 'get-pages') {
+    var pages = figma.root.children.map(function(p) { return { id: p.id, name: p.name }; });
+    figma.ui.postMessage({ type: 'pages-result', pages: pages, currentPageId: figma.currentPage.id });
     return;
   }
 

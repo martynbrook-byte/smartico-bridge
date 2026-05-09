@@ -557,6 +557,22 @@
   .proc-ok-btn { width: 100%; border: none; border-radius: var(--radius-sm); background: var(--accent-pink); color: #fff; padding: 16px 12px; font-family: var(--font-display); font-size: 22px; font-weight: 800; letter-spacing: 0.02em; cursor: pointer; transition: background .15s; }
   .proc-ok-btn:hover { filter: brightness(0.88); }
 
+  /* ── Full-doc confirmation modal ─────────────────────────────────────────── */
+  .confirm-backdrop { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 200; align-items: center; justify-content: center; padding: 20px; }
+  .confirm-backdrop.open { display: flex; }
+  .confirm-modal { background: var(--bg); border-radius: var(--radius-sm); padding: 20px; width: 100%; max-width: 300px; display: flex; flex-direction: column; gap: 12px; box-shadow: 0 8px 32px rgba(0,0,0,.35); }
+  .confirm-title { font-family: var(--font-display); font-size: var(--fs-title); font-weight: 800; color: var(--text); }
+  .confirm-body { font-size: var(--fs-label); color: var(--muted); line-height: 1.4; }
+  .confirm-pages { list-style: none; margin: 4px 0 0; padding: 8px 10px; background: rgba(0,0,0,.06); border-radius: 6px; display: flex; flex-direction: column; gap: 3px; max-height: 120px; overflow-y: auto; }
+  .confirm-pages li { font-size: var(--fs-label); color: var(--text); font-weight: 600; display: flex; align-items: center; gap: 5px; }
+  .confirm-pages li.current::before { content: '▶'; font-size: 8px; color: #BB00FF; }
+  .confirm-pages li:not(.current)::before { content: '○'; font-size: 8px; color: var(--muted); }
+  .confirm-actions { display: flex; gap: 8px; }
+  .confirm-cancel { flex: 1; border: 1.5px solid var(--border); background: transparent; border-radius: var(--radius-xs); padding: 10px; font-family: var(--font-display); font-size: var(--fs-body); font-weight: 700; color: var(--text); cursor: pointer; }
+  .confirm-cancel:hover { background: rgba(0,0,0,.05); }
+  .confirm-go { flex: 2; border: none; background: #BB00FF; border-radius: var(--radius-xs); padding: 10px; font-family: var(--font-display); font-size: var(--fs-body); font-weight: 800; color: #fff; cursor: pointer; }
+  .confirm-go:hover { filter: brightness(0.88); }
+
 </style>
 </head>
 <body>
@@ -1119,6 +1135,21 @@
   </div>
 </div>
 
+<!-- ── Full-doc confirmation modal ───────────────────────────────── -->
+<div class="confirm-backdrop" id="confirmBackdrop">
+  <div class="confirm-modal">
+    <div class="confirm-title">Inject full document?</div>
+    <div class="confirm-body">
+      This will update matching layers across all pages:
+      <ul class="confirm-pages" id="confirmPageList"></ul>
+    </div>
+    <div class="confirm-actions">
+      <button class="confirm-cancel" onclick="closeConfirm()">Cancel</button>
+      <button class="confirm-go" onclick="confirmInject()">Inject all pages</button>
+    </div>
+  </div>
+</div>
+
 <!-- ── Image Tools: settings overlay + toast ─────────────────────── -->
 <div id="settings-overlay">
   <div class="settings-header">
@@ -1298,6 +1329,9 @@ var dsFilter = 'active'; // 'active' | 'hidden'
 var scannedRefs  = [];
 // Component search scope: null until user picks, then 'selection'|'page'|'document'
 var _searchScope = null;
+var _docPages    = null; // cached [{id, name}] from pages-result
+var _currentPageId = null;
+
 function setSearchScope(scope) {
   _searchScope = scope;
   var btnSel  = document.getElementById('scopeBtnSel');
@@ -1308,7 +1342,30 @@ function setSearchScope(scope) {
   });
   var active = scope === 'selection' ? btnSel : scope === 'page' ? btnPage : btnDoc;
   if (active) { active.style.background = '#BB00FF'; active.style.color = '#fff'; }
+  if (scope === 'document') {
+    parent.postMessage({ pluginMessage: { type: 'get-pages' } }, '*');
+  }
   updateInjectBtn();
+}
+
+function openConfirm() {
+  var list = document.getElementById('confirmPageList');
+  if (list && _docPages) {
+    list.innerHTML = _docPages.map(function(p) {
+      var isCurrent = p.id === _currentPageId;
+      return '<li class="' + (isCurrent ? 'current' : '') + '">' + p.name + '</li>';
+    }).join('');
+  }
+  document.getElementById('confirmBackdrop').classList.add('open');
+}
+
+function closeConfirm() {
+  document.getElementById('confirmBackdrop').classList.remove('open');
+}
+
+function confirmInject() {
+  closeConfirm();
+  doInject();
 }
 var scannedGroups = [];
 var openGroups   = {};
@@ -2007,40 +2064,45 @@ function buildFullValuesMap(rows, headers, ruleTable) {
 async function inject() {
   if (!activeDataset) { showBanner('Select a dataset first', 'err'); return; }
   if (!_searchScope) { setSearchScope('page'); }
+
+  if (_searchScope === 'document') {
+    var btn0 = document.getElementById('injectBtn');
+    if (btn0) btn0.disabled = true;
+    if (!_docPages) {
+      parent.postMessage({ pluginMessage: { type: 'get-pages' } }, '*');
+      _pendingConfirm = true;
+    } else {
+      openConfirm();
+    }
+    return;
+  }
+
+  doInject();
+}
+
+function doInject() {
+  if (!activeDataset) return;
   var btn = document.getElementById('injectBtn');
-  btn.disabled = true;
+  if (btn) btn.disabled = true;
   hideBanner();
 
   var rows      = activeDataset.rows      || [];
   var headers   = activeDataset.headers   || [];
   var ruleTable = Array.isArray(activeDataset.ruleTable) ? activeDataset.ruleTable : [];
 
-  if (_searchScope === 'page' || _searchScope === 'document') {
-    showProcessing('Injecting into Figma…', '');
-    try {
-      var built = buildFullValuesMap(rows, headers, ruleTable);
-      _lastImageStats = { total: 0, fetched: 0, errors: [] };
-      parent.postMessage({ pluginMessage: { type: 'inject-refs', values: built.values, imageMap: {}, searchScope: _searchScope } }, '*');
-    } catch (e) {
-      hideProcessing();
-      showBanner('Inject error: ' + e.message, 'err');
-      updateInjectBtn();
-    }
-    return;
-  }
-
-  // Selection scope — no pre-scan, same direct inject as page/doc
   showProcessing('Injecting into Figma…', '');
   try {
-    var built2 = buildFullValuesMap(rows, headers, ruleTable);
+    var built = buildFullValuesMap(rows, headers, ruleTable);
     _lastImageStats = { total: 0, fetched: 0, errors: [] };
-    parent.postMessage({ pluginMessage: { type: 'inject-refs', values: built2.values, imageMap: {}, searchScope: _searchScope } }, '*');
+    parent.postMessage({ pluginMessage: { type: 'inject-refs', values: built.values, imageMap: {}, searchScope: _searchScope } }, '*');
   } catch (e) {
     hideProcessing();
     showBanner('Inject error: ' + e.message, 'err');
     updateInjectBtn();
   }
 }
+
+var _pendingConfirm = false;
 
 // ── Plugin → UI messages ──────────────────────────────────────────────────────
 window.onmessage = function(event) {
@@ -2066,6 +2128,32 @@ window.onmessage = function(event) {
     return;
   }
 
+  if (msg.type === 'need-images') {
+    var imgRefs    = msg.refs       || [];
+    var batchDone  = msg.batchDone  || 0;
+    var batchTotal = msg.batchTotal || imgRefs.length;
+    var imgTotal   = msg.total      || 0;
+    var lbl3 = document.getElementById('procLabel');
+    var pw3  = document.getElementById('procProgressWrap');
+    var pb3  = document.getElementById('procProgressBar');
+    var pl3  = document.getElementById('procProgressLabel');
+    if (lbl3) lbl3.textContent = 'Fetching images…';
+    if (pw3)  pw3.style.display = '';
+    (async function() {
+      var imageMap = {};
+      for (var ri = 0; ri < imgRefs.length; ri++) {
+        var ref = imgRefs[ri];
+        try { imageMap[ref.key] = await fetchImageAsPng(ref.url); } catch (_ie) {}
+        var overall = batchDone + ri + 1;
+        var pct = batchTotal > 0 ? Math.round((overall / batchTotal) * 100) : 100;
+        if (pb3) pb3.style.width = pct + '%';
+        if (pl3) pl3.textContent = overall + ' / ' + batchTotal + ' images';
+      }
+      parent.postMessage({ pluginMessage: { type: 'inject-images', imageMap: imageMap, total: imgTotal } }, '*');
+    })();
+    return;
+  }
+
   if (msg.type === 'inject-progress') {
     var pw2 = document.getElementById('procProgressWrap');
     var pb2 = document.getElementById('procProgressBar');
@@ -2081,6 +2169,16 @@ window.onmessage = function(event) {
         if (pb2) pb2.style.width = pct + '%';
         if (pl2) pl2.textContent = msg.done + ' / ' + msg.total + ' layers';
       }
+    }
+    return;
+  }
+
+  if (msg.type === 'pages-result') {
+    _docPages      = msg.pages || [];
+    _currentPageId = msg.currentPageId || null;
+    if (_pendingConfirm) {
+      _pendingConfirm = false;
+      openConfirm();
     }
     return;
   }

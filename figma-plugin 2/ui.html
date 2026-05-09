@@ -402,16 +402,6 @@
   .srow-color { width: 22px; height: 22px; border-radius: 3px; border: 1px solid var(--border); cursor: pointer; flex-shrink: 0; background: #000; padding: 0; }
   .srow-spacer { flex: 1; }
 
-  /* IC: Settings overlay */
-  #settings-overlay { position: fixed; inset: 0; bottom: 56px; z-index: 50; background: var(--bg); display: none; flex-direction: column; overflow: hidden; border-radius: var(--radius-xl) var(--radius-xl) 0 0; }
-  #settings-overlay.open { display: flex; }
-  .settings-header { display: flex; align-items: center; padding: 20px var(--panel-pad); border-bottom: 1px solid var(--border); flex-shrink: 0; }
-  .settings-title { font-size: 22px; font-weight: 800; color: var(--text); flex: 1; font-family: var(--font-display); letter-spacing: -0.4px; }
-  .settings-close { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 20px; padding: 0 2px; line-height: 1; }
-  .settings-close:hover { color: var(--text); }
-  .settings-body { flex: 1; overflow-y: auto; }
-  .settings-body::-webkit-scrollbar { width: 4px; }
-  .settings-body::-webkit-scrollbar-thumb { background: rgba(0,0,0,.15); }
   .settings-section { border-bottom: 1px solid var(--border); padding: 14px var(--panel-pad) 12px; }
   .settings-section-title { font-size: var(--fs-label); font-weight: 700; color: var(--text); margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.4px; }
   .sset-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
@@ -1080,84 +1070,10 @@
 </div>
 
 
-<!-- hidden elements kept for backward compat -->
-<div id="uploadSection" style="display:none"></div>
-<div id="assetSection"  style="display:none"></div>
-<input type="text" id="serverUrl" value="https://smartico-bridge-production.up.railway.app" style="display:none">
-
-</div><!-- /.app-content -->
-</div><!-- /.app-frame -->
-
-<!-- ── Bottom nav ─────────────────────────────────────────────────── -->
-<nav class="app-nav">
-  <button class="nav-btn active" id="nav-home" onclick="appScrollTop()">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M3 12L12 3l9 9"/><path d="M9 21V12h6v9"/><path d="M3 12v9h18v-9"/>
-    </svg>
-    <span class="nav-label">Home</span>
-  </button>
-  <button class="nav-btn" id="nav-pipelines" onclick="togglePanel('data'); setNavActive('nav-pipelines')">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="14" y2="12"/><line x1="4" y1="18" x2="10" y2="18"/>
-      <circle cx="18" cy="12" r="3"/><circle cx="14" cy="18" r="3"/>
-    </svg>
-  </button>
-  <button class="nav-btn" id="nav-settings" onclick="openICSettings()">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <circle cx="12" cy="12" r="3"/>
-      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-    </svg>
-  </button>
-  <button id="muteBtn" onclick="toggleMute()" style="background:transparent;border:none;cursor:pointer;font-size:16px;padding:4px;opacity:0.7;line-height:1" title="Toggle sounds"></button>
-</nav>
-
-<!-- Processing overlay — outside app-frame so parent transform doesn't capture fixed positioning -->
-<div class="processing-overlay" id="procOverlay">
-  <!-- spinner state -->
-  <div id="procSpinner" style="display:flex;flex-direction:column;align-items:center;gap:20px">
-    <img id="procGif" class="proc-gif" src="" alt="">
-    <div style="text-align:center;width:100%">
-      <div class="proc-label" id="procLabel">Injecting</div>
-      <div class="proc-sub"   id="procSub"></div>
-      <div id="procProgressWrap" style="display:none;margin-top:12px;padding:0 24px">
-        <div style="background:rgba(0,0,0,.1);border-radius:99px;height:6px;overflow:hidden">
-          <div id="procProgressBar" style="height:100%;width:0%;background:rgba(0,0,0,.5);border-radius:99px;transition:width .3s"></div>
-        </div>
-        <div id="procProgressLabel" style="font-size:10px;font-weight:700;color:var(--muted);margin-top:5px;text-align:center"></div>
-      </div>
-    </div>
-  </div>
-  <!-- result state -->
-  <div id="procResult" style="display:none;flex-direction:column;align-items:center;gap:16px;width:100%;padding:0 24px">
-    <div class="proc-result-icon" id="procResultIcon">✓</div>
-    <div class="proc-label" id="procResultTitle">Done</div>
-    <div class="proc-result-stats" id="procResultStats"></div>
-    <button class="proc-ok-btn" onclick="dismissInjectResult()">OK</button>
-  </div>
-</div>
-
-<!-- ── Full-doc confirmation modal ───────────────────────────────── -->
-<div class="confirm-backdrop" id="confirmBackdrop">
-  <div class="confirm-modal">
-    <div class="confirm-title">Inject full document?</div>
-    <div class="confirm-body">
-      This will update matching layers across all pages:
-      <ul class="confirm-pages" id="confirmPageList"></ul>
-    </div>
-    <div class="confirm-actions">
-      <button class="confirm-cancel" onclick="closeConfirm()">Cancel</button>
-      <button class="confirm-go" onclick="confirmInject()">Inject all pages</button>
-    </div>
-  </div>
-</div>
-
-<!-- ── Image Tools: settings overlay + toast ─────────────────────── -->
-<div id="settings-overlay">
-  <div class="settings-header">
-    <span class="settings-title">Settings</span>
-    <button class="settings-close" id="settings-close-btn">×</button>
-  </div>
-  <div class="settings-body">
+<!-- ── Panel: Settings ────────────────────────────────────────────── -->
+<div class="panel panel-blue" id="panel-settings">
+  <div class="panel-body hidden" id="panel-settings-body">
+    <div style="font-family:var(--font-display);font-size:var(--fs-title);font-weight:800;color:var(--text);letter-spacing:0.02em;padding-bottom:10px;border-bottom:1px solid var(--border);margin-bottom:2px">Settings</div>
 
     <!-- Image Conversion -->
     <div class="settings-section">
@@ -1284,6 +1200,78 @@
 
   </div>
 </div>
+
+<!-- hidden elements kept for backward compat -->
+<div id="uploadSection" style="display:none"></div>
+<div id="assetSection"  style="display:none"></div>
+<input type="text" id="serverUrl" value="https://smartico-bridge-production.up.railway.app" style="display:none">
+
+</div><!-- /.app-content -->
+</div><!-- /.app-frame -->
+
+<!-- ── Bottom nav ─────────────────────────────────────────────────── -->
+<nav class="app-nav">
+  <button class="nav-btn active" id="nav-home" onclick="appScrollTop()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M3 12L12 3l9 9"/><path d="M9 21V12h6v9"/><path d="M3 12v9h18v-9"/>
+    </svg>
+    <span class="nav-label">Home</span>
+  </button>
+  <button class="nav-btn" id="nav-pipelines" onclick="togglePanel('data'); setNavActive('nav-pipelines')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="14" y2="12"/><line x1="4" y1="18" x2="10" y2="18"/>
+      <circle cx="18" cy="12" r="3"/><circle cx="14" cy="18" r="3"/>
+    </svg>
+  </button>
+  <button class="nav-btn" id="nav-settings" onclick="togglePanel('settings'); setNavActive('nav-settings')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="3"/>
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+    </svg>
+  </button>
+  <button id="muteBtn" onclick="toggleMute()" style="background:transparent;border:none;cursor:pointer;font-size:16px;padding:4px;opacity:0.7;line-height:1" title="Toggle sounds"></button>
+</nav>
+
+<!-- Processing overlay — outside app-frame so parent transform doesn't capture fixed positioning -->
+<div class="processing-overlay" id="procOverlay">
+  <!-- spinner state -->
+  <div id="procSpinner" style="display:flex;flex-direction:column;align-items:center;gap:20px">
+    <img id="procGif" class="proc-gif" src="" alt="">
+    <div style="text-align:center;width:100%">
+      <div class="proc-label" id="procLabel">Injecting</div>
+      <div class="proc-sub"   id="procSub"></div>
+      <div id="procProgressWrap" style="display:none;margin-top:12px;padding:0 24px">
+        <div style="background:rgba(0,0,0,.1);border-radius:99px;height:6px;overflow:hidden">
+          <div id="procProgressBar" style="height:100%;width:0%;background:rgba(0,0,0,.5);border-radius:99px;transition:width .3s"></div>
+        </div>
+        <div id="procProgressLabel" style="font-size:10px;font-weight:700;color:var(--muted);margin-top:5px;text-align:center"></div>
+      </div>
+    </div>
+  </div>
+  <!-- result state -->
+  <div id="procResult" style="display:none;flex-direction:column;align-items:center;gap:16px;width:100%;padding:0 24px">
+    <div class="proc-result-icon" id="procResultIcon">✓</div>
+    <div class="proc-label" id="procResultTitle">Done</div>
+    <div class="proc-result-stats" id="procResultStats"></div>
+    <button class="proc-ok-btn" onclick="dismissInjectResult()">OK</button>
+  </div>
+</div>
+
+<!-- ── Full-doc confirmation modal ───────────────────────────────── -->
+<div class="confirm-backdrop" id="confirmBackdrop">
+  <div class="confirm-modal">
+    <div class="confirm-title">Inject full document?</div>
+    <div class="confirm-body">
+      This will update matching layers across all pages:
+      <ul class="confirm-pages" id="confirmPageList"></ul>
+    </div>
+    <div class="confirm-actions">
+      <button class="confirm-cancel" onclick="closeConfirm()">Cancel</button>
+      <button class="confirm-go" onclick="confirmInject()">Inject all pages</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -1385,7 +1373,7 @@ parent.postMessage({ pluginMessage: { type: 'get-selection' } }, '*');
 // loadUploadPipelines() deferred until data panel opens
 
 // ── Panel accordion ───────────────────────────────────────────────────────────
-var PANELS = ['data', 'assets', 'casino', 'optimiser', 'artworker', 'animator'];
+var PANELS = ['data', 'assets', 'casino', 'optimiser', 'artworker', 'animator', 'settings'];
 var _dataConnected = false;
 var _dataPanelInitDone = false;
 
@@ -1403,23 +1391,9 @@ function appScrollTop() {
     if (panel) panel.classList.remove('open');
     if (body)  body.classList.add('hidden');
   });
-  // Close settings overlay if open
-  var so = document.getElementById('settings-overlay');
-  if (so) so.classList.remove('open');
   var ac = document.getElementById('appContent');
   ac.scrollTo({ top: 0, behavior: 'smooth' });
 }
-function openICSettings() {
-  setNavActive('nav-settings');
-  var o = document.getElementById('settings-overlay');
-  if (o) o.classList.add('open');
-}
-// Re-clear nav-settings active when settings closes
-document.addEventListener('DOMContentLoaded', function() {
-  var closeBtn = document.getElementById('settings-close-btn');
-  if (closeBtn) closeBtn.addEventListener('click', function() { setNavActive('nav-home'); });
-});
-
 function togglePanel(name) {
   var isOpen = document.getElementById('panel-' + name).classList.contains('open');
   // Close all panels first
@@ -1453,10 +1427,8 @@ function togglePanel(name) {
       if (_userScrolled) return;
       var acRect    = ac.getBoundingClientRect();
       var panelRect = panelEl.getBoundingClientRect();
-      if (panelRect.top > acRect.top) {
-        var target = Math.max(0, ac.scrollTop + panelRect.top - acRect.top - 10);
-        ac.scrollTo({ top: target, behavior: 'smooth' });
-      }
+      var target = Math.max(0, ac.scrollTop + panelRect.top - acRect.top - 10);
+      ac.scrollTo({ top: target, behavior: 'smooth' });
     }, 460);
   }
 }
@@ -1857,12 +1829,13 @@ function updateInjectBtn() {
 
   var saveBtn = document.getElementById('saveSelBtn');
   if (saveBtn) {
-    saveBtn.disabled = !enabled;
+    var saveEnabled = figmaSel.length > 0;
+    saveBtn.disabled = !saveEnabled;
     saveBtn.style.background  = '#3344FF';
     saveBtn.style.color       = '#fff';
-    saveBtn.style.cursor      = enabled ? 'pointer' : 'not-allowed';
-    saveBtn.style.opacity     = enabled ? '1' : '0.4';
-    saveBtn.title = enabled ? '' : 'Select a frame in Figma first';
+    saveBtn.style.cursor      = saveEnabled ? 'pointer' : 'not-allowed';
+    saveBtn.style.opacity     = saveEnabled ? '1' : '0.4';
+    saveBtn.title = saveEnabled ? '' : 'Select a frame in Figma first';
   }
 }
 
@@ -3193,7 +3166,6 @@ const progressRow       = document.getElementById('progress-row');
 const progressFill      = document.getElementById('progress-fill');
 const progressText      = document.getElementById('progress-text');
 const toastEl           = document.getElementById('toast');
-const settingsOverlay   = document.getElementById('settings-overlay');
 
 // ── Toast ─────────────────────────────────────────────────────────────
 let toastTimer;
@@ -3239,10 +3211,8 @@ function toggleAcc(id) {
 
 // ── Settings panel ────────────────────────────────────────────────────
 document.getElementById('settings-btn').addEventListener('click', () => {
-  settingsOverlay.classList.add('open');
-});
-document.getElementById('settings-close-btn').addEventListener('click', () => {
-  settingsOverlay.classList.remove('open');
+  togglePanel('settings');
+  setNavActive('nav-settings');
 });
 
 // Tag chips

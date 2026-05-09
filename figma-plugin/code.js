@@ -259,13 +259,12 @@ figma.ui.onmessage = async function(msg) {
     var errors    = [];
     var count     = 0;
     var pending   = [];
-    var startTime = Date.now();
-    var TIMEOUT_MS = 25000; // 25 seconds hard cap
 
     // ── Collect matching nodes ─────────────────────────────────────────────
     // Use Figma's native findAll (faster than JS walk on large pages).
-    var INJECTABLE_TYPES2 = ['TEXT', 'INSTANCE', 'RECTANGLE', 'ELLIPSE', 'FRAME', 'COMPONENT'];
-    figma.ui.postMessage({ type: 'inject-progress', phase: 'scan', done: 0, total: injectRoots.length });
+    // TEXT + INSTANCE only — the only types that realistically carry REF_PATTERN names.
+    // FRAME/RECT/ELLIPSE/COMPONENT added hundreds of thousands of extra nodes on large pages.
+    var INJECTABLE_TYPES2 = ['TEXT', 'INSTANCE'];
     for (var s2 = 0; s2 < injectRoots.length; s2++) {
       var matchNodes;
       try {
@@ -273,7 +272,7 @@ figma.ui.onmessage = async function(msg) {
         matchNodes = typeFiltered.filter(function(n) { return REF_PATTERN.test(n.name); });
       } catch (_findErr) {
         matchNodes = [];
-        walk(injectRoots[s2], function(n) { if (INJECTABLE_TYPES2.indexOf(n.type) !== -1 && REF_PATTERN.test(n.name)) matchNodes.push(n); });
+        walk(injectRoots[s2], function(n) { if ((n.type === 'TEXT' || n.type === 'INSTANCE') && REF_PATTERN.test(n.name)) matchNodes.push(n); });
       }
       for (var ni = 0; ni < matchNodes.length; ni++) {
         var n = matchNodes[ni];
@@ -291,7 +290,7 @@ figma.ui.onmessage = async function(msg) {
           if (n.type === 'INSTANCE' && (key in values)) {
             pending.push({ node: n, key: key, type: 'swap', column: colName });
           }
-          return;
+          continue;
         }
 
         // INSTANCE with a single # prefix: smart component/variant replacement.
@@ -308,7 +307,7 @@ figma.ui.onmessage = async function(msg) {
         // the variant value string didn't match a property option exactly.
         if (n.type === 'INSTANCE' && (key in values)) {
           pending.push({ node: n, key: key, type: 'smart-instance', column: colName });
-          return;
+          continue;
         }
 
         // TEXT node: if the value is an image URL, find the best visual target
@@ -351,10 +350,6 @@ figma.ui.onmessage = async function(msg) {
       } // end matchNodes loop
     } // end injectRoots loop
 
-    // Pre-build component index once before the main loop
-    var cidxPre = buildComponentIndex(searchScope);
-    if (searchScope !== 'document') buildComponentIndex('document'); // warm doc cache too
-
     figma.ui.postMessage({ type: 'inject-progress', phase: 'inject', done: 0, total: pending.length });
 
     // ── Pre-load all unique fonts in parallel ──────────────────────────────
@@ -385,10 +380,14 @@ figma.ui.onmessage = async function(msg) {
       }));
     }
 
+    // Start timeout AFTER setup (scan + font loading can be slow on large files)
+    var startTime  = Date.now();
+    var TIMEOUT_MS = 30000; // 30 seconds covers actual write work
+
     for (var p = 0; p < pending.length; p++) {
       // Timeout guard
       if (Date.now() - startTime > TIMEOUT_MS) {
-        errors.push('Timed out after 25s — ' + (pending.length - p) + ' item(s) skipped');
+        errors.push('Timed out after 30s — ' + (pending.length - p) + ' item(s) skipped');
         break;
       }
       // Progress update every 10 items

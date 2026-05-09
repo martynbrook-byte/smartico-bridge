@@ -1731,6 +1731,8 @@ async function selectDataset(id) {
     show('previewSection');
     show('selSection');
     show('refsSection');
+    // Ensure a scope button is always highlighted when the inject bar appears
+    if (!_searchScope) setSearchScope(figmaSel.length ? 'selection' : 'page');
     show('injectBar');
     updateInjectBtn();
     hideBanner();
@@ -2121,8 +2123,10 @@ function buildFullValuesMap(rows, headers, ruleTable) {
   syncHiddenRows();
   for (var ri = 0; ri < rows.length; ri++) {
     if (hiddenRowIndices.has(ri)) continue;
+    if (rows[ri] == null || typeof rows[ri] !== 'object') continue; // guard against null/undefined rows
     for (var hi = 0; hi < headers.length; hi++) {
       var col = headers[hi];
+      if (!col) continue; // guard against empty/undefined headers
       var key = col.toLowerCase() + '.' + (ri + 1);
       var val = rows[ri][col];
       values[key] = val !== undefined && val !== null ? String(val) : '';
@@ -2936,7 +2940,8 @@ function toggleAssets()   { togglePanel('assets'); }
     cShowState('Connecting…');
     casinoApiFetch('/api/games/stats').then(function(stats) {
       $c('casino-status-dot').style.background='#22c55e';
-      cSiteMeta=stats.by_site.map(function(s){return {key:s.site,label:siteLabel(s.site),count:s.count};});
+      var bySite = Array.isArray(stats && stats.by_site) ? stats.by_site : [];
+      cSiteMeta=bySite.map(function(s){return {key:s.site,label:siteLabel(s.site),count:s.count};});
       var total=cSiteMeta.reduce(function(a,s){return a+(Number(s.count)||0);},0);
       setCasinoSubtitle(total);
       cSiteMeta=[{key:'__all__',label:'🌍 All Sites',count:total}].concat(cSiteMeta);
@@ -2987,8 +2992,9 @@ function toggleAssets()   { togglePanel('assets'); }
       cRenderPills();
       cSelectFilter(cSiteMeta[0]?cSiteMeta[0].key:null);
     }).catch(function(err) {
+      cInited=false; // allow retry on next panel open
       $c('casino-status-dot').style.background='#ef4444';
-      cShowState('Cannot connect to API: '+err.message);
+      cShowState('Cannot connect — tap to retry. (' + err.message + ')');
     });
   }
 

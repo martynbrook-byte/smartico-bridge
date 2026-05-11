@@ -1,0 +1,35 @@
+# Dependencies (reinstalled inside the image)
+node_modules/
+
+# Git history and tooling
+.git/
+.gitignore
+.claude/
+
+# Uploaded CSVs (transient, bind-mounted at runtime)
+uploads/
+
+# Live data (bind-mounted at runtime — never bake into the image)
+data/datasets/
+data/pipelines/
+data/dropzones/
+data/assets/
+data/settings.json
+
+# Environment secrets
+.env
+
+# Development / editor artefacts
+*.swp
+.vscode/
+.DS_Store
+
+# Build artefacts
+*.zip
+figma-plugin 2.zip
+figma-plugin.zip
+
+# Docs and test files
+docs/
+test.csv
+readme.txt

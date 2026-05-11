@@ -1,0 +1,41 @@
+version: "3.9"
+
+services:
+  smartico-bridge:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    container_name: smartico-bridge
+    restart: unless-stopped
+
+    ports:
+      - "${PORT:-3001}:${PORT:-3001}"
+
+    environment:
+      # Port inside the container (must match the host mapping above)
+      PORT: ${PORT:-3001}
+      # Where the app stores datasets, pipelines, settings, etc.
+      # This path is INSIDE the container — the volume below maps it to the host.
+      DATA_DIR: /app/data
+
+    volumes:
+      # Persist all application data on the host so it survives container restarts.
+      # Change ./data to an absolute path if you want a custom location.
+      - ./data:/app/data
+      # Uploaded CSV files are transient but handy to keep for debugging.
+      - ./uploads:/app/uploads
+
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:${PORT:-3001}/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+    # Optional: resource limits to prevent runaway memory on small VMs
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M

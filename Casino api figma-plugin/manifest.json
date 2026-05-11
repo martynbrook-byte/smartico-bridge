@@ -1,0 +1,14 @@
+{
+  "name": "Casino Game Assets",
+  "id": "casino-game-assets-888",
+  "api": "1.0.0",
+  "main": "code.js",
+  "ui": "ui.html",
+  "editorType": ["figma"],
+  "networkAccess": {
+    "allowedDomains": [
+      "https://casino-api-production-0d8f.up.railway.app"
+    ],
+    "reasoning": "Fetches casino game data and images from the Casino Asset API"
+  }
+}

@@ -31,29 +31,41 @@
 
 figma.showUI(__html__, { width: 440, height: 640, title: 'Smartico Bridge' });
 
-// ── Selection broadcast ──────────────────────────────────────────────────────
-// Push the current selection up to the UI. The UI uses this both to render the
-// "Figma selection" box and as a trigger to auto-scan refs whenever the user
-// changes selection — no manual "↻ Scan" click needed.
+// ── Selection helpers ─────────────────────────────────────────────────────────
 function snapshotSelection() {
-  var sel = figma.currentPage.selection;
-  return sel.map(function(n) {
-    return {
-      id:         n.id,
-      name:       n.name,
-      type:       n.type,
-      childCount: 'children' in n ? n.children.length : 0,
-    };
-  });
+  try {
+    var sel = figma.currentPage.selection;
+    return sel.map(function(n) {
+      return {
+        id:         n.id,
+        name:       n.name,
+        type:       n.type,
+        childCount: 'children' in n ? n.children.length : 0,
+      };
+    });
+  } catch (_) { return []; }
 }
 
 function postSelection() {
-  figma.ui.postMessage({ type: 'selection', nodes: snapshotSelection() });
+  try { figma.ui.postMessage({ type: 'selection', nodes: snapshotSelection() }); } catch (_) {}
 }
 
-// Fire whenever the user picks a different layer/frame. The UI debounces these
-// and turns them into auto-scans.
-figma.on('selectionchange', postSelection);
+// Tell the UI code.js is alive (helps diagnose communication issues)
+try { figma.ui.postMessage({ type: 'sb-ready' }); } catch (_) {}
+
+// Broadcast selection on every canvas click
+try { figma.on('selectionchange', postSelection); } catch (_) {}
+
+// Heartbeat: send selection every 1 s unconditionally for diagnostics
+var _lastBroadcastKey = null;
+try {
+  postSelection();
+  setInterval(function() {
+    try {
+      figma.ui.postMessage({ type: 'selection', nodes: snapshotSelection() });
+    } catch (_) {}
+  }, 1000);
+} catch (_) {}
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -268,6 +280,7 @@ figma.ui.onmessage = async function(msg) {
   // msg.values:   { 'prize.1': 'Free Flight 20MT', 'profile_name.1': 'João', ... }
   // msg.imageMap: { 'avatar.1': [/* byte array */], ... }
   if (msg.type === 'inject-refs') {
+   try {
     var values      = msg.values      || {};
     var imageMap    = msg.imageMap    || {};
     var searchScope = msg.searchScope || 'page'; // 'selection' | 'page' | 'document'
@@ -609,6 +622,10 @@ figma.ui.onmessage = async function(msg) {
       errors: errors,
     });
     return;
+   } catch (_injectErr) {
+     figma.ui.postMessage({ type: 'inject-result', ok: false, error: String(_injectErr && _injectErr.message ? _injectErr.message : _injectErr) });
+     return;
+   }
   }
 
   // ── inject-images: apply one batch of image fills, request next if needed ───
@@ -1855,5 +1872,6 @@ async function ic_refreshLayers() {
 // Also fire when selection changes
 figma.on('selectionchange', function() { ic_refreshLayers(); });
 
-// Kick off on load
+// Kick off on load — deferred for the same reason as postSelection above.
 ic_refreshLayers();
+setTimeout(ic_refreshLayers, 400);

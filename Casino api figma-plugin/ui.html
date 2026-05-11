@@ -1,0 +1,1069 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Casino Game Assets</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:        #1e1e1e;
+    --surface:   #2c2c2c;
+    --surface2:  #383838;
+    --border:    #444;
+    --text:      #e0e0e0;
+    --text-dim:  #888;
+    --accent:    #18a0fb;
+    --accent-hv: #0d8ee0;
+    --success:   #4caf50;
+    --error:     #e74c3c;
+    --pill-bg:   #353535;
+    --pill-act:  #18a0fb22;
+    --pill-bord: #18a0fb;
+    --radius:    6px;
+    --font:      "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+  }
+
+  html, body {
+    width: 340px;
+    height: 560px;
+    overflow: hidden;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 12px;
+    line-height: 1.4;
+  }
+
+  #app { display: flex; flex-direction: column; height: 100%; }
+
+  /* Header */
+  #header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px 8px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  #header-icon { font-size: 16px; }
+  #header-title { flex: 1; font-weight: 600; font-size: 13px; }
+  #status-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--text-dim);
+    transition: background .3s;
+  }
+  #status-dot.ok  { background: var(--success); }
+  #status-dot.err { background: var(--error); }
+
+  /* Search */
+  #search-wrap {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  #search-box {
+    width: 100%;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text);
+    padding: 6px 10px 6px 28px;
+    font-size: 12px;
+    font-family: var(--font);
+    outline: none;
+    transition: border-color .2s;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cline x1='21' y1='21' x2='16.65' y2='16.65'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: 8px center;
+  }
+  #search-box:focus { border-color: var(--accent); }
+  #search-box::placeholder { color: var(--text-dim); }
+
+  /* Tabs */
+  #tabs {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .tab-btn {
+    flex: 1;
+    padding: 7px 4px;
+    font-size: 11px;
+    font-family: var(--font);
+    font-weight: 500;
+    color: var(--text-dim);
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+    transition: color .2s, border-color .2s;
+  }
+  .tab-btn:hover { color: var(--text); }
+  .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  /* Sub-filter pills */
+  #sub-filters {
+    padding: 6px 12px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    min-height: 34px;
+  }
+  .pill-row { display: flex; flex-wrap: wrap; gap: 5px; }
+  .pill {
+    padding: 3px 9px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-family: var(--font);
+    cursor: pointer;
+    border: 1px solid var(--border);
+    background: var(--pill-bg);
+    color: var(--text-dim);
+    transition: all .15s;
+    white-space: nowrap;
+  }
+  .pill:hover { border-color: var(--accent); color: var(--text); }
+  .pill.active {
+    background: var(--pill-act);
+    border-color: var(--pill-bord);
+    color: var(--accent);
+    font-weight: 600;
+  }
+
+  /* Game grid */
+  #grid-wrap {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px 10px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+  #grid-wrap::-webkit-scrollbar { width: 4px; }
+  #grid-wrap::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  #game-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 6px;
+  }
+
+  /* Game card */
+  .game-card {
+    position: relative;
+    border-radius: var(--radius);
+    overflow: hidden;
+    background: var(--surface);
+    cursor: pointer;
+    aspect-ratio: 1 / 1;
+    border: 1px solid transparent;
+    transition: border-color .15s, transform .1s;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  .game-card:hover { border-color: var(--accent); transform: scale(1.03); z-index: 1; }
+  .game-card.dragging { opacity: 0.42; transform: scale(0.97); border-color: var(--accent); }
+  .game-card img { width: 100%; height: 100%; object-fit: cover; display: block; user-select: none; -webkit-user-drag: none; }
+  .game-card .card-overlay {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(to top, rgba(0,0,0,.75) 0%, transparent 55%);
+    opacity: 0;
+    transition: opacity .15s;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    padding: 4px;
+  }
+  .game-card:hover .card-overlay { opacity: 1; }
+  .card-name {
+    font-size: 9px;
+    font-weight: 600;
+    color: #fff;
+    line-height: 1.2;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+  .card-vendor {
+    font-size: 8px;
+    color: rgba(255,255,255,.65);
+    margin-top: 1px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .game-card.inserting::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: rgba(0,0,0,.55);
+  }
+  .game-card.inserting .spinner { display: block; }
+  .spinner {
+    display: none;
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    width: 18px; height: 18px;
+    border: 2px solid rgba(255,255,255,.3);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin .6s linear infinite;
+    z-index: 2;
+  }
+  @keyframes spin { to { transform: translate(-50%,-50%) rotate(360deg); } }
+
+  .game-card.done-ok::after {
+    content: "✓";
+    position: absolute;
+    inset: 0;
+    background: rgba(76,175,80,.3);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    color: #fff;
+  }
+
+  /* Empty / loading states */
+  #state-msg {
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 32px 16px;
+    color: var(--text-dim);
+    font-size: 12px;
+    text-align: center;
+  }
+  #state-msg.visible { display: flex; }
+  #state-msg .state-icon { font-size: 28px; }
+  .load-spinner {
+    width: 22px; height: 22px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin .7s linear infinite;
+  }
+
+  /* Footer */
+  #footer {
+    padding: 6px 12px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+  }
+  #game-count { color: var(--text-dim); font-size: 11px; }
+  #toast {
+    font-size: 11px;
+    color: var(--success);
+    opacity: 0;
+    transition: opacity .3s;
+  }
+  #toast.show { opacity: 1; }
+  #toast.err  { color: var(--error); }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <div id="header">
+    <span id="header-icon">🎰</span>
+    <span id="header-title">Casino Game Assets</span>
+    <div id="status-dot" title="API status"></div>
+  </div>
+
+  <div id="search-wrap">
+    <input id="search-box" type="text" placeholder="Search games…" autocomplete="off" />
+  </div>
+
+  <div id="tabs">
+    <button class="tab-btn active" data-tab="sites">Sites</button>
+    <button class="tab-btn" data-tab="vendors">Vendors</button>
+    <button class="tab-btn" data-tab="categories">Categories</button>
+    <button class="tab-btn" data-tab="collections">Collections</button>
+  </div>
+
+  <div id="sub-filters">
+    <div class="pill-row" id="pill-row"></div>
+  </div>
+
+  <div id="grid-wrap">
+    <div id="state-msg">
+      <div class="load-spinner"></div>
+      <span>Loading…</span>
+    </div>
+    <div id="game-grid"></div>
+  </div>
+
+  <div id="footer">
+    <span id="game-count"></span>
+    <span id="toast"></span>
+  </div>
+
+</div>
+
+<script>
+// ── Config ───────────────────────────────────────────────────────────────────
+const API = "https://casino-api-production-0d8f.up.railway.app";
+const INSERT_W = 200;
+const INSERT_H = 200;
+
+// Vendor names stored in game_assets.category — matched case-insensitively
+const VENDOR_CATS = new Set([
+  'split the pot', 'splitthepot',
+  'smartsoft', 'smartsoft gaming',
+  '7777 gaming', '7777gaming',
+  'rubyplay', 'ruby play',
+  'fazi', 'fazi interactive',
+  'spribe',
+  'playson',
+]);
+function vendorKey(value) {
+  return String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+function isVendorLike(value) {
+  const key = vendorKey(value);
+  if (!key) return false;
+  for (const v of VENDOR_CATS) {
+    const vk = vendorKey(v);
+    if (key === vk || key.includes(vk) || vk.includes(key)) return true;
+  }
+  return false;
+}
+const GENERIC_CATEGORY_NAMES = new Set([
+  "all", "all games", "featured", "new", "new games", "popular",
+  "slots", "slot", "live", "live casino", "table games", "table",
+  "jackpots", "crash", "instant", "virtual", "bingo", "sports",
+  "promotions", "recommended"
+]);
+function isGenericCategory(name) {
+  const v = (name || "").trim().toLowerCase();
+  return GENERIC_CATEGORY_NAMES.has(v);
+}
+
+const CATEGORY_TO_ENGLISH = {
+  "michezo yote": "All Games",
+  "fast games": "Fast Games",
+  "jogos em dastaque": "Featured Games",
+  "jogos em destaque": "Featured Games",
+  "jogos crash": "Crash Games",
+  "crash games": "Crash Games",
+  "jogos frutados": "Fruit Games",
+  "jogos populares": "Popular Games",
+  "hits quentes": "Hot Hits",
+  "mesa e cartas": "Table & Card Games",
+  "games": "Games",
+  "kasino lite games": "Kasino Lite Games",
+};
+
+function canonicalVendor(value) {
+  const raw = String(value || "").trim();
+  const k = vendorKey(raw);
+  if (!k) return null;
+  if (k.indexOf("splitthepot") >= 0) return "Split The Pot";
+  if (k.indexOf("7777gaming") >= 0) return "7777 Gaming";
+  if (k.indexOf("fazi") >= 0) return "Fazi";
+  if (k.indexOf("playson") >= 0) return "Playson";
+  if (k.indexOf("smartsoft") >= 0) return "Smartsoft";
+  if (k.indexOf("rubyplay") >= 0 || k.indexOf("ruby") >= 0) return "Rubyplay";
+  if (k.indexOf("spribe") >= 0) return "Spribe";
+  if (/^https?:\/\//i.test(raw)) return null;
+  if (raw.includes("/") || raw.length > 48) return null;
+  const cleaned = raw.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
+  if (!cleaned) return null;
+  if (isGenericCategory(cleaned)) return null;
+  return cleaned.split(" ").map(w => w ? (w[0].toUpperCase() + w.slice(1).toLowerCase()) : "").join(" ");
+}
+
+function canonicalCategory(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+  const k = raw.toLowerCase();
+  if (isVendorLike(raw)) return null;
+  return CATEGORY_TO_ENGLISH[k] || null;
+}
+
+function gameVendorFromAnyField(game) {
+  const direct = canonicalVendor(game.vendor || game.publisher);
+  if (direct) return direct;
+  const sites = Array.isArray(game.sites) ? game.sites : [];
+  for (const s of sites) {
+    const fromSite = canonicalVendor(s.category);
+    if (fromSite) return fromSite;
+    const fromUrl = canonicalVendor(s.game_url);
+    if (fromUrl) return fromUrl;
+  }
+  return null;
+}
+
+// ── State ────────────────────────────────────────────────────────────────────
+let activeTab    = "sites";
+let activeFilter = null;
+let allGames     = [];
+let displayGames = [];
+let allGamesMaster = [];
+let dragPreview = null;
+let nativeDragActive = false;
+let dragImageEl = null;
+
+const siteCache   = {};
+const vendorCache = {};
+const catCache    = {};
+const collectionCache = {};
+let   siteMeta    = [];
+let   vendorList  = [];
+let   catList     = [];
+let   collectionList = [];
+
+// ── DOM refs ─────────────────────────────────────────────────────────────────
+const $dot      = document.getElementById("status-dot");
+const $search   = document.getElementById("search-box");
+const $pillRow  = document.getElementById("pill-row");
+const $grid     = document.getElementById("game-grid");
+const $stateMsg = document.getElementById("state-msg");
+const $count    = document.getElementById("game-count");
+const $toast    = document.getElementById("toast");
+
+// ── Utilities ────────────────────────────────────────────────────────────────
+function proxyUrl(url) {
+  if (!url) return "";
+  return `${API}/api/proxy-image?url=${encodeURIComponent(url)}`;
+}
+
+async function apiFetch(path) {
+  const res = await fetch(`${API}${path}`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+function showState(icon, msg) {
+  $stateMsg.classList.add("visible");
+  $stateMsg.innerHTML = icon
+    ? `<span class="state-icon">${icon}</span><span>${msg}</span>`
+    : `<div class="load-spinner"></div><span>${msg}</span>`;
+  $grid.innerHTML = "";
+}
+
+function hideState() { $stateMsg.classList.remove("visible"); }
+
+function showToast(msg, isErr = false) {
+  $toast.textContent = msg;
+  $toast.className   = "show" + (isErr ? " err" : "");
+  clearTimeout(showToast._t);
+  showToast._t = setTimeout(() => { $toast.className = ""; }, 2500);
+}
+
+function clearDragPreview() {
+  if (dragPreview && dragPreview.card) {
+    dragPreview.card.classList.remove("dragging");
+    dragPreview.card.dataset.draggedAt = String(Date.now());
+  }
+  if (dragImageEl && dragImageEl.parentNode) {
+    dragImageEl.parentNode.removeChild(dragImageEl);
+  }
+  dragImageEl = null;
+  dragPreview = null;
+}
+
+function buildDragGhostElement(card) {
+  const img = card.querySelector("img");
+  if (!img) return null;
+  const ghost = document.createElement("div");
+  ghost.style.position = "fixed";
+  ghost.style.left = "-9999px";
+  ghost.style.top = "-9999px";
+  ghost.style.width = "120px";
+  ghost.style.height = "120px";
+  ghost.style.opacity = "0.55";
+  ghost.style.borderRadius = "8px";
+  ghost.style.overflow = "hidden";
+  ghost.style.background = "#2c2c2c";
+  ghost.style.boxSizing = "border-box";
+  ghost.style.border = "1px solid rgba(24,160,251,0.65)";
+
+  const ghostImg = document.createElement("img");
+  ghostImg.src = img.src;
+  ghostImg.style.width = "100%";
+  ghostImg.style.height = "100%";
+  ghostImg.style.objectFit = "cover";
+  ghost.appendChild(ghostImg);
+
+  document.body.appendChild(ghost);
+  dragImageEl = ghost;
+  return ghost;
+}
+
+async function buildDropPayload(card, game) {
+  const srcUrl = card.dataset.img;
+  const proxied = proxyUrl(srcUrl);
+  const res = await fetch(proxied);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const blob = await res.blob();
+  const jpegBlob = await convertToJpegBlob(blob);
+  const arrayBuf = await jpegBlob.arrayBuffer();
+  const bytes = Array.from(new Uint8Array(arrayBuf));
+  const dims = await getImageDimensions(jpegBlob);
+  return {
+    type: "casino-game-image",
+    name: card.dataset.name || game.name || "Game Image",
+    imageUrl: srcUrl,
+    proxyUrl: proxied,
+    bytes,
+    width: dims[0],
+    height: dims[1],
+  };
+}
+
+function clearAllDraggingCards() {
+  document.querySelectorAll(".game-card.dragging").forEach((el) => {
+    el.classList.remove("dragging");
+    el.dataset.draggedAt = String(Date.now());
+  });
+}
+
+document.addEventListener("pointermove", (e) => {
+  if (!dragPreview) return;
+  const dx = Math.abs(e.clientX - dragPreview.startX);
+  const dy = Math.abs(e.clientY - dragPreview.startY);
+  if (dx + dy >= 6) {
+    dragPreview.moved = true;
+    dragPreview.card.classList.add("dragging");
+  }
+});
+
+document.addEventListener("pointerup", () => {
+  if (nativeDragActive) return;
+  if (!dragPreview) return;
+  clearDragPreview();
+});
+
+window.addEventListener("blur", () => {
+  if (nativeDragActive) return;
+  clearDragPreview();
+  clearAllDraggingCards();
+});
+
+document.addEventListener("visibilitychange", () => {
+  if (nativeDragActive) return;
+  if (document.visibilityState !== "visible") {
+    clearDragPreview();
+    clearAllDraggingCards();
+  }
+});
+
+function bestImage(game) {
+  if (!game.sites || !game.sites.length) return null;
+  if (activeFilter && activeTab === "sites") {
+    const match = game.sites.find(s => s.site === activeFilter);
+    if (match?.image_url) return match.image_url;
+  }
+  return game.sites[0]?.image_url || null;
+}
+
+function siteLabel(key) {
+  const map = {
+    angola:     "🇦🇴 Angola",
+    bantu_angola: "🇦🇴 Angola",
+    mozambique: "🇲🇿 Mozambique",
+    elephant_mozambique: "🇲🇿 Mozambique",
+    tanzania:   "🇹🇿 Tanzania",
+    zambia:     "🇿🇲 Zambia",
+    malawi:     "🇲🇼 Malawi"
+  };
+  return map[key] || key;
+}
+
+function siteCountryCode(key) {
+  const map = {
+    angola: "AO",
+    bantu_angola: "AO",
+    mozambique: "MZ",
+    elephant_mozambique: "MZ",
+    tanzania: "TZ",
+    zambia: "ZM",
+    malawi: "MW",
+    global: "ALL",
+  };
+  return map[key] || String(key || "").slice(0, 2).toUpperCase();
+}
+
+function parseCollectionFilter(value) {
+  const raw = String(value || "");
+  const idx = raw.indexOf("::");
+  if (idx < 0) return null;
+  const site = raw.slice(0, idx);
+  const slug = raw.slice(idx + 2);
+  if (!site || !slug) return null;
+  return { site, slug };
+}
+
+// ── Init ─────────────────────────────────────────────────────────────────────
+async function init() {
+  showState(null, "Connecting to API…");
+  try {
+    const stats = await apiFetch("/api/games/stats");
+    $dot.classList.add("ok");
+
+    siteMeta = stats.by_site.map(s => ({
+      key:   s.site,
+      label: siteLabel(s.site),
+      count: s.count
+    }));
+    const totalSiteCount = siteMeta.reduce((sum, s) => sum + (Number(s.count) || 0), 0);
+    siteMeta = [
+      { key: "__all__", label: "🌍 All Sites", count: totalSiteCount },
+      ...siteMeta
+    ];
+
+    // Load vendor/category filters.
+    const [allCats, publishers, allGamesRes] = await Promise.all([
+      apiFetch("/api/games/categories").catch(() => ({ categories: [] })),
+      apiFetch("/api/categories/publishers").catch(() => []),
+      apiFetch("/api/games").catch(() => ({ games: [] }))
+    ]);
+
+    const vendorCounts = {};
+    const categoryCounts = {};
+
+    const publisherVendors = (Array.isArray(publishers) ? publishers : []);
+    for (const p of publisherVendors) {
+      const cv = canonicalVendor(p.publisher);
+      if (!cv) continue;
+      vendorCounts[cv] = (vendorCounts[cv] || 0) + (Number(p.count) || 0);
+    }
+
+    const rawCats = (allCats.categories || []);
+    for (const c of rawCats) {
+      const cc = canonicalCategory(c.category);
+      if (!cc) continue;
+      categoryCounts[cc] = (categoryCounts[cc] || 0) + (Number(c.count) || 0);
+    }
+
+    allGamesMaster = allGamesRes.games || [];
+    for (const g of allGamesMaster) {
+      const cv = gameVendorFromAnyField(g);
+      if (cv) vendorCounts[cv] = (vendorCounts[cv] || 0) + 1;
+
+      const sites = Array.isArray(g.sites) ? g.sites : [];
+      for (const s of sites) {
+        const cc = canonicalCategory(s.category);
+        if (!cc) continue;
+        categoryCounts[cc] = (categoryCounts[cc] || 0) + 1;
+      }
+    }
+
+    vendorList = Object.keys(vendorCounts)
+      .filter((name) => vendorCounts[name] > 0)
+      .map((name) => ({ name, count: vendorCounts[name] }))
+      .sort((a, b) => b.count - a.count);
+
+    catList = Object.keys(categoryCounts)
+      .map((name) => ({ category: name, count: categoryCounts[name] }))
+      .sort((a, b) => b.count - a.count);
+
+    const collectionsBySite = await Promise.all(
+      siteMeta
+        .filter((s) => s.key && s.key !== "__all__")
+        .map(async (s) => {
+          try {
+            const rows = await apiFetch(`/api/collections?site=${encodeURIComponent(s.key)}`);
+            return Array.isArray(rows) ? rows : [];
+          } catch {
+            return [];
+          }
+        })
+    );
+    const rawCollections = collectionsBySite.flat();
+    collectionList = rawCollections
+      .filter((c) => c && c.slug && c.site && c.title)
+      .map((c) => {
+        const code = siteCountryCode(c.site);
+        return {
+          value: `${c.site}::${c.slug}`,
+          label: `${c.title} + ${code}`,
+          count: Number(c.game_count) || 0,
+          site: c.site,
+          slug: c.slug,
+          title: c.title,
+        };
+      })
+      .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+
+    renderPills();
+    await selectFilter(siteMeta[0]?.key || null);
+
+  } catch (err) {
+    $dot.classList.add("err");
+    showState("⚠️", `Cannot connect to API.\n${err.message}`);
+  }
+}
+
+// ── Tabs ─────────────────────────────────────────────────────────────────────
+document.getElementById("tabs").addEventListener("click", e => {
+  const btn = e.target.closest(".tab-btn");
+  if (!btn) return;
+  activeTab    = btn.dataset.tab;
+  activeFilter = null;
+  document.querySelectorAll(".tab-btn").forEach(b => b.classList.toggle("active", b === btn));
+  renderPills();
+  const defaultFilter = activeTab === "sites"
+    ? siteMeta[0]?.key
+    : activeTab === "vendors"
+    ? (vendorList[0]?.name || null)
+    : activeTab === "categories"
+    ? (catList[0]?.category || null)
+    : (collectionList[0]?.value || null);
+  selectFilter(defaultFilter);
+});
+
+// ── Pills ─────────────────────────────────────────────────────────────────────
+function renderPills() {
+  $pillRow.innerHTML = "";
+
+  let pills = [];
+  if (activeTab === "sites") {
+    pills = siteMeta.map(s => ({ value: s.key, label: `${s.label} (${s.count})` }));
+  } else if (activeTab === "vendors") {
+    pills = vendorList.map(v => ({ value: v.name, label: `${v.name} (${v.count})` }));
+    if (!pills.length) {
+      $pillRow.innerHTML = `<span style="color:var(--text-dim);font-size:11px;">No vendors found</span>`;
+      return;
+    }
+  } else if (activeTab === "categories") {
+    pills = catList.map(c => ({ value: c.category, label: `${c.category} (${c.count})` }));
+    if (!pills.length) {
+      $pillRow.innerHTML = `<span style="color:var(--text-dim);font-size:11px;">No categories found</span>`;
+      return;
+    }
+  } else if (activeTab === "collections") {
+    pills = collectionList.map(c => ({ value: c.value, label: `${c.label} (${c.count})` }));
+    if (!pills.length) {
+      $pillRow.innerHTML = `<span style="color:var(--text-dim);font-size:11px;">No collections found</span>`;
+      return;
+    }
+  }
+
+  pills.forEach(p => {
+    const btn = document.createElement("button");
+    btn.className      = "pill" + (p.value === activeFilter ? " active" : "");
+    btn.textContent    = p.label;
+    btn.dataset.value  = p.value;
+    btn.addEventListener("click", () => selectFilter(p.value));
+    $pillRow.appendChild(btn);
+  });
+}
+
+async function selectFilter(value) {
+  activeFilter = value;
+  document.querySelectorAll(".pill").forEach(p => {
+    p.classList.toggle("active", p.dataset.value === value);
+  });
+  await loadGames();
+}
+
+// ── Load games ────────────────────────────────────────────────────────────────
+async function loadGames() {
+  if (!activeFilter) {
+    allGames = []; displayGames = [];
+    renderGrid([]); updateCount(0);
+    return;
+  }
+
+  const cache = activeTab === "sites"   ? siteCache
+              : activeTab === "vendors" ? vendorCache
+              : activeTab === "categories" ? catCache
+              : collectionCache;
+
+  if (cache[activeFilter]) {
+    allGames = cache[activeFilter];
+    applySearch();
+    return;
+  }
+
+  showState(null, "Loading games…");
+
+  try {
+    let games = [];
+    if (activeTab === "sites") {
+      if (activeFilter === "__all__") {
+        const allData = await apiFetch(`/api/games`);
+        games = allData.games || [];
+      } else {
+        const data = await apiFetch(`/api/games?site=${activeFilter}`);
+        games = data.games || [];
+      }
+    } else if (activeTab === "vendors") {
+      const v = activeFilter.trim().toLowerCase();
+      if (allGamesMaster.length) {
+        games = allGamesMaster.filter(g => {
+          const name = gameVendorFromAnyField(g);
+          return name && name.toLowerCase() === v;
+        });
+      } else {
+        const data = await apiFetch(`/api/categories/publishers/${encodeURIComponent(activeFilter)}/games`);
+        games = data.games || [];
+      }
+    } else if (activeTab === "categories") {
+      if (allGamesMaster.length) {
+        games = allGamesMaster.filter(g => {
+          const sites = Array.isArray(g.sites) ? g.sites : [];
+          for (const s of sites) {
+            if (canonicalCategory(s.category) === activeFilter) return true;
+          }
+          return false;
+        });
+      } else {
+        games = [];
+      }
+    } else if (activeTab === "collections") {
+      const parsed = parseCollectionFilter(activeFilter);
+      if (!parsed) {
+        games = [];
+      } else {
+        const data = await apiFetch(`/api/collections/${encodeURIComponent(parsed.slug)}?site=${encodeURIComponent(parsed.site)}`);
+        games = data.games || [];
+      }
+    }
+
+    cache[activeFilter] = games;
+    allGames = games;
+    applySearch();
+
+  } catch (err) {
+    showState("⚠️", `Failed to load games.\n${err.message}`);
+  }
+}
+
+// ── Search ────────────────────────────────────────────────────────────────────
+$search.addEventListener("input", () => {
+  clearTimeout($search._t);
+  const q = $search.value.trim();
+  $search._t = setTimeout(() => {
+    if (q.length >= 2) triggerGlobalSearch(q);
+    else applySearch();
+  }, 250);
+});
+
+function applySearch() {
+  const q = $search.value.trim().toLowerCase();
+  displayGames = q
+    ? allGames.filter(g => g.name.toLowerCase().includes(q))
+    : allGames;
+  hideState();
+  renderGrid(displayGames);
+  updateCount(displayGames.length);
+  if (!displayGames.length) showState("🔍", q ? `No results for "${q}"` : "No games found");
+}
+
+async function triggerGlobalSearch(q) {
+  showState(null, `Searching…`);
+  try {
+    const data = await apiFetch(`/api/games/search?q=${encodeURIComponent(q)}`);
+    const results = data.games || data;
+    hideState();
+    renderGrid(results);
+    updateCount(results.length);
+    if (!results.length) showState("🔍", `No results for "${q}"`);
+  } catch (e) {
+    showState("⚠️", "Search failed.");
+  }
+}
+
+// ── Render grid ───────────────────────────────────────────────────────────────
+function renderGrid(games) {
+  $grid.innerHTML = "";
+  if (!games.length) return;
+
+  const frag = document.createDocumentFragment();
+  games.forEach(game => {
+    const imgUrl = bestImage(game);
+    if (!imgUrl) return;
+
+    const card = document.createElement("div");
+    card.className    = "game-card";
+    card.title        = game.name;
+    card.dataset.img  = imgUrl;
+    card.dataset.name = game.name;
+    card.draggable    = true;
+
+    const vendor = gameVendorFromAnyField(game) || game.vendor || game.publisher || "";
+    card.innerHTML = `
+      <img src="${proxyUrl(imgUrl)}" loading="lazy" alt="${game.name}" />
+      <div class="spinner"></div>
+      <div class="card-overlay">
+        <div class="card-name">${game.name}</div>
+        ${vendor ? `<div class="card-vendor">${vendor}</div>` : ""}
+      </div>
+    `;
+
+    card.addEventListener("click", () => {
+      const draggedAt = Number(card.dataset.draggedAt || 0);
+      if (Date.now() - draggedAt < 250) return;
+      insertGame(card, game);
+    });
+    card.addEventListener("dragstart", (e) => {
+      nativeDragActive = true;
+      card.classList.add("dragging");
+      const payload = {
+        type: "casino-game-image",
+        name: game.name || "Game Image",
+        imageUrl: imgUrl,
+        proxyUrl: proxyUrl(imgUrl),
+      };
+      e.dataTransfer.setData("text/plain", payload.proxyUrl);
+      e.dataTransfer.setData("application/json", JSON.stringify(payload));
+      e.dataTransfer.effectAllowed = "copy";
+      const ghostEl = buildDragGhostElement(card);
+      if (ghostEl) {
+        e.dataTransfer.setDragImage(ghostEl, 60, 60);
+      } else {
+        const dragImg = card.querySelector("img");
+        if (dragImg) e.dataTransfer.setDragImage(dragImg, dragImg.width / 2, dragImg.height / 2);
+      }
+    });
+    card.addEventListener("dragend", async (e) => {
+      nativeDragActive = false;
+      card.classList.remove("dragging");
+      card.dataset.draggedAt = String(Date.now());
+      clearDragPreview();
+      try {
+        const payload = await buildDropPayload(card, game);
+        parent.postMessage({
+          pluginDrop: {
+            clientX: e.clientX,
+            clientY: e.clientY,
+            dropMetadata: payload,
+            items: [{ type: "text/plain", data: payload.proxyUrl }]
+          }
+        }, "*");
+      } catch (err) {
+        showToast("Drop failed: " + (err && err.message ? err.message : "image conversion failed"), true);
+      }
+    });
+    card.addEventListener("pointerdown", (e) => {
+      dragPreview = {
+        card,
+        game,
+        startX: e.clientX,
+        startY: e.clientY,
+        moved: false,
+      };
+    });
+    frag.appendChild(card);
+  });
+  $grid.appendChild(frag);
+}
+
+function updateCount(n) {
+  $count.textContent = n ? `${n} game${n !== 1 ? "s" : ""}` : "";
+}
+
+// ── Insert image into Figma ───────────────────────────────────────────────────
+async function insertGame(card, game, dropPoint = null) {
+  if (card.classList.contains("inserting")) return;
+  card.classList.add("inserting");
+
+  const imgUrl = card.dataset.img;
+  const name   = card.dataset.name;
+
+  try {
+    const res = await fetch(proxyUrl(imgUrl));
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const blob     = await res.blob();
+    const jpegBlob = await convertToJpegBlob(blob);
+    const arrayBuf = await jpegBlob.arrayBuffer();
+    const bytes    = Array.from(new Uint8Array(arrayBuf));
+    const [w, h]   = await getImageDimensions(jpegBlob);
+
+    parent.postMessage({
+      pluginMessage: {
+        type: "insert-image",
+        bytes,
+        width: w,
+        height: h,
+        name,
+        dropClientX: Number(dropPoint?.clientX),
+        dropClientY: Number(dropPoint?.clientY),
+      }
+    }, "*");
+
+  } catch (err) {
+    card.classList.remove("inserting");
+    showToast("Failed: " + err.message, true);
+  }
+}
+
+async function convertToJpegBlob(blob) {
+  if (blob.type === "image/jpeg") return blob;
+  const bitmap = await createImageBitmap(blob);
+  const canvas = document.createElement("canvas");
+  canvas.width = bitmap.width;
+  canvas.height = bitmap.height;
+  const ctx = canvas.getContext("2d");
+  // Flatten transparency onto white for formats that support alpha.
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(bitmap, 0, 0);
+  bitmap.close();
+  const jpegBlob = await new Promise((resolve, reject) => {
+    canvas.toBlob((b) => b ? resolve(b) : reject(new Error("JPEG conversion failed")), "image/jpeg", 0.92);
+  });
+  return jpegBlob;
+}
+
+function getImageDimensions(blob) {
+  return new Promise(resolve => {
+    const url = URL.createObjectURL(blob);
+    const img = new Image();
+    img.onload = () => {
+      const w = img.naturalWidth  || INSERT_W;
+      const h = img.naturalHeight || INSERT_H;
+      URL.revokeObjectURL(url);
+      const scale = Math.min(1, INSERT_W / w);
+      resolve([Math.round(w * scale), Math.round(h * scale)]);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); resolve([INSERT_W, INSERT_H]); };
+    img.src = url;
+  });
+}
+
+// ── Messages from Figma code.js ───────────────────────────────────────────────
+window.onmessage = (event) => {
+  const msg = event.data.pluginMessage;
+  if (!msg) return;
+
+  if (msg.type === "drop-insert-success") {
+    clearDragPreview();
+    clearAllDraggingCards();
+  }
+
+  if (msg.type === "insert-success") {
+    const card = document.querySelector(".game-card.inserting");
+    if (card) {
+      card.classList.remove("inserting");
+      card.classList.add("done-ok");
+      setTimeout(() => card.classList.remove("done-ok"), 1200);
+    }
+    showToast(`✓ Inserted${msg.name ? " " + msg.name : ""}`);
+  }
+
+  if (msg.type === "insert-error") {
+    const card = document.querySelector(".game-card.inserting");
+    if (card) card.classList.remove("inserting");
+    showToast(msg.message || "Insert failed", true);
+  }
+};
+
+// ── Boot ─────────────────────────────────────────────────────────────────────
+init();
+</script>
+</body>
+</html>

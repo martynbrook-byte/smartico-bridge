@@ -11,8 +11,12 @@ RUN npm ci --omit=dev
 # ── Stage 2: runtime image ────────────────────────────────────────────────────
 FROM node:20-alpine AS runtime
 
-# Non-root user for security
-RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+# Non-root user for security.
+# Keep UID/GID explicit so host bind-mounted data can be chowned predictably.
+ARG APP_UID=10001
+ARG APP_GID=10001
+RUN addgroup -S -g ${APP_GID} appgroup \
+    && adduser -S -D -H -u ${APP_UID} -G appgroup appuser
 
 WORKDIR /app
 

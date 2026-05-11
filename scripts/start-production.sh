@@ -16,6 +16,8 @@ set -euo pipefail
 APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PORT="${PORT:-3001}"
 COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-smartico-bridge}"
+APP_UID="${APP_UID:-10001}"
+APP_GID="${APP_GID:-10001}"
 
 cd "$APP_DIR"
 
@@ -65,6 +67,17 @@ install_docker_debian() {
   fi
 }
 
+run_as_root() {
+  if [ "$(id -u)" -eq 0 ]; then
+    "$@"
+  elif command -v sudo >/dev/null 2>&1; then
+    sudo "$@"
+  else
+    echo "Root privileges are required for: $*" >&2
+    exit 1
+  fi
+}
+
 if ! command -v docker >/dev/null 2>&1; then
   install_docker_debian
 fi
@@ -99,6 +112,10 @@ mkdir -p \
   data/dropzones \
   data/assets \
   uploads
+
+# These paths are bind-mounted into the container. The app runs as APP_UID/GID,
+# so the host directories must be writable by that numeric user.
+run_as_root chown -R "${APP_UID}:${APP_GID}" data uploads
 
 export COMPOSE_PROJECT_NAME
 

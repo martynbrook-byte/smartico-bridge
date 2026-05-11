@@ -12,12 +12,17 @@ set -euo pipefail
 # Optional environment overrides:
 #   PORT=3001 ./scripts/start-production.sh
 #   COMPOSE_PROJECT_NAME=smartico-bridge ./scripts/start-production.sh
+#   NGINX_SERVER_NAME=bridge.example.com ./scripts/start-production.sh
+#   NGINX_ALLOW_CIDRS="203.0.113.10/32,198.51.100.0/24" ./scripts/start-production.sh
 
 APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PORT="${PORT:-3001}"
 COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-smartico-bridge}"
 APP_UID="${APP_UID:-10001}"
 APP_GID="${APP_GID:-10001}"
+INSTALL_NGINX="${INSTALL_NGINX:-1}"
+NGINX_SERVER_NAME="${NGINX_SERVER_NAME:-_}"
+NGINX_ALLOW_CIDRS="${NGINX_ALLOW_CIDRS:-}"
 
 cd "$APP_DIR"
 
@@ -78,6 +83,62 @@ run_as_root() {
   fi
 }
 
+install_nginx_debian() {
+  if [ "${INSTALL_NGINX}" != "1" ]; then
+    return
+  fi
+
+  if [ ! -r /etc/os-release ]; then
+    echo "Cannot detect OS. This script only auto-installs Nginx on Debian." >&2
+    exit 1
+  fi
+
+  . /etc/os-release
+  if [ "${ID:-}" != "debian" ]; then
+    echo "Detected '${ID:-unknown}'. This script only auto-installs Nginx on Debian." >&2
+    exit 1
+  fi
+
+  if ! command -v nginx >/dev/null 2>&1; then
+    echo "Installing Nginx for Debian..."
+    run_as_root apt-get update
+    run_as_root apt-get install -y nginx
+  fi
+
+  run_as_root install -d /etc/nginx/snippets /etc/nginx/sites-available /etc/nginx/sites-enabled
+
+  tmp_allowlist="$(mktemp)"
+  if [ -n "${NGINX_ALLOW_CIDRS}" ]; then
+    old_ifs="$IFS"
+    IFS=","
+    for cidr in ${NGINX_ALLOW_CIDRS}; do
+      cidr="$(printf '%s' "$cidr" | xargs)"
+      if [ -n "$cidr" ]; then
+        printf 'allow %s;\n' "$cidr" >> "$tmp_allowlist"
+      fi
+    done
+    IFS="$old_ifs"
+    printf 'deny all;\n' >> "$tmp_allowlist"
+  fi
+  run_as_root cp "$tmp_allowlist" /etc/nginx/snippets/smartico-bridge-allowlist.conf
+  rm -f "$tmp_allowlist"
+
+  tmp_site="$(mktemp)"
+  sed \
+    -e "s#__SERVER_NAME__#${NGINX_SERVER_NAME}#g" \
+    -e "s#__APP_PORT__#${PORT}#g" \
+    deploy/nginx/smartico-bridge.http.conf > "$tmp_site"
+
+  run_as_root cp "$tmp_site" /etc/nginx/sites-available/smartico-bridge
+  rm -f "$tmp_site"
+
+  run_as_root rm -f /etc/nginx/sites-enabled/default
+  run_as_root ln -sf /etc/nginx/sites-available/smartico-bridge /etc/nginx/sites-enabled/smartico-bridge
+  run_as_root nginx -t
+  run_as_root systemctl enable --now nginx
+  run_as_root systemctl reload nginx
+}
+
 if ! command -v docker >/dev/null 2>&1; then
   install_docker_debian
 fi
@@ -85,6 +146,8 @@ fi
 if ! docker compose version >/dev/null 2>&1; then
   install_docker_debian
 fi
+
+install_nginx_debian
 
 DOCKER=(docker)
 if ! docker info >/dev/null 2>&1; then

@@ -15,7 +15,8 @@ A Node.js middleware server that ingests Smartico winners CSV data, applies conf
    - [Option A — Local (Node.js directly)](#option-a--local-nodejs-directly)
    - [Option B — Local (Docker / Docker Compose)](#option-b--local-docker--docker-compose)
    - [Option C — Bare-metal / Cloud VM (Ubuntu/Debian)](#option-c--bare-metal--cloud-vm-ubuntudebian)
-   - [Option D — Railway](#option-d--railway)
+   - [Option D — AWS Lightsail (Debian, cheapest AWS path)](#option-d--aws-lightsail-debian-cheapest-aws-path)
+   - [Option E — Railway](#option-e--railway)
 7. [API Reference](#api-reference)
 8. [Figma Plugin](#figma-plugin)
 9. [Data Persistence](#data-persistence)
@@ -408,7 +409,179 @@ docker compose -f ~/smartico-bridge/docker-compose.yml ps
 
 ---
 
-### Option D — Railway
+### Option D — AWS Lightsail (Debian, cheapest AWS path)
+
+This is the recommended lightweight AWS deployment for this app. It keeps the app on one small VM with a persistent disk, which fits the current JSON-file storage model under `data/`.
+
+#### 1. Create the Lightsail instance
+
+Use a **Debian** Lightsail image. The startup script is intentionally Debian-only.
+
+Recommended starting size:
+
+| Plan | Use |
+|---|---|
+| 1 GB RAM | Recommended baseline for Docker + Node + Nginx |
+| 512 MB RAM | May work for light testing, but has little headroom |
+
+In the Lightsail **Networking** tab, add inbound IPv4 firewall rules:
+
+| Port | Source | Purpose |
+|---|---|---|
+| `22` | Your IP/CIDR | SSH |
+| `80` | `0.0.0.0/0` or your IP/CIDR | Browser access through Nginx |
+| `3001` | Your IP/CIDR only, temporary | Optional direct app debugging |
+
+Once Nginx on port `80` works, remove public access to `3001`. The app should normally be reached through Nginx.
+
+#### 2. Install Git and clone the repo
+
+```bash
+sudo apt-get update
+sudo apt-get install -y git
+
+git clone https://github.com/your-org/smartico-bridge.git
+cd smartico-bridge
+```
+
+#### 3. Start the app and deploy Nginx
+
+The production startup script handles the Debian server setup:
+
+- installs Docker if missing
+- installs the Docker Compose plugin if missing
+- installs Nginx if missing
+- writes `/etc/nginx/sites-available/smartico-bridge`
+- enables it under `/etc/nginx/sites-enabled/`
+- writes the optional Nginx CIDR allowlist include
+- starts/rebuilds the Docker Compose app
+- checks `/api/health`
+
+Public port `80` with any hostname/IP:
+
+```bash
+./scripts/start-production.sh
+```
+
+With a domain:
+
+```bash
+NGINX_SERVER_NAME=bridge.your-domain.com ./scripts/start-production.sh
+```
+
+Then open:
+
+```text
+http://YOUR_SERVER_PUBLIC_IP
+```
+
+or:
+
+```text
+http://bridge.your-domain.com
+```
+
+#### 4. Where to put CIDRs for access control
+
+There are two places you can restrict access. Use both for defense in depth.
+
+**Lightsail firewall CIDRs**
+
+Set these in the AWS Lightsail console:
+
+1. Open the Lightsail instance.
+2. Go to **Networking**.
+3. Under **IPv4 Firewall**, edit the source for each port.
+
+Examples:
+
+| Port | Source |
+|---|---|
+| `22` | `YOUR_OFFICE_IP/32` |
+| `80` | `YOUR_OFFICE_IP/32`, or `0.0.0.0/0` if public |
+| `3001` | `YOUR_OFFICE_IP/32` only, or delete this rule |
+
+**Nginx allowlist CIDRs**
+
+Pass CIDRs to the startup script with `NGINX_ALLOW_CIDRS`. This writes Nginx rules into:
+
+```text
+/etc/nginx/snippets/smartico-bridge-allowlist.conf
+```
+
+Example allowing one office IP and one VPN range:
+
+```bash
+NGINX_SERVER_NAME=bridge.your-domain.com \
+NGINX_ALLOW_CIDRS="203.0.113.10/32,198.51.100.0/24" \
+./scripts/start-production.sh
+```
+
+If `NGINX_ALLOW_CIDRS` is empty, the Nginx site is public on port `80`.
+
+To allow only your current single public IP, use `/32`:
+
+```bash
+NGINX_ALLOW_CIDRS="YOUR_PUBLIC_IP/32" ./scripts/start-production.sh
+```
+
+To remove the Nginx allowlist and make port `80` public again:
+
+```bash
+NGINX_ALLOW_CIDRS="" ./scripts/start-production.sh
+```
+
+#### 5. Verify deployment
+
+On the server:
+
+```bash
+docker compose ps
+curl http://127.0.0.1:3001/api/health
+sudo nginx -t
+sudo ss -ltnp | grep -E ':80|:3001'
+```
+
+From your browser:
+
+```text
+http://YOUR_SERVER_PUBLIC_IP
+```
+
+If direct port access is needed for debugging:
+
+```text
+http://YOUR_SERVER_PUBLIC_IP:3001
+```
+
+Only use direct port `3001` when the Lightsail firewall restricts it to your IP.
+
+#### 6. Update the Figma plugin
+
+After choosing the final URL, update:
+
+- `figma-plugin/ui.html` → `serverUrl`
+- `figma-plugin/manifest.json` → `networkAccess.allowedDomains`
+
+Example:
+
+```js
+var serverUrl = 'http://bridge.your-domain.com';
+```
+
+```json
+"networkAccess": {
+  "allowedDomains": [
+    "http://bridge.your-domain.com"
+  ]
+}
+```
+
+For production, add HTTPS with Certbot and switch both plugin values to `https://...`.
+
+---
+
+### Option E — Railway
 
 Railway is the zero-ops cloud PaaS this project was originally designed for.
 

@@ -40,13 +40,31 @@ jobs:
 
       - name: Prepare remote app directory
         run: |
-          ssh -i ~/.ssh/lightsail "$LIGHTSAIL_USER@$LIGHTSAIL_HOST" \
-            "APP_DIR='$LIGHTSAIL_APP_DIR'; mkdir -p \"\$APP_DIR\" 2>/dev/null || sudo mkdir -p \"\$APP_DIR\"; test -w \"\$APP_DIR\" || sudo chown -R \"\$USER:\$USER\" \"\$APP_DIR\""
+          ssh -i ~/.ssh/lightsail "$LIGHTSAIL_USER@$LIGHTSAIL_HOST" <<EOF
+          set -euo pipefail
+
+          if ! command -v rsync >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y rsync
+          fi
+
+          APP_DIR="$LIGHTSAIL_APP_DIR"
+          HOME_DIR="$(eval echo "~$USER")"
+          if [ "$APP_DIR" = "$HOME_DIR" ] || [ "$APP_DIR" = "/home/$USER" ]; then
+            echo "LIGHTSAIL_APP_DIR must point to an app directory, not the user's home directory." >&2
+            echo "Use a value like /home/$USER/smartico-bridge or /opt/smartico-bridge." >&2
+            exit 1
+          fi
+
+          mkdir -p "\$APP_DIR" 2>/dev/null || sudo mkdir -p "\$APP_DIR"
+          test -w "\$APP_DIR" || sudo chown -R "\$USER:\$USER" "\$APP_DIR"
+          EOF
 
       - name: Sync release files to Lightsail
         run: |
           rsync -az --delete \
             -e "ssh -i ~/.ssh/lightsail" \
+            --rsync-path "sudo rsync" \
             --exclude ".git/" \
             --exclude ".env" \
             --exclude "node_modules/" \

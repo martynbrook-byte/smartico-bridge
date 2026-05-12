@@ -1,0 +1,74 @@
+name: Deploy to AWS Lightsail
+
+on:
+  release:
+    types:
+      - published
+
+concurrency:
+  group: lightsail-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy release
+    runs-on: ubuntu-latest
+    environment: BrandHubDeployEnv
+
+    env:
+      LIGHTSAIL_HOST: ${{ secrets.LIGHTSAIL_HOST }}
+      LIGHTSAIL_USER: ${{ secrets.LIGHTSAIL_USER }}
+      LIGHTSAIL_APP_DIR: ${{ vars.LIGHTSAIL_APP_DIR || '/opt/smartico-bridge' }}
+      PORT: ${{ vars.LIGHTSAIL_PORT || '3001' }}
+      COMPOSE_PROJECT_NAME: ${{ vars.LIGHTSAIL_COMPOSE_PROJECT_NAME || 'smartico-bridge' }}
+      NGINX_SERVER_NAME: ${{ vars.LIGHTSAIL_NGINX_SERVER_NAME || '_' }}
+      NGINX_ALLOW_CIDRS: ${{ vars.LIGHTSAIL_NGINX_ALLOW_CIDRS || '' }}
+      INSTALL_NGINX: ${{ vars.LIGHTSAIL_INSTALL_NGINX || '1' }}
+
+    steps:
+      - name: Check out release code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      - name: Configure SSH
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "${{ secrets.LIGHTSAIL_SSH_KEY }}" > ~/.ssh/lightsail
+          chmod 600 ~/.ssh/lightsail
+          ssh-keyscan -H "$LIGHTSAIL_HOST" >> ~/.ssh/known_hosts
+
+      - name: Prepare remote app directory
+        run: |
+          ssh -i ~/.ssh/lightsail "$LIGHTSAIL_USER@$LIGHTSAIL_HOST" \
+            "APP_DIR='$LIGHTSAIL_APP_DIR'; mkdir -p \"\$APP_DIR\" 2>/dev/null || sudo mkdir -p \"\$APP_DIR\"; test -w \"\$APP_DIR\" || sudo chown -R \"\$USER:\$USER\" \"\$APP_DIR\""
+
+      - name: Sync release files to Lightsail
+        run: |
+          rsync -az --delete \
+            -e "ssh -i ~/.ssh/lightsail" \
+            --exclude ".git/" \
+            --exclude ".env" \
+            --exclude "node_modules/" \
+            --exclude "uploads/" \
+            --exclude "data/datasets/" \
+            --exclude "data/pipelines/" \
+            --exclude "data/dropzones/" \
+            --exclude "data/assets/" \
+            --exclude "data/settings.json" \
+            ./ "$LIGHTSAIL_USER@$LIGHTSAIL_HOST:$LIGHTSAIL_APP_DIR/"
+
+      - name: Rebuild and restart Docker containers
+        run: |
+          ssh -i ~/.ssh/lightsail "$LIGHTSAIL_USER@$LIGHTSAIL_HOST" <<EOF
+          set -euo pipefail
+          cd "$LIGHTSAIL_APP_DIR"
+          chmod +x scripts/start-production.sh
+          PORT="$PORT" \
+          COMPOSE_PROJECT_NAME="$COMPOSE_PROJECT_NAME" \
+          NGINX_SERVER_NAME="$NGINX_SERVER_NAME" \
+          NGINX_ALLOW_CIDRS="$NGINX_ALLOW_CIDRS" \
+          INSTALL_NGINX="$INSTALL_NGINX" \
+          ./scripts/start-production.sh
+          docker compose ps || sudo docker compose ps
+          EOF

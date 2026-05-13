@@ -40,7 +40,7 @@ jobs:
 
       - name: Prepare remote app directory
         run: |
-          ssh -i ~/.ssh/lightsail "$LIGHTSAIL_USER@$LIGHTSAIL_HOST" <<EOF
+          ssh -T -i ~/.ssh/lightsail "$LIGHTSAIL_USER@$LIGHTSAIL_HOST" <<EOF
           set -euo pipefail
 
           if ! command -v rsync >/dev/null 2>&1; then
@@ -49,10 +49,10 @@ jobs:
           fi
 
           APP_DIR="$LIGHTSAIL_APP_DIR"
-          HOME_DIR="$(eval echo "~$USER")"
-          if [ "$APP_DIR" = "$HOME_DIR" ] || [ "$APP_DIR" = "/home/$USER" ]; then
+          HOME_DIR="\$(eval echo "~\$USER")"
+          if [ "\$APP_DIR" = "\$HOME_DIR" ] || [ "\$APP_DIR" = "/home/\$USER" ]; then
             echo "LIGHTSAIL_APP_DIR must point to an app directory, not the user's home directory." >&2
-            echo "Use a value like /home/$USER/smartico-bridge or /opt/smartico-bridge." >&2
+            echo "Use a value like /home/\$USER/smartico-bridge or /opt/smartico-bridge." >&2
             exit 1
           fi
 
@@ -78,7 +78,7 @@ jobs:
 
       - name: Rebuild and restart Docker containers
         run: |
-          ssh -i ~/.ssh/lightsail "$LIGHTSAIL_USER@$LIGHTSAIL_HOST" <<EOF
+          ssh -T -i ~/.ssh/lightsail "$LIGHTSAIL_USER@$LIGHTSAIL_HOST" <<EOF
           set -euo pipefail
           cd "$LIGHTSAIL_APP_DIR"
           chmod +x scripts/start-production.sh

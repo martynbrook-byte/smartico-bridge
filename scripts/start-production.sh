@@ -182,6 +182,14 @@ run_as_root chown -R "${APP_UID}:${APP_GID}" data uploads
 
 export COMPOSE_PROJECT_NAME
 
+# `container_name` is fixed in docker-compose.yml. If this app was previously
+# started from another directory/project name, Compose cannot reuse it.
+existing_container="$("${DOCKER[@]}" ps -aq --filter "name=^/smartico-bridge$")"
+if [ -n "$existing_container" ]; then
+  echo "Removing existing smartico-bridge container before recreate..."
+  "${DOCKER[@]}" rm -f smartico-bridge
+fi
+
 "${DOCKER[@]}" compose up -d --build
 
 echo "Waiting for Smartico Bridge health check..."

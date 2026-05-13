@@ -81,7 +81,7 @@ jobs:
           ssh -T -i ~/.ssh/lightsail "$LIGHTSAIL_USER@$LIGHTSAIL_HOST" <<EOF
           set -euo pipefail
           cd "$LIGHTSAIL_APP_DIR"
-          chmod +x scripts/start-production.sh
+          chmod +x scripts/start-production.sh 2>/dev/null || sudo chmod +x scripts/start-production.sh
           PORT="$PORT" \
           COMPOSE_PROJECT_NAME="$COMPOSE_PROJECT_NAME" \
           NGINX_SERVER_NAME="$NGINX_SERVER_NAME" \

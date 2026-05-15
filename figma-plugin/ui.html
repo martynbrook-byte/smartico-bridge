@@ -567,15 +567,15 @@
 </head>
 <body>
 
+<!-- ── Persistent selection status bar — sits above everything ─────────── -->
+<div id="globalSelBar" style="display:none;align-items:center;gap:7px;padding:6px 12px;background:#1a1a1a;border-bottom:2px solid #BB00FF;font-size:11px;min-height:32px;flex-shrink:0;position:sticky;top:0;z-index:9999">
+  <span id="globalSelDot" style="width:9px;height:9px;border-radius:50%;background:#444;flex-shrink:0;transition:background .3s"></span>
+  <span id="globalSelText" style="color:#aaa;flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">No selection</span>
+  <span id="globalMsgCount" style="color:#555;font-size:10px;margin-right:4px">msgs:0</span>
+  <button onclick="refreshSel()" title="Sync selection" style="background:none;border:none;padding:0 2px;cursor:pointer;font-size:13px;color:#555;line-height:1">↻</button>
+</div>
 
 <div class="app-frame">
-
-<!-- ── Persistent selection status bar (always visible) ──────────────── -->
-<div id="globalSelBar" style="display:flex;align-items:center;gap:7px;padding:5px 12px;background:#f5f5f5;border-bottom:1px solid #e0e0e0;font-size:11px;min-height:28px;flex-shrink:0">
-  <span id="globalSelDot" style="width:7px;height:7px;border-radius:50%;background:#bbb;flex-shrink:0;transition:background .3s"></span>
-  <span id="globalSelText" style="color:#888;flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">No selection</span>
-  <button onclick="refreshSel()" title="Sync selection" style="background:none;border:none;padding:0 2px;cursor:pointer;font-size:13px;color:#aaa;line-height:1">↻</button>
-</div>
 
 <div class="app-content" id="appContent">
 
@@ -1084,8 +1084,7 @@
 
 <!-- ── Panel: Settings ────────────────────────────────────────────── -->
 <div class="panel panel-blue" id="panel-settings">
-  <div class="panel-body hidden" id="panel-settings-body">
-    <div style="font-family:var(--font-display);font-size:var(--fs-title);font-weight:800;color:var(--text);letter-spacing:0.02em;padding-bottom:10px;border-bottom:1px solid var(--border);margin-bottom:2px">Settings</div>
+  <div class="panel-body hidden" id="panel-settings-body" style="padding:0">
 
     <!-- Image Conversion -->
     <div class="settings-section">
@@ -1216,7 +1215,9 @@
 <!-- hidden elements kept for backward compat -->
 <div id="uploadSection" style="display:none"></div>
 <div id="assetSection"  style="display:none"></div>
-<input type="text" id="serverUrl" value="https://smartico-bridge-production.up.railway.app" style="display:none">
+<!-- <input type="text" id="serverUrl" value="http://35.179.167.137/" style="display:none"> -->
+<input type="text" id="serverUrl" value="https://888-smartico-bridge.888africa.com" style="display:none">
+
 
 </div><!-- /.app-content -->
 </div><!-- /.app-frame -->
@@ -1289,8 +1290,38 @@
 <div class="toast" id="toast"></div>
 
 <script>
+// ═══════════════════════════════════════════════════════════════════════════
+// EARLY MESSAGE LISTENER — registered before any IIFE so it survives crashes
+// Handles selection + inject-result directly via DOM manipulation
+// ═══════════════════════════════════════════════════════════════════════════
+var _SB_IC_TYPES = ['layers', 'thumbnail', 'export-result', 'export-error', 'pdf-results'];
+window.addEventListener('message', function(ev) {
+  var msg = ev && ev.data && ev.data.pluginMessage;
+  if (!msg) return;
 
-var serverUrl    = 'https://smartico-bridge-production.up.railway.app';
+  // ── 1. Update status bar directly ────────────────────────────────────────────
+  if (msg.type === 'selection') {
+    var nodes = msg.nodes || [];
+    var dot = document.getElementById('globalSelDot');
+    var txt = document.getElementById('globalSelText');
+    if (dot) dot.style.background = nodes.length ? '#BB00FF' : '#444';
+    if (txt) txt.textContent = nodes.length
+      ? (nodes[0].name + (nodes.length > 1 ? ' +' + (nodes.length - 1) + ' more' : ''))
+      : 'No selection';
+  }
+
+  // ── 2. Main handler — selection, inject, assets, etc. ────────────────────────
+  try { if (typeof _sbMainOnMsg === 'function') _sbMainOnMsg(ev); } catch(_) {}
+
+  // ── 3. IC handler — optimiser, animator, artworker layers ───────────────────
+  if (_SB_IC_TYPES.indexOf(msg.type) !== -1) {
+    var _icDbg = document.getElementById('globalMsgCount');
+    if (_icDbg) { _icDbg.textContent = 'IC:' + msg.type + (msg.layers ? msg.layers.length : ''); _icDbg.style.color = '#0f0'; }
+    try { if (window.__sbIcHandler) { window.__sbIcHandler.call(this, ev); } else { if (_icDbg) { _icDbg.textContent = window.__sbIcCrashMsg ? 'CRASH:' + window.__sbIcCrashMsg : 'IC:no handler'; _icDbg.style.color = '#f00'; } } } catch(e) { if (_icDbg) { _icDbg.textContent = 'IC ERR:' + e.message; _icDbg.style.color = '#f00'; } }
+  }
+});
+
+var serverUrl    = 'https://888-smartico-bridge.888africa.com';
 
 // Convert any image URL → PNG bytes via canvas.
 // Figma's createImage() only accepts JPEG and PNG — WebP/AVIF/etc. will fail.
@@ -1442,8 +1473,8 @@ function togglePanel(name) {
         loadUploadPipelines();
       }
     }
-    // After the accordion transition finishes, scroll down if the panel header
-    // is below the visible area. Never scroll up. Cancel on user scroll gesture.
+    // Scroll the opened panel header to the top of the content area.
+    // Cancel if the user manually scrolls during the transition.
     var _userScrolled = false;
     var _onUserScroll = function() { _userScrolled = true; };
     ac.addEventListener('wheel',     _onUserScroll, { passive: true, once: true });
@@ -1452,11 +1483,10 @@ function togglePanel(name) {
       ac.removeEventListener('wheel',     _onUserScroll);
       ac.removeEventListener('touchmove', _onUserScroll);
       if (_userScrolled) return;
-      var acRect    = ac.getBoundingClientRect();
-      var panelRect = panelEl.getBoundingClientRect();
-      var target = Math.max(0, ac.scrollTop + panelRect.top - acRect.top - 10);
-      ac.scrollTo({ top: target, behavior: 'smooth' });
-    }, 460);
+      // scrollIntoView scrolls the nearest scrollable ancestor (#appContent),
+      // which is more reliable than manual rect arithmetic.
+      panelEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 150);
   }
 }
 
@@ -2078,10 +2108,10 @@ function dismissInjectResult() {
 }
 
 // ── Audio feedback ────────────────────────────────────────────────────────────
-var _audioMuted = localStorage.getItem('sb_muted') === '1';
+var _audioMuted = (function() { try { return localStorage.getItem('sb_muted') === '1'; } catch (_) { return false; } })();
 function toggleMute() {
   _audioMuted = !_audioMuted;
-  localStorage.setItem('sb_muted', _audioMuted ? '1' : '0');
+  try { localStorage.setItem('sb_muted', _audioMuted ? '1' : '0'); } catch (_) {}
   var btn = document.getElementById('muteBtn');
   if (btn) btn.textContent = _audioMuted ? '🔇' : '🔊';
 }
@@ -2882,8 +2912,8 @@ function toggleAssets()   { togglePanel('assets'); }
 // ═══════════════════════════════════════════════════════════════════════════
 // Casino Game Library
 // ═══════════════════════════════════════════════════════════════════════════
-(function() {
-  var CASINO_API = "https://casino-api-production-0d8f.up.railway.app";
+try { (function() {
+  var CASINO_API = "https://casino-api-production-0d8f.up.railway.app";//"http://35.179.167.137/"
 
   // ── Vendor / category classification helpers ──────────────────────────────
   var VENDOR_CATS = ['split the pot','splitthepot','smartsoft','smartsoft gaming','7777 gaming','7777gaming','rubyplay','ruby play','fazi','fazi interactive','spribe','playson'];
@@ -3216,7 +3246,9 @@ function toggleAssets()   { togglePanel('assets'); }
       playSound('error');
     }
   };
-})();
+}) (); } catch(_casinoErr) {
+  console.error('[SB] Casino IIFE crash:', _casinoErr);
+}
 
 // ════════════════════════════════════════════════════════════════════
 // IMAGE TOOLS — Image Compressor (integrated)
@@ -3224,9 +3256,8 @@ function toggleAssets()   { togglePanel('assets'); }
 var icRefreshLayers = function() {};
 var icLoadGifFrames = function() {};
 
-(function() {
+try { (function() {
 'use strict';
-
 var _icPrev = window.onmessage;
 
 
@@ -4843,35 +4874,39 @@ if (typeof loadGifFrames === 'function') {
   icLoadGifFrames = loadGifFrames;
 }
 
-// Final message dispatcher — IC intercepts its own types, everything else
-// goes directly to _sbMainOnMsg (no _icPrev chain, avoids chain-breakage bugs).
-var _IC_TYPES = ['layers', 'thumbnail', 'export-result', 'export-error', 'pdf-results'];
-window.onmessage = async function(ev) {
-  var msg = ev.data && ev.data.pluginMessage;
+// Register IC handler directly — works independently of window.onmessage chain
+var _IC_MSG_TYPES = ['layers', 'thumbnail', 'export-result', 'export-error', 'pdf-results'];
+window.addEventListener('message', function(ev) {
+  var msg = ev && ev.data && ev.data.pluginMessage;
   if (!msg) return;
-  if (_IC_TYPES.indexOf(msg.type) !== -1) {
-    await _icHandleMsg.call(this, ev);
-    return;
+  if (_IC_MSG_TYPES.indexOf(msg.type) !== -1) {
+    // Show diagnostic in counter
+    var _dbg = document.getElementById('globalMsgCount');
+    if (_dbg) { _dbg.textContent = msg.type + (msg.layers ? ':' + msg.layers.length : ''); _dbg.style.color = '#0f0'; }
+    Promise.resolve(_icHandleMsg.call(this, ev)).catch(function(e) {
+      var _dbg2 = document.getElementById('globalMsgCount');
+      if (_dbg2) { _dbg2.textContent = 'IC ERR:' + e.message; _dbg2.style.color = '#f00'; }
+    });
   }
-  // Casino-specific UI feedback
-  if (msg.type === 'casino-insert-success') {
-    var _cCard = document.querySelector('.cgame-card.inserting');
-    if (_cCard) { _cCard.classList.remove('inserting'); _cCard.classList.add('done-ok'); setTimeout(function(){_cCard.classList.remove('done-ok');},1200); }
-    try { playSound('ping'); } catch(_) {}
-    return;
-  }
-  if (msg.type === 'casino-insert-error') {
-    var _eCard = document.querySelector('.cgame-card.inserting');
-    if (_eCard) _eCard.classList.remove('inserting');
-    try { playSound('error'); } catch(_) {}
-    return;
-  }
-  // All other SB messages — call directly, no chain
-  try { _sbMainOnMsg(ev); } catch(_msgErr) {}
-};
+});
+// Also expose as global fallback
+window.__sbIcHandler = _icHandleMsg;
 
-})();
+}) (); } catch(_icIifeErr) {
+  // IC IIFE crashed — log to console AND set a global so messages don't overwrite it
+  var _icCrashMsg = (_icIifeErr && _icIifeErr.message || String(_icIifeErr));
+  console.error('[SB] IC IIFE CRASH:', _icIifeErr);
+  window.__sbIcCrashMsg = _icCrashMsg;
+  var _icErrCtr = document.getElementById('globalMsgCount');
+  if (_icErrCtr) {
+    _icErrCtr.textContent = 'IC CRASH: ' + _icCrashMsg;
+    _icErrCtr.style.color = '#f00';
+    _icErrCtr.style.fontSize = '9px';
+  }
+}
 
+// Request initial selection once on startup (single shot, no polling)
+try { parent.postMessage({ pluginMessage: { type: 'get-selection' } }, '*'); } catch(_) {}
 
 </script>
 

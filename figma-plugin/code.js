@@ -31,41 +31,24 @@
 
 figma.showUI(__html__, { width: 440, height: 640, title: 'Smartico Bridge' });
 
-// ── Selection helpers ─────────────────────────────────────────────────────────
+// ── Selection broadcast ───────────────────────────────────────────────────────
 function snapshotSelection() {
-  try {
-    var sel = figma.currentPage.selection;
-    return sel.map(function(n) {
-      return {
-        id:         n.id,
-        name:       n.name,
-        type:       n.type,
-        childCount: 'children' in n ? n.children.length : 0,
-      };
-    });
-  } catch (_) { return []; }
+  var sel = figma.currentPage.selection;
+  return sel.map(function(n) {
+    return {
+      id:         n.id,
+      name:       n.name,
+      type:       n.type,
+      childCount: 'children' in n ? n.children.length : 0,
+    };
+  });
 }
 
 function postSelection() {
-  try { figma.ui.postMessage({ type: 'selection', nodes: snapshotSelection() }); } catch (_) {}
+  figma.ui.postMessage({ type: 'selection', nodes: snapshotSelection() });
 }
 
-// Tell the UI code.js is alive (helps diagnose communication issues)
-try { figma.ui.postMessage({ type: 'sb-ready' }); } catch (_) {}
-
-// Broadcast selection on every canvas click
-try { figma.on('selectionchange', postSelection); } catch (_) {}
-
-// Heartbeat: send selection every 1 s unconditionally for diagnostics
-var _lastBroadcastKey = null;
-try {
-  postSelection();
-  setInterval(function() {
-    try {
-      figma.ui.postMessage({ type: 'selection', nodes: snapshotSelection() });
-    } catch (_) {}
-  }, 1000);
-} catch (_) {}
+figma.on('selectionchange', postSelection);
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -850,7 +833,8 @@ figma.ui.onmessage = async function(msg) {
 
     function safeJson(v) { try { return JSON.parse(JSON.stringify(v)); } catch(_) { return null; } }
 
-    function serializeNode(node) {
+    function serializeNode(node, _depth) {
+      if (_depth === undefined) _depth = 0;
       var out = { type: node.type, name: node.name };
 
       // Store the node's own ID so that restore can find and clone the original
@@ -938,7 +922,8 @@ figma.ui.onmessage = async function(msg) {
       }
       if (node.type === 'VECTOR') {
         try { out.vectorPaths = safeJson(node.vectorPaths); } catch(_) {}
-        try { out.vectorNetwork = safeJson(node.vectorNetwork); } catch(_) {}
+        // vectorNetwork omitted — it can be many MB on complex paths and isn't
+        // needed for asset restore (vectorPaths is sufficient for recreation).
       }
       if (node.type === 'BOOLEAN_OPERATION') {
         try { out.booleanOperation = node.booleanOperation; } catch(_) {}
@@ -1020,12 +1005,13 @@ figma.ui.onmessage = async function(msg) {
       // overrides on component children are preserved.  At restore time we
       // do NOT create new child nodes; instead we walk the instance's existing
       // children by name and apply the stored overrides.
-      if ('children' in node) {
+      // Depth is capped at 6 to prevent memory exhaustion on deep/complex frames.
+      if ('children' in node && _depth < 6) {
         try {
           if (node.children.length) {
             out.children = [];
             for (var ci = 0; ci < node.children.length; ci++) {
-              try { out.children.push(serializeNode(node.children[ci])); } catch(_) {}
+              try { out.children.push(serializeNode(node.children[ci], _depth + 1)); } catch(_) {}
             }
           }
         } catch(_) {}
@@ -1070,7 +1056,24 @@ figma.ui.onmessage = async function(msg) {
     }
     var typeSummary = typeParts.join(' + ') || (nodes.length + ' node' + (nodes.length !== 1 ? 's' : ''));
 
-    // ── Send nodes first (may be a large payload) ─────────────────────────
+    // ── Guard payload size before sending ────────────────────────────────
+    // postMessage has a ~50 MB hard limit in Figma's sandbox; serialising large
+    // frames can exceed it and trigger a memory-leak crash.  Reject early with
+    // a helpful message rather than letting the plugin OOM.
+    var _payloadJson;
+    try { _payloadJson = JSON.stringify(nodes); } catch (_jsonErr) {
+      figma.ui.postMessage({ type: 'save-asset-result', ok: false,
+        error: 'Selection too complex to serialise — try selecting fewer layers.' });
+      return;
+    }
+    var _payloadMB = (_payloadJson.length * 2) / (1024 * 1024); // rough bytes → MB
+    if (_payloadMB > 8) {
+      figma.ui.postMessage({ type: 'save-asset-result', ok: false,
+        error: 'Selection is too large (' + _payloadMB.toFixed(1) + ' MB) — select fewer or simpler layers.' });
+      return;
+    }
+
+    // ── Send nodes ────────────────────────────────────────────────────────
     try {
       figma.ui.postMessage({ type: 'save-asset-result', ok: true,
         name: assetName, assetType: sel.length === 1 ? sel[0].type : 'GROUP',

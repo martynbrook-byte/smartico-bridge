@@ -7,11 +7,15 @@
   "editorType": ["figma"],
   "networkAccess": {
     "allowedDomains": [
-      "https://smartico-bridge-production.up.railway.app",
+      
+      "https://888-smartico-bridge.888africa.com",
       "http://localhost:3001",
       "https://888africa.com",
       "https://*.888bets.co.mz",
       "https://*.betlion.co.zm",
+      "https://fonts.cdnfonts.com",
+      "https://fonts.googleapis.com",
+      "https://fonts.gstatic.com",
       "https://casino-api-production-0d8f.up.railway.app"
     ],
     "reasoning": "Fetches winners datasets from the local Smartico Bridge server, avatar images from brand CDNs, and casino game data/images from the Casino Asset API."

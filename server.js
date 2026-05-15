@@ -2559,6 +2559,301 @@ app.get('/api/health', async (_req, res) => {
   }
 });
 
+// ════════════════════════════════════════════════════════════════════════════
+// EXTERNAL PUSH API  — lets the main 888africa website POST data directly
+// into the Bridge without going through the CSV upload flow.
+//
+// Authentication: every request must carry  X-Bridge-Key: <key>  header.
+// The key is stored in settings.json under  externalApiKey.
+// Generate one via  POST /api/external/generate-key  (no auth needed once —
+// do this once from the dashboard during setup, then store the key safely).
+//
+// Typical flow from the main site:
+//   POST /api/external/push-data
+//   Content-Type: application/json
+//   X-Bridge-Key: <key>
+//   { "pipelineId": "abc123", "label": "Winners Jan 2025",
+//     "rows": [ { "PID": "123", "name": "Alice", ... }, ... ] }
+// ════════════════════════════════════════════════════════════════════════════
+
+// Middleware: verify X-Bridge-Key header against stored key.
+async function requireBridgeKey(req, res, next) {
+  const s = await readSettings().catch(() => ({}));
+  const stored = s.externalApiKey;
+  if (!stored) return res.status(401).json({ error: 'No API key configured. POST /api/external/generate-key first.' });
+  const supplied = req.headers['x-bridge-key'];
+  if (!supplied || supplied !== stored) return res.status(403).json({ error: 'Invalid or missing X-Bridge-Key header.' });
+  next();
+}
+
+// One-time key generation — call this from the dashboard setup page.
+// Returns the generated key so you can copy it into your main website config.
+app.post('/api/external/generate-key', express.json(), async (req, res) => {
+  try {
+    const s = await readSettings();
+    const key = require('crypto').randomBytes(32).toString('hex');
+    s.externalApiKey = key;
+    await writeSettings(s);
+    res.json({ ok: true, key, message: 'Store this key in your main website config as X-Bridge-Key. It will not be shown again.' });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Reveal whether a key exists (not the key itself).
+app.get('/api/external/key-status', async (_req, res) => {
+  try {
+    const s = await readSettings();
+    res.json({ configured: !!s.externalApiKey });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Main push endpoint — receives JSON rows from the main website.
+//
+// Body schema:
+//   pipelineId  string   optional — run the rows through this pipeline
+//   label       string   optional — human label for the resulting dataset
+//   rows        array    required — array of plain objects (one per row)
+//
+// On success the rows are stored as a new dataset (and optionally processed
+// through a pipeline), exactly as if a CSV had been uploaded.
+app.post('/api/external/push-data', express.json({ limit: '20mb' }), requireBridgeKey, async (req, res) => {
+  try {
+    const { rows, label, pipelineId } = req.body || {};
+    if (!Array.isArray(rows) || !rows.length) return res.status(400).json({ error: '`rows` must be a non-empty array.' });
+
+    // Derive headers from the union of all row keys (preserves first-row order).
+    const headerSet = new Set();
+    for (const row of rows) for (const k of Object.keys(row)) headerSet.add(k);
+    const headers = [...headerSet];
+
+    // Normalise every row to the full header set (fill missing with '').
+    const normRows = rows.map(row => {
+      const out = {};
+      for (const h of headers) out[h] = row[h] !== undefined ? String(row[h]) : '';
+      return out;
+    });
+
+    // Persist as a raw dataset.
+    const dsId  = require('crypto').randomUUID();
+    const dsDir = path.join(DATA_DIR, 'datasets', dsId);
+    await fs.mkdir(dsDir, { recursive: true });
+
+    const meta = {
+      id: dsId,
+      label: label || `Push ${new Date().toISOString().slice(0, 10)}`,
+      filename: 'push.json',
+      rowCount: normRows.length,
+      headers,
+      uploadedAt: new Date().toISOString(),
+      isProcessed: false,
+      source: 'external-push',
+      pipelineId: pipelineId || null,
+    };
+    await fs.writeFile(path.join(dsDir, 'meta.json'), JSON.stringify(meta, null, 2));
+    await fs.writeFile(path.join(dsDir, 'raw.json'),  JSON.stringify(normRows, null, 2));
+
+    // Validate the pipelineId if supplied (so the caller gets a clear error
+    // rather than a silent mismatch when they later run the pipeline).
+    if (pipelineId) {
+      try { await getPipeline(pipelineId); }
+      catch (_) { return res.status(400).json({ error: `Pipeline "${pipelineId}" not found.` }); }
+    }
+
+    res.json({
+      ok:        true,
+      datasetId: dsId,
+      rowCount:  normRows.length,
+      note:      pipelineId
+        ? `Data saved. Run pipeline "${pipelineId}" from the dashboard to process it.`
+        : 'Data saved as a raw dataset. Assign and run a pipeline from the dashboard.',
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+
+// ════════════════════════════════════════════════════════════════════════════
+// PIPELINE DESCRIBER — plain-English + SQL summary of what a pipeline does.
+//
+//   GET /api/pipelines/:id/describe
+//
+// Returns a JSON object with:
+//   title       — pipeline name
+//   summary     — one-paragraph plain-English overview
+//   steps[]     — per-rule-set steps, each with:
+//       name        — rule set name
+//       english     — plain-English description of what this step does
+//       sql         — approximate SQL that would produce the same result
+// ════════════════════════════════════════════════════════════════════════════
+
+function describeRule(rule) {
+  const cfg = rule.config || {};
+  const q   = s => `\`${s}\``;   // backtick-quote a column name
+  switch (rule.type) {
+
+    case 'rename':
+      return {
+        english: `Rename the column "${cfg.from}" to "${cfg.to}".`,
+        sql:     `SELECT *, ${q(cfg.from)} AS ${q(cfg.to)} FROM data;\n-- (then drop original ${q(cfg.from)} column)`,
+      };
+
+    case 'sort':
+      return {
+        english: `Sort all rows by "${cfg.column}" in ${cfg.direction === 'desc' ? 'descending (highest first)' : 'ascending (lowest first)'} order.`,
+        sql:     `SELECT * FROM data ORDER BY ${q(cfg.column)} ${(cfg.direction || 'asc').toUpperCase()};`,
+      };
+
+    case 'select-columns': {
+      const cols = (cfg.columns || []).join(', ');
+      return {
+        english: `Keep only these columns (drop everything else): ${cfg.columns && cfg.columns.map(c => `"${c}"`).join(', ')}.`,
+        sql:     `SELECT ${(cfg.columns || []).map(q).join(', ')} FROM data;`,
+      };
+    }
+
+    case 'extract-number': {
+      const fmtNote = cfg.format && cfg.format !== 'plain'
+        ? ` A formatted display version (e.g. "${cfg.format}" style) is also stored as "${cfg.targetColumn}_display".`
+        : '';
+      return {
+        english: `Read "${cfg.sourceColumn}", strip out any currency symbols/commas and extract the numeric value, then store it in a new column "${cfg.targetColumn}".${fmtNote}`,
+        sql:     `SELECT *, CAST(REGEXP_REPLACE(${q(cfg.sourceColumn)}, '[^0-9.]', '') AS DECIMAL) AS ${q(cfg.targetColumn)} FROM data;`,
+      };
+    }
+
+    case 'count': {
+      const match = cfg.matchMode === 'exact' ? `= '${cfg.value}'` : `LIKE '%${cfg.value}%'`;
+      return {
+        english: `Count how many rows have "${cfg.column}" ${cfg.matchMode === 'exact' ? 'exactly equal to' : 'containing'} "${cfg.value}". The result is stored as a single metric (not a column).`,
+        sql:     `SELECT COUNT(*) AS metric_count FROM data WHERE ${q(cfg.column)} ${match};`,
+      };
+    }
+
+    case 'count-times': {
+      const match = cfg.matchMode === 'exact' ? `= '${cfg.value}'` : `LIKE '%${cfg.value}%'`;
+      return {
+        english: `Count rows where "${cfg.column}" ${cfg.matchMode === 'exact' ? 'equals' : 'contains'} "${cfg.value}", then multiply that count by ${cfg.multiplier} to get the final metric value.`,
+        sql:     `SELECT COUNT(*) * ${cfg.multiplier} AS metric_value FROM data WHERE ${q(cfg.column)} ${match};`,
+      };
+    }
+
+    case 'sum':
+      return {
+        english: `Add up all numeric values in "${cfg.column}" and store the total as a metric.`,
+        sql:     `SELECT SUM(${q(cfg.column)}) AS metric_sum FROM data;`,
+      };
+
+    case 'avg':
+      return {
+        english: `Calculate the average (mean) of all values in "${cfg.column}" and store it as a metric.`,
+        sql:     `SELECT AVG(${q(cfg.column)}) AS metric_avg FROM data;`,
+      };
+
+    case 'min':
+      return {
+        english: `Find the smallest value in "${cfg.column}" and store it as a metric.`,
+        sql:     `SELECT MIN(${q(cfg.column)}) AS metric_min FROM data;`,
+      };
+
+    case 'max':
+      return {
+        english: `Find the largest value in "${cfg.column}" and store it as a metric.`,
+        sql:     `SELECT MAX(${q(cfg.column)}) AS metric_max FROM data;`,
+      };
+
+    case 'count-by':
+      return {
+        english: `Group rows by the unique values in "${cfg.column}" and count how many rows belong to each group (like a GROUP BY). The result is a breakdown table stored as a metric.`,
+        sql:     `SELECT ${q(cfg.column)}, COUNT(*) AS count FROM data GROUP BY ${q(cfg.column)} ORDER BY count DESC;`,
+      };
+
+    case 'aggregate-metrics':
+      return {
+        english: `Take the numeric results of earlier metrics (by their rule IDs) and combine them using "${cfg.op || 'sum'}" to produce a single rolled-up total.`,
+        sql:     `-- This combines previously computed metric values in application code, not in SQL.\n-- Equivalent to: SELECT ${(cfg.op || 'SUM').toUpperCase()}(metric_value) FROM (SELECT value FROM prior_metrics WHERE id IN (${(cfg.ruleIds || []).map(id => `'${id}'`).join(', ')})) t;`,
+      };
+
+    case 'country-code': {
+      const mappingCount = Object.keys(cfg.mapping || {}).length;
+      return {
+        english: `Look up each value in "${cfg.sourceColumn}" against a mapping table (${mappingCount} entr${mappingCount === 1 ? 'y' : 'ies'}) and write the matching country code into a new column "${cfg.targetColumn || 'country_code'}". Values not found in the mapping are set to "${cfg.fallback || '(empty)'}" .`,
+        sql:     `SELECT d.*, m.country_code AS ${q(cfg.targetColumn || 'country_code')}\nFROM data d\nLEFT JOIN country_mapping m ON LOWER(d.${q(cfg.sourceColumn)}) = LOWER(m.raw_value);`,
+      };
+    }
+
+    default:
+      return {
+        english: `Apply rule "${rule.name || rule.type}" (type: ${rule.type}).`,
+        sql:     `-- No SQL equivalent for rule type "${rule.type}".`,
+      };
+  }
+}
+
+app.get('/api/pipelines/:id/describe', async (req, res) => {
+  try {
+    const pipeline = await getPipeline(req.params.id);
+    const s        = await readSettings();
+    const allRS    = s.ruleSets || [];
+
+    // Walk the pipeline nodes in topological order.
+    const ordered = orderPipelineNodes(pipeline.nodes || [], pipeline.edges || []);
+
+    const steps = [];
+    for (const node of ordered) {
+      const rs = allRS.find(r => r.id === node.ruleSetId);
+      if (!rs) continue;
+
+      const ruleDescriptions = (rs.rules || []).map(rule => ({
+        ruleName: rule.name || rule.type,
+        ...describeRule(rule),
+      }));
+
+      // Build a short plain-English paragraph summarising this step.
+      const stepEnglish = ruleDescriptions.length === 0
+        ? `This step ("${rs.name}") has no rules configured yet.`
+        : `Step "${rs.name}" applies ${ruleDescriptions.length} rule${ruleDescriptions.length > 1 ? 's' : ''}: ` +
+          ruleDescriptions.map(r => r.english).join(' Then ');
+
+      // Combine SQL blocks with comments.
+      const stepSql = ruleDescriptions.length === 0
+        ? `-- Step "${rs.name}": no rules.`
+        : `-- Step: ${rs.name}\n` +
+          ruleDescriptions.map((r, i) => `-- Rule ${i + 1}: ${r.ruleName}\n${r.sql}`).join('\n\n');
+
+      steps.push({
+        stepNumber: steps.length + 1,
+        ruleSetId:  rs.id,
+        name:       rs.name,
+        ruleCount:  ruleDescriptions.length,
+        english:    stepEnglish,
+        sql:        stepSql,
+        rules:      ruleDescriptions,
+      });
+    }
+
+    // Top-level plain-English summary.
+    const dataOps  = steps.filter(s => s.rules.some(r => ['rename','sort','select-columns','extract-number','country-code'].includes(r.ruleName)));
+    const metrics  = steps.filter(s => s.rules.some(r => ['count','count-times','sum','avg','min','max','count-by','aggregate-metrics'].includes(r.ruleName)));
+
+    const summary = steps.length === 0
+      ? `Pipeline "${pipeline.name}" has no steps configured.`
+      : `Pipeline "${pipeline.name}" processes data in ${steps.length} step${steps.length > 1 ? 's' : ''}. ` +
+        (dataOps.length  ? `It transforms the data (renaming columns, sorting, filtering, extracting numbers, etc.) in ${dataOps.length} step${dataOps.length > 1 ? 's' : ''}. ` : '') +
+        (metrics.length  ? `It also calculates ${metrics.length} metric step${metrics.length > 1 ? 's' : ''} (counts, sums, averages, etc.) that produce summary numbers used in Figma templates. ` : '') +
+        `The steps run in this order: ${steps.map(s => `"${s.name}"`).join(' → ')}.`;
+
+    res.json({
+      ok:       true,
+      pipelineId: pipeline.id,
+      title:    pipeline.name,
+      summary,
+      stepCount: steps.length,
+      steps,
+    });
+  } catch (e) {
+    if (e.code === 'ENOENT') return res.status(404).json({ error: 'Pipeline not found.' });
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── Error handler (catches multer rejections etc.) ───────────────────────────
 app.use((err, _req, res, _next) => {
   console.error('[server error]', err.message);

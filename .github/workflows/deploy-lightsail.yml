@@ -1,6 +1,8 @@
 name: Deploy to AWS Lightsail
 
 on:
+  push:
+    branches: [main]
   release:
     types:
       - published
@@ -26,10 +28,10 @@ jobs:
       INSTALL_NGINX: ${{ vars.LIGHTSAIL_INSTALL_NGINX || '1' }}
 
     steps:
-      - name: Check out release code
+      - name: Check out code
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.release.tag_name }}
+          ref: ${{ github.event.release.tag_name || github.sha }}
 
       - name: Configure SSH
         run: |

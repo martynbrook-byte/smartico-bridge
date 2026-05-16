@@ -2671,6 +2671,72 @@ app.post('/api/external/push-data', express.json({ limit: '20mb' }), requireBrid
 
 
 // ════════════════════════════════════════════════════════════════════════════
+// DIRECT INJECT — push pre-processed rows straight to the Figma plugin,
+// bypassing all pipeline rules, column mappings, and filters.
+//
+//   POST /api/pipelines/:id/inject
+//   Header:  X-Bridge-Key: <your-api-key>
+//   Body:    { "rows": [...], "label": "optional name" }
+//
+// Use this when your source system has already done the transformations and
+// you just need the data to appear under this pipeline in the Figma plugin.
+// The rows are saved as a processed dataset immediately — no rules are applied.
+// ════════════════════════════════════════════════════════════════════════════
+
+app.post('/api/pipelines/:id/inject', express.json({ limit: '20mb' }), requireBridgeKey, async (req, res) => {
+  try {
+    const pipeline = await getPipeline(req.params.id);
+    const { rows, label } = req.body || {};
+    if (!Array.isArray(rows) || !rows.length)
+      return res.status(400).json({ error: '`rows` must be a non-empty array of objects.' });
+
+    // Derive column headers from the union of all row keys.
+    const headerSet = new Set();
+    for (const row of rows) for (const k of Object.keys(row)) headerSet.add(k);
+    const headers = [...headerSet];
+
+    // Normalise every row to the full header set (fill missing fields with '').
+    const normRows = rows.map(row => {
+      const out = {};
+      for (const h of headers) out[h] = row[h] !== undefined ? String(row[h]) : '';
+      return out;
+    });
+
+    const dsId  = require('crypto').randomUUID();
+    const ts    = new Date().toISOString();
+    const record = {
+      id:           dsId,
+      label:        label || `${pipeline.name} — ${ts.slice(0, 10)}`,
+      filename:     'inject.json',
+      rowCount:     normRows.length,
+      headers,
+      rows:         normRows,
+      uploadedAt:   ts,
+      isProcessed:  true,          // makes it visible to the Figma plugin immediately
+      source:       'direct-inject',
+      pipelineId:   pipeline.id,
+      pipelineName: pipeline.name,
+      metrics:      [],
+      ruleTable:    [],
+    };
+
+    await saveDataset(record);
+
+    res.json({
+      ok:        true,
+      datasetId: dsId,
+      rowCount:  normRows.length,
+      label:     record.label,
+      note:      `Dataset is live in the Figma plugin under "${pipeline.name}".`,
+    });
+  } catch (e) {
+    if (e.code === 'ENOENT') return res.status(404).json({ error: `Pipeline "${req.params.id}" not found.` });
+    res.status(500).json({ error: e.message });
+  }
+});
+
+
+// ════════════════════════════════════════════════════════════════════════════
 // PIPELINE DESCRIBER — plain-English + SQL summary of what a pipeline does.
 //
 //   GET /api/pipelines/:id/describe

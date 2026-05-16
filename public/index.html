@@ -1086,6 +1086,79 @@
     }
     .pipe-name-input:focus { border-color: var(--gold); outline: none; }
 
+    /* Pipeline API info panel */
+    .pipe-api-panel {
+      border-top: 1px solid var(--border);
+      background: var(--surface2);
+    }
+    .pipe-api-panel summary {
+      padding: 9px 16px;
+      font-size: 0.78rem;
+      color: var(--muted);
+      cursor: pointer;
+      user-select: none;
+      list-style: none;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .pipe-api-panel summary::-webkit-details-marker { display: none; }
+    .pipe-api-panel summary::before {
+      content: '▶';
+      font-size: 0.6rem;
+      transition: transform 0.15s;
+    }
+    .pipe-api-panel[open] summary::before { transform: rotate(90deg); }
+    .pipe-api-panel summary:hover { color: var(--text); }
+    .pipe-api-inner {
+      padding: 0 16px 14px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    @media (max-width: 900px) { .pipe-api-inner { grid-template-columns: 1fr; } }
+    .pipe-api-block { display: flex; flex-direction: column; gap: 5px; }
+    .pipe-api-block h4 {
+      font-size: 0.72rem;
+      font-weight: 700;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      margin: 0;
+    }
+    .pipe-api-block p {
+      font-size: 0.75rem;
+      color: var(--muted);
+      margin: 0 0 3px;
+      line-height: 1.5;
+    }
+    .pipe-api-code {
+      font-family: 'SF Mono', Consolas, ui-monospace, monospace;
+      font-size: 0.72rem;
+      background: var(--surface3);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      padding: 8px 10px;
+      white-space: pre;
+      overflow-x: auto;
+      color: var(--text);
+      line-height: 1.55;
+    }
+    .pipe-api-id {
+      font-family: 'SF Mono', Consolas, ui-monospace, monospace;
+      font-size: 0.75rem;
+      background: var(--surface3);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 4px 8px;
+      color: var(--gold);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .pipe-api-id:hover { border-color: var(--gold); }
+
     /* Pipeline plain-English description strip */
     .pipe-desc-bar {
       padding: 8px 16px;
@@ -1725,6 +1798,15 @@
             </svg>
             <div class="canvas-hint" id="pipelineCanvasHint">Add a step above to begin</div>
           </div>
+
+          <!-- API info panel -->
+          <details class="pipe-api-panel" id="pipelineApiPanel">
+            <summary>🔌 API &amp; Integration</summary>
+            <div class="pipe-api-inner" id="pipelineApiInner">
+              <!-- filled by renderPipelineApiPanel() -->
+            </div>
+          </details>
+
         </div>
       </div>
     </div>
@@ -3480,6 +3562,97 @@ function renderPipelineEditor(p) {
   renderPipelineFilterSelect();
   updateTplPreview();
   renderPipelineCanvas();
+  renderPipelineApiPanel();
+}
+
+function renderPipelineApiPanel() {
+  const inner = document.getElementById('pipelineApiInner');
+  if (!inner || !activePipeline) return;
+  const base   = window.location.origin;
+  const pid    = activePipeline.id;
+  const pname  = activePipeline.name || 'My Pipeline';
+
+  // Copy-to-clipboard helper
+  window._copyApiText = function(el) {
+    const text = el.closest('.pipe-api-block').querySelector('.pipe-api-code, .pipe-api-id').textContent;
+    navigator.clipboard.writeText(text).then(function() {
+      const old = el.textContent; el.textContent = 'Copied!';
+      setTimeout(function() { el.textContent = old; }, 1400);
+    });
+  };
+  window._copyPipeId = function() {
+    navigator.clipboard.writeText(pid).then(function() { banner('Pipeline ID copied', 'success'); });
+  };
+
+  const pushExample = `POST ${base}/api/external/push-data
+X-Bridge-Key: <your-api-key>
+Content-Type: application/json
+
+{
+  "pipelineId": "${pid}",
+  "label": "${pname} — run 1",
+  "rows": [
+    { "player": "Alice", "score": 1200 },
+    { "player": "Bob",   "score": 980  }
+  ]
+}`;
+
+  const injectExample = `POST ${base}/api/pipelines/${pid}/inject
+X-Bridge-Key: <your-api-key>
+Content-Type: application/json
+
+{
+  "label": "${pname} — direct",
+  "rows": [
+    { "player": "Alice", "score": 1200 },
+    { "player": "Bob",   "score": 980  }
+  ]
+}`;
+
+  const curlPush = `curl -X POST ${base}/api/external/push-data \\
+  -H "X-Bridge-Key: <your-api-key>" \\
+  -H "Content-Type: application/json" \\
+  -d '{"pipelineId":"${pid}","rows":[{"player":"Alice","score":1200}]}'`;
+
+  const curlInject = `curl -X POST ${base}/api/pipelines/${pid}/inject \\
+  -H "X-Bridge-Key: <your-api-key>" \\
+  -H "Content-Type: application/json" \\
+  -d '{"rows":[{"player":"Alice","score":1200}]}'`;
+
+  inner.innerHTML = `
+    <div class="pipe-api-block" style="grid-column:1/-1">
+      <h4>Pipeline ID</h4>
+      <p>Use this ID in API calls to target this pipeline.</p>
+      <span class="pipe-api-id" onclick="_copyPipeId()" title="Click to copy">${pid} <span style="opacity:0.5;font-size:0.65rem">⧉ copy</span></span>
+    </div>
+
+    <div class="pipe-api-block">
+      <h4>📥 Push &amp; Process (rules applied)</h4>
+      <p>Send raw rows to be saved and run through this pipeline's full rules, mappings and filters before appearing in the Figma plugin.</p>
+      <pre class="pipe-api-code">${esc(pushExample)}</pre>
+    </div>
+
+    <div class="pipe-api-block">
+      <h4>⚡ Direct Inject (bypass rules)</h4>
+      <p>Push pre-processed rows straight to the Figma plugin — no rules, no mappings, no column filters applied. Data appears immediately.</p>
+      <pre class="pipe-api-code">${esc(injectExample)}</pre>
+    </div>
+
+    <div class="pipe-api-block">
+      <h4>cURL — Push &amp; Process</h4>
+      <pre class="pipe-api-code">${esc(curlPush)}</pre>
+    </div>
+
+    <div class="pipe-api-block">
+      <h4>cURL — Direct Inject</h4>
+      <pre class="pipe-api-code">${esc(curlInject)}</pre>
+    </div>
+
+    <div class="pipe-api-block" style="grid-column:1/-1">
+      <h4>Auth</h4>
+      <p>All external API calls require the <code style="font-family:monospace;background:var(--surface3);padding:1px 5px;border-radius:3px">X-Bridge-Key</code> header. Generate or view your key in <strong>Settings → External API</strong>.</p>
+    </div>
+  `;
 }
 
 // Enrich toggle

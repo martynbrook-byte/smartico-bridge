@@ -722,7 +722,7 @@
 <div class="panel panel-blue" id="panel-assets">
   <div class="panel-hd" onclick="togglePanel('assets')">
     <div class="panel-hd-text">
-      <div class="panel-title">Asset library</div>
+      <div class="panel-title">Asset library <span id="assetCountBadge" style="display:none;background:#3344FF;color:#fff;border-radius:9px;padding:0 6px;font-size:10px;font-weight:700;margin-left:4px;vertical-align:middle"></span></div>
       <div class="panel-subtitle">Frame sets</div>
     </div>
   </div>
@@ -2929,6 +2929,16 @@ function setCatFilter(cat) {
 function renderAssets() {
   var list = document.getElementById('assetList');
   if (!list) return;
+  // Update badge with total count (not filtered count)
+  var badge = document.getElementById('assetCountBadge');
+  if (badge) {
+    if (savedAssets.length) {
+      badge.textContent = savedAssets.length;
+      badge.style.display = 'inline';
+    } else {
+      badge.style.display = 'none';
+    }
+  }
   var assets = savedAssets;
   if (_activeCategoryFilter) assets = assets.filter(function(a) { return (a.category || 'General') === _activeCategoryFilter; });
   if (!assets.length) {

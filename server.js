@@ -2462,7 +2462,7 @@ app.get('/api/proxy-image', async (req, res) => {
   try {
     const response = await fetch(target, {
       headers: { 'User-Agent': 'Smartico-Bridge-Proxy/1.0' },
-      signal: AbortSignal.timeout(10000),
+      signal: AbortSignal.timeout(25000),
     });
     if (!response.ok) {
       return res.status(502).json({ error: `Remote returned ${response.status}` });

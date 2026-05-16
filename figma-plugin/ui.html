@@ -78,6 +78,7 @@
     border-radius: var(--radius-xl);
     margin: 0 0 8px 0;
     min-height: 0;
+    background: var(--bg);
     transition: transform .35s cubic-bezier(0.4,0,0.2,1), opacity .28s;
   }
   .app-content {
@@ -152,8 +153,8 @@
     cursor: pointer; user-select: none;
     display: flex; align-items: center; justify-content: space-between; gap: 8px;
   }
-  .panel-hd:hover  { opacity: .92; }
-  .panel-hd:active { transform: scale(0.985); transition: transform .1s ease; }
+  .panel-hd:hover  { opacity: 1; }
+  .panel-hd:active { opacity: 1; }
   .panel-hd-text { flex: 1; }
   .panel-app-label { font-size: var(--fs-micro); font-weight: 500; color: var(--muted); letter-spacing: .01em; margin-bottom: 4px; }
   .panel-title    { font-family: var(--font-display); font-size: var(--fs-title); font-weight: 800; line-height: 1; letter-spacing: 0.02em; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -402,7 +403,7 @@
   .srow-color { width: 22px; height: 22px; border-radius: 3px; border: 1px solid var(--border); cursor: pointer; flex-shrink: 0; background: #000; padding: 0; }
   .srow-spacer { flex: 1; }
 
-  .settings-section { border-bottom: 1px solid var(--border); padding: 14px var(--panel-pad) 12px; }
+  .settings-section { border-bottom: 1px solid var(--border); padding: 14px var(--panel-pad) 12px; margin: 0 calc(-1 * var(--panel-pad)); }
   .settings-section-title { font-size: var(--fs-label); font-weight: 700; color: var(--text); margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.4px; }
   .sset-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
   .sset-select { background: var(--white-strong); border: 1px solid var(--border); border-radius: var(--radius-xs); color: var(--text); font-size: var(--fs-label); padding: 5px 8px; outline: none; cursor: pointer; font-family: var(--font); }
@@ -518,7 +519,7 @@
   .cpill:hover { border-color: var(--accent-lime); color: #222; }
   .cpill.active { background: #bbf7d0; border-color: var(--accent-lime); color: #15803d; font-weight: 600; }
   .cgame-card { position: relative; border-radius: var(--radius-xs); overflow: hidden; background: #0001; cursor: pointer; aspect-ratio: 1/1; border: 1px solid transparent; transition: border-color .15s, transform .1s; user-select: none; -webkit-user-select: none; }
-  .cgame-card:hover { border-color: var(--accent-lime); transform: scale(1.04); z-index: 1; }
+  .cgame-card:hover { border-color: var(--accent-lime); z-index: 1; }
   .cgame-card img { width: 100%; height: 100%; object-fit: cover; display: block; -webkit-user-drag: none; }
   .cgame-card .ccard-overlay { position: absolute; inset: 0; background: linear-gradient(to top,rgba(0,0,0,.75) 0%,transparent 55%); opacity: 0; transition: opacity .15s; display: flex; flex-direction: column; justify-content: flex-end; padding: 4px; }
   .cgame-card:hover .ccard-overlay { opacity: 1; }
@@ -1084,7 +1085,11 @@
 
 <!-- ── Panel: Settings ────────────────────────────────────────────── -->
 <div class="panel panel-blue" id="panel-settings">
-  <div class="panel-body hidden" id="panel-settings-body" style="padding:0">
+  <div class="panel-body hidden" id="panel-settings-body">
+
+    <div class="settings-section">
+      <div style="font-family:var(--font-display);font-size:var(--fs-title);font-weight:800;color:var(--text);letter-spacing:0.02em">Settings</div>
+    </div>
 
     <!-- Image Conversion -->
     <div class="settings-section">
@@ -1326,7 +1331,7 @@ var serverUrl    = 'https://888-smartico-bridge.888africa.com';
 // Convert any image URL → PNG bytes via canvas.
 // Figma's createImage() only accepts JPEG and PNG — WebP/AVIF/etc. will fail.
 // We fetch through our proxy (CORS), draw to canvas, export as PNG.
-async function fetchImageAsPng(imageUrl) {
+async function _doFetchImageAsPng(imageUrl) {
   var proxyUrl = serverUrl + '/api/proxy-image?url=' + encodeURIComponent(imageUrl);
   var res = await fetch(proxyUrl);
   if (!res.ok) throw new Error('HTTP ' + res.status);
@@ -1356,6 +1361,16 @@ async function fetchImageAsPng(imageUrl) {
     };
     img.src = objUrl;
   });
+}
+// Public wrapper — retries once after 1.5s on any failure
+async function fetchImageAsPng(imageUrl) {
+  try {
+    return await _doFetchImageAsPng(imageUrl);
+  } catch (_firstErr) {
+    // Wait 1.5s then try once more — handles transient proxy / CDN timeouts
+    await new Promise(function(r) { setTimeout(r, 1500); });
+    return await _doFetchImageAsPng(imageUrl);
+  }
 }
 var allDatasets  = [];
 var activeDataset = null;
@@ -1483,9 +1498,9 @@ function togglePanel(name) {
       ac.removeEventListener('wheel',     _onUserScroll);
       ac.removeEventListener('touchmove', _onUserScroll);
       if (_userScrolled) return;
-      // scrollIntoView scrolls the nearest scrollable ancestor (#appContent),
-      // which is more reliable than manual rect arithmetic.
-      panelEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      // Scroll so the panel sits 10px from the top of the content area.
+      var targetTop = panelEl.offsetTop - 10;
+      ac.scrollTo({ top: targetTop, behavior: 'smooth' });
     }, 150);
   }
 }
@@ -2286,6 +2301,24 @@ function _sbMainOnMsg(event) {
   }
 
 
+  if (msg.type === 'inject-img-applied') {
+    console.log('[SB-img] batch applied:', msg.count, 'fills');
+    if (msg.errors && msg.errors.length) console.warn('[SB-img] errors:', msg.errors.join(' | '));
+    if (_lastImageStats) _lastImageStats.fetched = (_lastImageStats.fetched || 0) + msg.count;
+    return;
+  }
+
+  if (msg.type === 'inject-debug') {
+    console.log('[SB-inject] detected — images:', msg.imageCount, '| text:', msg.textCount, '| other:', msg.otherCount);
+    if (msg.imageKeys && msg.imageKeys.length) {
+      console.log('[SB-inject] image sample:', msg.imageKeys.join(' | '));
+    } else if (msg.imageCount === 0) {
+      console.warn('[SB-inject] 0 image items detected — no nodes matched image URL values. Check node names and URL column values.');
+    }
+    if (_lastImageStats) _lastImageStats.total = msg.imageCount;
+    return;
+  }
+
   if (msg.type === 'need-images') {
     // Fetch only this batch of refs, then hand bytes back to code.js
     var imgRefs    = msg.refs       || [];
@@ -2296,19 +2329,43 @@ function _sbMainOnMsg(event) {
     var pw3  = document.getElementById('procProgressWrap');
     var pb3  = document.getElementById('procProgressBar');
     var pl3  = document.getElementById('procProgressLabel');
-    if (lbl3) lbl3.textContent = 'Fetching images…';
+    if (lbl3) lbl3.textContent = 'Fetching images… (0/' + batchTotal + ')';
     if (pw3)  pw3.style.display = '';
+    console.log('[SB] need-images: ' + imgRefs.length + ' refs in this batch, ' + batchTotal + ' total');
     (async function() {
       var imageMap = {};
-      for (var ri = 0; ri < imgRefs.length; ri++) {
+      var _imgFetchErrors = [];
+      // Fetch all refs in this batch CONCURRENTLY — sequential fetches were slow
+      // on large leaderboards (10 images × 2-3s each = 20-30s total timeout).
+      var _results = await Promise.allSettled(imgRefs.map(function(ref) {
+        return fetchImageAsPng(ref.url).then(function(bytes) {
+          return { key: ref.key, bytes: bytes };
+        });
+      }));
+      var _done = 0;
+      for (var ri = 0; ri < _results.length; ri++) {
+        var _r = _results[ri];
         var ref = imgRefs[ri];
-        try { imageMap[ref.key] = await fetchImageAsPng(ref.url); } catch (_ie) {}
-        var overall = batchDone + ri + 1;
+        _done++;
+        if (_r.status === 'fulfilled') {
+          imageMap[ref.key] = _r.value.bytes;
+          console.log('[SB] image ok:', ref.key);
+        } else {
+          var _errMsg = _r.reason && _r.reason.message ? _r.reason.message : String(_r.reason);
+          console.warn('[SB] image FAILED:', ref.key, ref.url.slice(0, 80), '—', _errMsg);
+          _imgFetchErrors.push(ref.key + ': ' + _errMsg);
+          if (_lastImageStats) _lastImageStats.errors.push(ref.key + ': ' + _errMsg);
+        }
+        var overall = batchDone + _done;
         var pct = batchTotal > 0 ? Math.round((overall / batchTotal) * 100) : 100;
         if (pb3) pb3.style.width = pct + '%';
         if (pl3) pl3.textContent = overall + ' / ' + batchTotal + ' images';
+        if (lbl3) lbl3.textContent = 'Fetching images… (' + overall + '/' + batchTotal + ')';
       }
-      parent.postMessage({ pluginMessage: { type: 'inject-images', imageMap: imageMap, total: imgTotal } }, '*');
+      if (_imgFetchErrors.length) {
+        console.warn('[SB] ' + _imgFetchErrors.length + '/' + imgRefs.length + ' image(s) failed in this batch');
+      }
+      parent.postMessage({ pluginMessage: { type: 'inject-images', imageMap: imageMap, batchErrors: _imgFetchErrors, total: imgTotal } }, '*');
     })();
     return;
   }
@@ -2489,7 +2546,10 @@ function _sbMainOnMsg(event) {
     setAssetBanner('✓ Restored ' + msg.count + ' node(s)' + warnPart);
   }
 }
-window.onmessage = _sbMainOnMsg;
+// _sbMainOnMsg is already called from the early addEventListener at the top of
+// the script. Do NOT re-register it as window.onmessage — that would fire it
+// twice per message (once from each listener), causing duplicate inject-images
+// replies which crash image injection with "No pending image state".
 
 // ── Bind layer ────────────────────────────────────────────────────────────────
 var _bindListCollapsed = false;

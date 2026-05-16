@@ -66,7 +66,7 @@ var _compCacheDoc  = null; // { pageId, index } — keyed on page too so stale o
 // Images are fetched in batches of IMG_BATCH_SIZE to avoid postMessage size
 // limits. code.js sends need-images for each batch, UI fetches and replies
 // with inject-images, code.js applies fills and requests the next batch.
-var IMG_BATCH_SIZE    = 10;
+var IMG_BATCH_SIZE    = 25; // fetched concurrently in UI so larger batches are fine
 var _imgPendingItems  = null; // ALL image items [{node, key, type:'image'}]
 var _imgBatchedRefs   = null; // deduplicated [{key, url}] for all images
 var _imgBatchOffset   = 0;    // index into _imgBatchedRefs of current batch start
@@ -157,9 +157,20 @@ function createImageFill(bytes) {
 }
 
 var IMAGE_URL_RE = /\.(jpe?g|png|gif|webp|svg|bmp|ico|avif|tiff?)(\?[^)]*)?$/i;
-function looksLikeImageUrl(val) {
+var IMG_COL_RE   = /image|img|photo|pic|avatar|logo|banner|thumb|icon/i;
+// key is optional: 'colname.rowindex' — column name is extracted and checked
+// against IMG_COL_RE so CDN/signed URLs without extensions are still detected.
+function looksLikeImageUrl(val, key) {
   if (typeof val !== 'string' || val.indexOf('http') !== 0) return false;
-  try { return IMAGE_URL_RE.test(new URL(val).pathname); } catch (_) { return false; }
+  // Check URL extension first
+  try { if (IMAGE_URL_RE.test(new URL(val).pathname)) return true; } catch (_) {}
+  // Fall back: check if the column name (prefix of key) is image-related
+  if (key) {
+    var dotIdx = String(key).lastIndexOf('.');
+    var colPart = dotIdx > -1 ? key.slice(0, dotIdx) : key;
+    if (IMG_COL_RE.test(colPart)) return true;
+  }
+  return false;
 }
 
 async function loadNodeFont(node) {
@@ -289,100 +300,163 @@ figma.ui.onmessage = async function(msg) {
     var pending   = [];
 
     // ── Collect matching nodes ─────────────────────────────────────────────
-    // Use Figma's native findAll (faster than JS walk on large pages).
-    // TEXT + INSTANCE only — the only types that realistically carry REF_PATTERN names.
-    // FRAME/RECT/ELLIPSE/COMPONENT added hundreds of thousands of extra nodes on large pages.
-    var INJECTABLE_TYPES2 = ['TEXT', 'INSTANCE'];
-    for (var s2 = 0; s2 < injectRoots.length; s2++) {
-      var matchNodes;
-      try {
-        var typeFiltered = injectRoots[s2].findAllWithCriteria({ types: INJECTABLE_TYPES2 });
-        matchNodes = typeFiltered.filter(function(n) { return REF_PATTERN.test(n.name); });
-      } catch (_findErr) {
-        matchNodes = [];
-        walk(injectRoots[s2], function(n) { if ((n.type === 'TEXT' || n.type === 'INSTANCE') && REF_PATTERN.test(n.name)) matchNodes.push(n); });
-      }
-      for (var ni = 0; ni < matchNodes.length; ni++) {
-        var n = matchNodes[ni];
-        var m2 = n.name.match(REF_PATTERN);
-        if (!m2) continue;
-        // REF_PATTERN captures:  m2[1] = column name, m2[2] = 1-based row
-        // Prefix is read directly from the node name: `##` → swap, else default.
-        var isSwap = n.name.indexOf('##') === 0;
-        var key    = m2[1].toLowerCase() + '.' + m2[2];
-        var colName = m2[1];
-
-        // Component swap: only valid on INSTANCE nodes. Swap resolved at inject
-        // time (async) — we queue and run it below.
-        if (isSwap) {
-          if (n.type === 'INSTANCE' && (key in values)) {
-            pending.push({ node: n, key: key, type: 'swap', column: colName });
+    // Use a SINGLE findAllWithCriteria call on the appropriate root whenever
+    // possible. This is the biggest speed win: calling findAll once on
+    // figma.currentPage is far faster than calling it once per top-level frame
+    // (which can be 20+ calls on a busy page).
+    //
+    // RECTANGLE and ELLIPSE are included so designers can name a shape #avatar.1
+    // and have it receive an image fill without needing a TEXT sibling.
+    var INJECTABLE_TYPES2 = ['TEXT', 'INSTANCE', 'RECTANGLE', 'ELLIPSE'];
+    var matchNodes = [];
+    try {
+      if (searchScope === 'selection' && sel2.length) {
+        // Selection scope: one call per selected node (usually 1-3 items)
+        for (var s2 = 0; s2 < injectRoots.length; s2++) {
+          if ('findAllWithCriteria' in injectRoots[s2]) {
+            var _sub = injectRoots[s2].findAllWithCriteria({ types: INJECTABLE_TYPES2 });
+            for (var _si = 0; _si < _sub.length; _si++) {
+              if (REF_PATTERN.test(_sub[_si].name)) matchNodes.push(_sub[_si]);
+            }
           }
-          continue;
+          // Include the root itself if it matches
+          if (REF_PATTERN.test(injectRoots[s2].name)) matchNodes.push(injectRoots[s2]);
         }
+      } else if (searchScope === 'document') {
+        // Document scope: one call per page (still much fewer than per-frame)
+        for (var _pi = 0; _pi < figma.root.children.length; _pi++) {
+          var _pg = figma.root.children[_pi];
+          var _sub2 = _pg.findAllWithCriteria({ types: INJECTABLE_TYPES2 });
+          for (var _si2 = 0; _si2 < _sub2.length; _si2++) {
+            if (REF_PATTERN.test(_sub2[_si2].name)) matchNodes.push(_sub2[_si2]);
+          }
+        }
+      } else {
+        // Page scope: single call — fastest path
+        var _sub3 = figma.currentPage.findAllWithCriteria({ types: INJECTABLE_TYPES2 });
+        for (var _si3 = 0; _si3 < _sub3.length; _si3++) {
+          if (REF_PATTERN.test(_sub3[_si3].name)) matchNodes.push(_sub3[_si3]);
+        }
+      }
+    } catch (_findErr) {
+      // Fallback: manual walk if findAllWithCriteria is unavailable
+      for (var _fr = 0; _fr < injectRoots.length; _fr++) {
+        walk(injectRoots[_fr], function(n) {
+          if (INJECTABLE_TYPES2.indexOf(n.type) !== -1 && REF_PATTERN.test(n.name)) matchNodes.push(n);
+        });
+      }
+    }
 
-        // INSTANCE with a single # prefix: smart component/variant replacement.
-        //
-        // Strategy (in priority order):
-        //  1. Find a sibling variant in the same COMPONENT_SET whose name or
-        //     variant value matches the cell value → swapComponent (most reliable).
-        //  2. Find any local component whose name matches the cell value →
-        //     swapComponent (cross-set replacement).
-        //  3. Fall back to setProperties if a matching variant property exists
-        //     (legacy behaviour — kept for backward compatibility).
-        //
-        // This replaces the old "setProperties only" approach which failed when
-        // the variant value string didn't match a property option exactly.
+    for (var ni = 0; ni < matchNodes.length; ni++) {
+      var n = matchNodes[ni];
+      var m2 = n.name.match(REF_PATTERN);
+      if (!m2) continue;
+      // REF_PATTERN captures:  m2[1] = column name, m2[2] = 1-based row
+      // Prefix is read directly from the node name: `##` → swap, else default.
+      var isSwap = n.name.indexOf('##') === 0;
+      var key    = m2[1].toLowerCase() + '.' + m2[2];
+      var colName = m2[1];
+
+      // Component swap: only valid on INSTANCE nodes. Swap resolved at inject
+      // time (async) — we queue and run it below.
+      if (isSwap) {
         if (n.type === 'INSTANCE' && (key in values)) {
-          pending.push({ node: n, key: key, type: 'smart-instance', column: colName });
-          continue;
+          pending.push({ node: n, key: key, type: 'swap', column: colName });
         }
+        continue;
+      }
 
-        // TEXT node: if the value is an image URL, find the best visual target
-        // for the image fill. Applying a fill directly to a TEXT node clips the
-        // image to the glyph shapes — not what anyone wants for an avatar.
-        // Priority order for image target:
-        //   1. A sibling RECTANGLE or ELLIPSE in the same parent (named image layer)
-        //   2. The parent FRAME/COMPONENT (if it directly wraps this text node)
-        //   3. Fall back to the TEXT node itself (last resort)
-        if (n.type === 'TEXT' && (key in values)) {
-          // Queue as image if: bytes already in imageMap OR value looks like a URL
-          var valStr = values[key] !== null && values[key] !== undefined ? String(values[key]) : '';
-          var needsImage = (key in imageMap) || looksLikeImageUrl(valStr);
-          if (needsImage) {
-            var imageTarget = null;
-            var par = n.parent;
-            // 1. Sibling RECTANGLE or ELLIPSE — common pattern for avatar/image layers
-            if (par && par.children) {
-              for (var si = 0; si < par.children.length; si++) {
-                var sib = par.children[si];
-                if (sib !== n && (sib.type === 'RECTANGLE' || sib.type === 'ELLIPSE') && 'fills' in sib) {
-                  imageTarget = sib;
+      // INSTANCE with a single # prefix: smart component/variant replacement.
+      //
+      // Strategy (in priority order):
+      //  1. Find a sibling variant in the same COMPONENT_SET whose name or
+      //     variant value matches the cell value → swapComponent (most reliable).
+      //  2. Find any local component whose name matches the cell value →
+      //     swapComponent (cross-set replacement).
+      //  3. Fall back to setProperties if a matching variant property exists
+      //     (legacy behaviour — kept for backward compatibility).
+      //
+      // This replaces the old "setProperties only" approach which failed when
+      // the variant value string didn't match a property option exactly.
+      if (n.type === 'INSTANCE' && (key in values)) {
+        pending.push({ node: n, key: key, type: 'smart-instance', column: colName });
+        continue;
+      }
+
+      // TEXT node: if the value is an image URL, find the best visual target
+      // for the image fill. Applying a fill directly to a TEXT node clips the
+      // image to the glyph shapes — not what anyone wants for an avatar.
+      //
+      // Detection rules (in priority order):
+      //   1. If a sibling RECTANGLE or ELLIPSE exists AND value starts with "http"
+      //      → route fill to the sibling regardless of URL format. The sibling
+      //      is clearly the image container; the TEXT node is just the naming hook.
+      //   2. No sibling shape but looksLikeImageUrl (extension OR image column name)
+      //      → try parent frame, then fall back to the TEXT node itself.
+      //   3. Otherwise → write as plain text.
+      if (n.type === 'TEXT' && (key in values)) {
+        var valStr = values[key] !== null && values[key] !== undefined ? String(values[key]) : '';
+        var isUrl  = valStr.indexOf('http') === 0;
+        var par    = n.parent;
+
+        // Find sibling shape (RECTANGLE or ELLIPSE) in the same parent.
+        // Also searches one level inside sibling FRAME/GROUP nodes to handle
+        // the common "clip frame → nested rectangle" avatar pattern.
+        var sibShape = null;
+        if (isUrl && par && par.children) {
+          for (var si = 0; si < par.children.length; si++) {
+            var sib = par.children[si];
+            if (sib === n) continue;
+            // Direct RECTANGLE/ELLIPSE sibling
+            if ((sib.type === 'RECTANGLE' || sib.type === 'ELLIPSE') && 'fills' in sib) {
+              sibShape = sib;
+              break;
+            }
+            // Sibling FRAME or GROUP — look one level inside for a shape
+            if ((sib.type === 'FRAME' || sib.type === 'GROUP' || sib.type === 'COMPONENT' || sib.type === 'INSTANCE') && sib.children) {
+              for (var si2 = 0; si2 < sib.children.length; si2++) {
+                var inner = sib.children[si2];
+                if ((inner.type === 'RECTANGLE' || inner.type === 'ELLIPSE') && 'fills' in inner) {
+                  sibShape = inner;
                   break;
                 }
               }
+              if (sibShape) break;
             }
-            // 2. Parent frame/component
-            if (!imageTarget && par && 'fills' in par && par.type !== 'DOCUMENT' && par.type !== 'PAGE') {
-              imageTarget = par;
-            }
-            // 3. Fallback: TEXT node itself
-            if (!imageTarget) imageTarget = n;
-            pending.push({ node: imageTarget, key: key, type: 'image' });
+          }
+        }
+
+        var needsImage = (key in imageMap) || (isUrl && sibShape !== null) || looksLikeImageUrl(valStr, key);
+        if (needsImage) {
+          var imageTarget = null;
+          if (sibShape) {
+            // Sibling shape → always the preferred image target
+            imageTarget = sibShape;
+          } else if (par && 'fills' in par && par.type !== 'DOCUMENT' && par.type !== 'PAGE') {
+            // Parent frame/component
+            imageTarget = par;
           } else {
-            pending.push({ node: n, key: key, type: 'text' });
+            // Last resort: the TEXT node itself
+            imageTarget = n;
           }
-          continue;
+          pending.push({ node: imageTarget, key: key, type: 'image' });
+        } else {
+          pending.push({ node: n, key: key, type: 'text' });
         }
-        // RECTANGLE, ELLIPSE, FRAME etc. — queue if value is image URL or bytes already available
-        if ('fills' in n && (key in values)) {
-          var valStr2 = values[key] !== null && values[key] !== undefined ? String(values[key]) : '';
-          if ((key in imageMap) || looksLikeImageUrl(valStr2)) {
-            pending.push({ node: n, key: key, type: 'image' });
-          }
+        continue;
+      }
+
+      // RECTANGLE or ELLIPSE named with a ref pattern:
+      // If the value is any HTTP URL → always treat as image fill.
+      // A shape node has no meaningful use for URL text, so any http value
+      // from the data is unambiguously an image reference.
+      if ((n.type === 'RECTANGLE' || n.type === 'ELLIPSE') && 'fills' in n && (key in values)) {
+        var valStr2 = values[key] !== null && values[key] !== undefined ? String(values[key]) : '';
+        if ((key in imageMap) || valStr2.indexOf('http') === 0) {
+          pending.push({ node: n, key: key, type: 'image' });
         }
-      } // end matchNodes loop
-    } // end injectRoots loop
+      }
+    } // end matchNodes loop
 
     // ── Pre-load all unique fonts in parallel ──────────────────────────────
     // Collecting fonts up front and awaiting them together is dramatically
@@ -422,6 +496,16 @@ figma.ui.onmessage = async function(msg) {
         otherItems.push(pending[sp]);
       }
     }
+    // Diagnostic — send counts + target node types back to UI
+    figma.ui.postMessage({
+      type: 'inject-debug',
+      imageCount: imageItems.length,
+      textCount:  otherItems.filter(function(i) { return i.type === 'text'; }).length,
+      otherCount: otherItems.filter(function(i) { return i.type !== 'text'; }).length,
+      imageKeys:  imageItems.slice(0, 5).map(function(i) {
+        return i.key + ' → [' + i.node.type + ' "' + i.node.name + '"] ' + (values[i.key] || '').slice(0, 30);
+      })
+    });
 
     figma.ui.postMessage({ type: 'inject-progress', phase: 'inject', done: 0, total: pending.length });
 
@@ -430,13 +514,13 @@ figma.ui.onmessage = async function(msg) {
     var TIMEOUT_MS = 30000; // 30 seconds covers actual write work
 
     for (var p = 0; p < otherItems.length; p++) {
-      // Timeout guard
-      if (Date.now() - startTime > TIMEOUT_MS) {
+      // Timeout guard — checked every 50 items to reduce Date.now() overhead
+      if (p % 50 === 0 && Date.now() - startTime > TIMEOUT_MS) {
         errors.push('Timed out after 30s — ' + (otherItems.length - p) + ' item(s) skipped');
         break;
       }
-      // Progress update every 10 items
-      if (p % 10 === 0) {
+      // Progress update every 25 items (fewer IPC round-trips)
+      if (p % 25 === 0) {
         figma.ui.postMessage({ type: 'inject-progress', phase: 'inject', done: p, total: pending.length });
       }
       var item = otherItems[p];
@@ -619,21 +703,34 @@ figma.ui.onmessage = async function(msg) {
     }
     var imageMap3 = msg.imageMap || {};
 
-    // Apply fills for any node whose key is in this batch's imageMap
+    // Apply fills for any node whose key is in this batch's imageMap.
+    // Dedup by NODE ID (not key) so that multiple nodes sharing the same key
+    // (e.g. duplicate leaderboard frames on the same page) all receive the fill.
+    var _batchApplied = 0;
     for (var ii = 0; ii < _imgPendingItems.length; ii++) {
       var iitem = _imgPendingItems[ii];
-      if (_imgApplied[iitem.key]) continue; // already written by a previous batch
-      if (iitem.key in imageMap3) {
-        try {
-          iitem.node.fills = [createImageFill(imageMap3[iitem.key])];
-          _imgPartialCount++;
-          _imgApplied[iitem.key] = true;
-        } catch (imgErr) {
-          _imgPartialErrors.push(iitem.node.name + ': ' + imgErr.message);
-          _imgApplied[iitem.key] = true; // mark so we don't retry
+      var _nodeId = iitem.node.id;
+      if (_imgApplied[_nodeId]) continue; // already processed this exact node
+      if (!(iitem.key in imageMap3)) continue; // not in this batch — will be handled by a later batch
+      try {
+        var _fillNode = iitem.node;
+        // Safety: TEXT nodes cannot meaningfully show image fills (fill clips to glyph).
+        if (_fillNode.type === 'TEXT') {
+          _imgPartialErrors.push(iitem.key + ': no image container found near "' + _fillNode.name + '" — add a RECTANGLE or ELLIPSE sibling');
+          _imgApplied[_nodeId] = true;
+          continue;
         }
+        _fillNode.fills = [createImageFill(imageMap3[iitem.key])];
+        _batchApplied++;
+        _imgPartialCount++;
+        _imgApplied[_nodeId] = true;
+      } catch (imgErr) {
+        _imgPartialErrors.push(iitem.node.name + ' (' + iitem.key + '): ' + imgErr.message);
+        _imgApplied[_nodeId] = true; // mark so we don't retry
       }
     }
+    // Send diagnostic so UI console shows how many fills were applied this batch
+    figma.ui.postMessage({ type: 'inject-img-applied', count: _batchApplied });
 
     // Advance batch cursor
     _imgBatchOffset += IMG_BATCH_SIZE;
@@ -651,10 +748,12 @@ figma.ui.onmessage = async function(msg) {
       return;
     }
 
-    // All batches done — report any keys that were never delivered
+    // All batches done — report nodes that never received a fill.
+    // _imgApplied is keyed by node ID (not by key) since the node-ID dedup fix.
     for (var im = 0; im < _imgPendingItems.length; im++) {
-      if (!_imgApplied[_imgPendingItems[im].key]) {
-        _imgPartialErrors.push(_imgPendingItems[im].node.name + ': image not fetched');
+      var _imItem = _imgPendingItems[im];
+      if (!_imgApplied[_imItem.node.id]) {
+        _imgPartialErrors.push(_imItem.node.name + ' (' + _imItem.key + '): image not fetched');
       }
     }
 

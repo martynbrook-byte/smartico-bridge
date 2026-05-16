@@ -32,6 +32,23 @@
 figma.showUI(__html__, { width: 440, height: 640, title: 'Smartico Bridge' });
 
 // ── Selection broadcast ───────────────────────────────────────────────────────
+// expandSections: when a SECTION node is selected, substitute its direct frame
+// children so panels (Optimiser, Artworker, Animator) see the frames inside.
+function expandSections(nodes) {
+  var out = [];
+  for (var i = 0; i < nodes.length; i++) {
+    var n = nodes[i];
+    if (n.type === 'SECTION' && 'children' in n && n.children.length) {
+      for (var j = 0; j < n.children.length; j++) {
+        out.push(n.children[j]);
+      }
+    } else {
+      out.push(n);
+    }
+  }
+  return out;
+}
+
 function snapshotSelection() {
   var sel = figma.currentPage.selection;
   return sel.map(function(n) {
@@ -1972,8 +1989,12 @@ function ic_resolveScale(constraint, nodeWidth) {
 
 function ic_buildLayerList() {
   var layers = [];
-  for (var ni = 0; ni < figma.currentPage.selection.length; ni++) {
-    var node = figma.currentPage.selection[ni];
+  // Expand sections to their direct children so Optimiser/Artworker/Animator
+  // display the frames inside a section rather than the section itself
+  // (SectionNode has no exportAsync and would otherwise produce an empty list).
+  var effectiveSel = expandSections(Array.from(figma.currentPage.selection));
+  for (var ni = 0; ni < effectiveSel.length; ni++) {
+    var node = effectiveSel[ni];
     if (!('exportAsync' in node)) continue;
     var nodeWidth  = 'width'  in node ? node.width  : 100;
     var nodeHeight = 'height' in node ? node.height : 100;

@@ -1672,11 +1672,21 @@ app.post('/api/settings/import', express.json({ limit: '10mb' }), async (req, re
       restoredPipelines++;
     }
 
+    // Restore assets if present in the backup
+    let restoredAssets = 0;
+    const assetsPayload = Array.isArray(body.assets) ? body.assets : [];
+    for (const a of assetsPayload) {
+      if (!a || !a.id || !a.nodes) continue;
+      await fsp.writeFile(path.join(ASSETS_DIR, `${a.id}.json`), JSON.stringify(a, null, 2));
+      restoredAssets++;
+    }
+
     res.json({
       ok:               true,
       ruleSets:         (saved.ruleSets || []).length,
       mappingSets:      (saved.mappingSets || []).length,
       restoredPipelines,
+      restoredAssets,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -2400,7 +2410,7 @@ app.get('/api/assets', async (_req, res) => {
       try {
         const raw = await fsp.readFile(path.join(ASSETS_DIR, f), 'utf8');
         const r = JSON.parse(raw);
-        list.push({ id: r.id, name: r.name, type: r.type, nodeCount: r.nodeCount || 1, typeSummary: r.typeSummary || null, savedAt: r.savedAt, preview: r.preview || null });
+        list.push({ id: r.id, name: r.name, type: r.type, nodeCount: r.nodeCount || 1, typeSummary: r.typeSummary || null, savedAt: r.savedAt, preview: r.preview || null, category: r.category || 'General', exportSettings: r.exportSettings || null });
       } catch (_) {}
     }
     list.sort((a, b) => String(b.savedAt || '').localeCompare(String(a.savedAt || '')));
@@ -2423,9 +2433,11 @@ app.post('/api/assets', express.json({ limit: '30mb' }), async (req, res) => {
       nodes:       body.nodes,
       preview:     typeof body.preview === 'string' ? body.preview : null,
       savedAt:     new Date().toISOString(),
+      category:       typeof body.category === 'string' && body.category.trim() ? body.category.trim() : 'General',
+      exportSettings: body.exportSettings && typeof body.exportSettings === 'object' ? body.exportSettings : null,
     };
     await fsp.writeFile(path.join(ASSETS_DIR, `${record.id}.json`), JSON.stringify(record, null, 2));
-    res.json({ asset: { id: record.id, name: record.name, type: record.type, nodeCount: record.nodeCount, typeSummary: record.typeSummary, savedAt: record.savedAt } });
+    res.json({ asset: { id: record.id, name: record.name, type: record.type, nodeCount: record.nodeCount, typeSummary: record.typeSummary, savedAt: record.savedAt, category: record.category, exportSettings: record.exportSettings } });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -2435,6 +2447,20 @@ app.get('/api/assets/:id', async (req, res) => {
   try {
     const raw = await fsp.readFile(path.join(ASSETS_DIR, `${req.params.id}.json`), 'utf8');
     res.json(JSON.parse(raw));
+  } catch (err) {
+    res.status(err.code === 'ENOENT' ? 404 : 500).json({ error: err.message });
+  }
+});
+
+app.patch('/api/assets/:id', express.json({ limit: '1mb' }), async (req, res) => {
+  try {
+    const filePath = path.join(ASSETS_DIR, `${req.params.id}.json`);
+    const raw = await fsp.readFile(filePath, 'utf8');
+    const record = JSON.parse(raw);
+    if (typeof req.body.name === 'string' && req.body.name.trim()) record.name = req.body.name.trim();
+    if (typeof req.body.category === 'string' && req.body.category.trim()) record.category = req.body.category.trim();
+    await fsp.writeFile(filePath, JSON.stringify(record, null, 2));
+    res.json({ ok: true, id: record.id, name: record.name, category: record.category });
   } catch (err) {
     res.status(err.code === 'ENOENT' ? 404 : 500).json({ error: err.message });
   }

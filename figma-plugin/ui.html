@@ -737,12 +737,19 @@
 
     <div id="assetNameRow" style="display:none">
       <input type="text" id="assetNameInput" placeholder="Asset name…" style="margin-bottom:6px">
+      <select id="assetCategoryInput" style="width:100%;margin-bottom:6px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-family:var(--font);font-size:12px;background:var(--white-strong);color:var(--text)">
+        <option value="General">General</option>
+      </select>
+      <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);margin-bottom:8px;cursor:pointer">
+        <input type="checkbox" id="assetSaveExportSettings"> Save with current export settings
+      </label>
       <div class="btn-row">
-        <button class="btn btn-primary btn-sm" style="flex:1" onclick="confirmSaveAsset()">Save</button>
+        <button class="btn btn-primary btn-sm" style="flex:1" onclick="confirmSaveAsset()">Save to library</button>
         <button class="btn btn-sm" style="flex:1" onclick="cancelSaveAsset()">Cancel</button>
       </div>
     </div>
 
+    <div id="assetCatFilter" style="display:none;flex-wrap:wrap;gap:4px;margin-bottom:6px"></div>
     <div id="assetList" style="display:flex;flex-direction:column;gap:5px"></div>
     <div id="assetBanner" style="font-size:10px;color:var(--muted);font-weight:600;min-height:14px"></div>
 
@@ -2808,43 +2815,81 @@ function generateNodePreview(node) {
 var savedAssets        = [];
 var _pendingAssetNodes = null;
 
+var _activeCategoryFilter = null;
+
 async function loadAssets() {
   try {
     var data = await api('/api/assets');
     savedAssets = data.assets || [];
+    // Populate category dropdown for save dialog
+    var catSel = document.getElementById('assetCategoryInput');
+    if (catSel) {
+      var cats = [...new Set(savedAssets.map(function(a) { return a.category || 'General'; }))].sort();
+      if (!cats.includes('General')) cats.unshift('General');
+      catSel.innerHTML = cats.map(function(c) { return '<option value="' + esc(c) + '">' + esc(c) + '</option>'; }).join('') +
+        '<option value="__new__">+ New category…</option>';
+    }
+    renderCatFilter();
     renderAssets();
   } catch (e) {
     setAssetBanner('Could not load assets: ' + e.message);
   }
 }
 
+function renderCatFilter() {
+  var bar = document.getElementById('assetCatFilter');
+  if (!bar) return;
+  var cats = [...new Set(savedAssets.map(function(a) { return a.category || 'General'; }))].sort();
+  if (cats.length <= 1) { bar.style.display = 'none'; return; }
+  bar.style.display = 'flex';
+  bar.innerHTML = [null].concat(cats).map(function(c) {
+    var active = _activeCategoryFilter === c;
+    return '<button onclick="setCatFilter(' + (c === null ? 'null' : '\'' + esc(c) + '\'') + ')" style="padding:2px 8px;border-radius:10px;border:1px solid var(--border);font-size:10px;cursor:pointer;' + (active ? 'background:#3344FF;color:#fff;border-color:#3344FF' : 'background:var(--white-strong);color:var(--text)') + '">' + (c === null ? 'All' : esc(c)) + '</button>';
+  }).join('');
+}
+
+function setCatFilter(cat) {
+  _activeCategoryFilter = cat;
+  renderCatFilter();
+  renderAssets();
+}
+
 function renderAssets() {
   var list = document.getElementById('assetList');
   if (!list) return;
-  if (!savedAssets.length) {
+  var assets = savedAssets;
+  if (_activeCategoryFilter) assets = assets.filter(function(a) { return (a.category || 'General') === _activeCategoryFilter; });
+  if (!assets.length) {
     list.innerHTML = '<div class="empty" style="padding:6px 0">No saved assets yet.</div>'; return;
   }
-  list.innerHTML = savedAssets.map(function(a) {
-    var thumb = a.preview
-      ? '<img class="asset-thumb" src="' + esc(a.preview) + '" alt="">'
-      : '<div class="asset-thumb-empty">▣</div>';
-    return '<div class="asset-item">' +
-      thumb +
-      '<div class="asset-item-meta">' +
-        '<div class="asset-item-name" title="' + esc(a.name) + '">' + esc(a.name) + '</div>' +
-        '<div class="asset-item-count">' + (function() {
-          if (a.typeSummary) return a.typeSummary;
-          var _tl = { FRAME:'frame', SECTION:'section', GROUP:'group', COMPONENT:'component', INSTANCE:'instance', TEXT:'text layer', VECTOR:'vector', RECTANGLE:'rectangle', ELLIPSE:'ellipse' };
-          var _n = a.nodeCount || 1;
-          var _lbl = (_tl[a.type] || (a.type ? a.type.toLowerCase() : 'node')) + (_n > 1 ? 's' : '');
-          return _n + ' ' + _lbl;
-        })() + '</div>' +
-      '</div>' +
-      '<div class="asset-item-actions">' +
-        '<button class="btn btn-sm" style="background:#2563eb;color:#fff;border-color:#2563eb" onclick="restoreAsset(\'' + esc(a.id) + '\')">↩ Restore</button>' +
-        '<button class="btn btn-sm" style="color:#b91c1c" onclick="deleteAsset(\'' + esc(a.id) + '\')" title="Delete">✕</button>' +
-      '</div>' +
-    '</div>';
+  // Group by category
+  var groups = {};
+  assets.forEach(function(a) {
+    var cat = a.category || 'General';
+    if (!groups[cat]) groups[cat] = [];
+    groups[cat].push(a);
+  });
+  var cats = Object.keys(groups).sort();
+  var showCatHeaders = cats.length > 1 || cats[0] !== 'General';
+  list.innerHTML = cats.map(function(cat) {
+    var header = showCatHeaders ? '<div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;padding:6px 0 2px;border-top:1px solid var(--border);margin-top:4px">📁 ' + esc(cat) + '</div>' : '';
+    return header + groups[cat].map(function(a) {
+      var thumb = a.preview
+        ? '<img class="asset-thumb" src="' + esc(a.preview) + '" alt="">'
+        : '<div class="asset-thumb-empty">▣</div>';
+      var expBadge = a.exportSettings ? '<span style="background:#3b82f6;color:#fff;border-radius:3px;padding:0 3px;font-size:9px;margin-left:3px">⚙</span>' : '';
+      return '<div class="asset-item">' +
+        thumb +
+        '<div class="asset-item-meta">' +
+          '<div class="asset-item-name" title="' + esc(a.name) + '">' + esc(a.name) + expBadge + '</div>' +
+          '<div class="asset-item-count">' + (a.typeSummary || (a.nodeCount||1) + ' node' + ((a.nodeCount||1)>1?'s':'')) + '</div>' +
+        '</div>' +
+        '<div class="asset-item-actions">' +
+          '<button class="btn btn-sm" style="background:#2563eb;color:#fff;border-color:#2563eb" onclick="restoreAsset(\'' + esc(a.id) + '\')">↩ Restore</button>' +
+          '<button class="btn btn-sm" style="color:#b91c1c" onclick="deleteAsset(\'' + esc(a.id) + '\')" title="Delete">✕</button>' +
+        '</div>' +
+      '</div>';
+    }).join('');
   }).join('');
 }
 
@@ -2867,17 +2912,32 @@ function cancelSaveAsset() {
 async function confirmSaveAsset() {
   if (!_pendingAssetNodes) return;
   var nameEl = document.getElementById('assetNameInput');
+  var catEl  = document.getElementById('assetCategoryInput');
+  var expEl  = document.getElementById('assetSaveExportSettings');
   var name   = (nameEl && nameEl.value.trim()) || _pendingAssetNodes.name || 'Untitled';
+  var category = catEl ? (catEl.value === '__new__' ? (prompt('New category name:') || 'General') : catEl.value) : 'General';
+  var exportSettings = null;
+  if (expEl && expEl.checked && typeof state !== 'undefined') {
+    exportSettings = {
+      globalQuality:  state.globalQuality,
+      sizeTargetMode: state.sizeTargetMode,
+      targetSizeKB:   state.targetSizeKB,
+    };
+  }
   try {
     setAssetBanner('Saving…');
     await api('/api/assets', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: name, type: _pendingAssetNodes.assetType || 'FRAME',
-                             nodeCount: _pendingAssetNodes.nodeCount || 1,
-                             typeSummary: _pendingAssetNodes.typeSummary || null,
-                             nodes: _pendingAssetNodes.nodes,
-                             preview: _pendingAssetNodes.previewDataUrl || null }),
+      body: JSON.stringify({
+        name: name, category: category,
+        type: _pendingAssetNodes.assetType || 'FRAME',
+        nodeCount: _pendingAssetNodes.nodeCount || 1,
+        typeSummary: _pendingAssetNodes.typeSummary || null,
+        nodes: _pendingAssetNodes.nodes,
+        preview: _pendingAssetNodes.previewDataUrl || null,
+        exportSettings: exportSettings,
+      }),
     });
     _pendingAssetNodes = null;
     var row = document.getElementById('assetNameRow');
@@ -2892,6 +2952,18 @@ async function restoreAsset(id) {
     var data = await api('/api/assets/' + id);
     if (!data || !data.nodes) throw new Error('Empty asset');
     parent.postMessage({ pluginMessage: { type: 'restore-asset', nodes: data.nodes } }, '*');
+    // If the asset has saved export settings, offer to restore them
+    if (data.exportSettings && typeof state !== 'undefined') {
+      var apply = confirm('This asset has saved export settings (quality/size targets). Apply them to the Optimiser?');
+      if (apply) {
+        var es = data.exportSettings;
+        if (typeof es.globalQuality  === 'number') { state.globalQuality  = es.globalQuality;  if (qualitySlider) qualitySlider.value = es.globalQuality; }
+        if (typeof es.sizeTargetMode === 'boolean') { state.sizeTargetMode = es.sizeTargetMode; if (sizeTargetToggle) sizeTargetToggle.checked = es.sizeTargetMode; }
+        if (typeof es.targetSizeKB   === 'number') { state.targetSizeKB   = es.targetSizeKB;   if (targetSizeInput) targetSizeInput.value  = es.targetSizeKB; }
+        if (typeof updateQualityDisplay === 'function') updateQualityDisplay();
+        if (typeof saveOptimiserState   === 'function') saveOptimiserState();
+      }
+    }
     setAssetBanner('Restoring…');
   } catch (e) { setAssetBanner('Restore failed: ' + e.message); }
 }

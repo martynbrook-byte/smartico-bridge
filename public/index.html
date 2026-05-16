@@ -1086,6 +1086,21 @@
     }
     .pipe-name-input:focus { border-color: var(--gold); outline: none; }
 
+    /* Pipeline plain-English description strip */
+    .pipe-desc-bar {
+      padding: 8px 16px;
+      font-size: 0.78rem;
+      color: var(--muted);
+      border-bottom: 1px solid var(--border);
+      line-height: 1.5;
+      min-height: 2.2em;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .pipe-desc-bar.loading { opacity: 0.45; font-style: italic; }
+    .pipe-desc-bar.empty   { display: none; }
+
     /* Section toolbar (Mapping | Rules | Enrich | Filter | Name) */
     .pipe-section-toolbar {
       display: flex;
@@ -1603,7 +1618,10 @@
             <button class="btn btn-small btn-danger" onclick="deleteActivePipeline()">Delete</button>
           </div>
 
-          <!-- Row 2: Section toolbar -->
+          <!-- Row 2: Plain-English pipeline description -->
+          <div class="pipe-desc-bar empty" id="pipelineDesc"></div>
+
+          <!-- Row 3: Section toolbar -->
           <div class="pipe-section-toolbar">
 
             <!-- MAPPING -->
@@ -3996,8 +4014,30 @@ async function selectPipeline(id) {
   try {
     activePipeline = await api(`/api/pipelines/${id}`);
     renderPipelines();
+    refreshPipelineDesc();
   } catch (err) {
     banner(`Load pipeline failed: ${err.message}`, 'error');
+  }
+}
+
+async function refreshPipelineDesc() {
+  const bar = document.getElementById('pipelineDesc');
+  if (!bar || !activePipeline) return;
+  bar.className = 'pipe-desc-bar loading';
+  bar.textContent = 'Analysing pipeline…';
+  try {
+    const data = await api(`/api/pipelines/${activePipeline.id}/describe`);
+    const summary = (data.summary || '').trim();
+    if (summary) {
+      bar.className = 'pipe-desc-bar';
+      bar.textContent = summary;
+    } else {
+      bar.className = 'pipe-desc-bar empty';
+      bar.textContent = '';
+    }
+  } catch (_) {
+    bar.className = 'pipe-desc-bar empty';
+    bar.textContent = '';
   }
 }
 
@@ -4109,6 +4149,7 @@ function addPipelineNode() {
   renderPipelineCanvas();
   queuePipelineSave();
   sel.value = '';
+  refreshPipelineDesc();
 }
 
 function deletePipelineNode(nodeId) {
@@ -4117,6 +4158,7 @@ function deletePipelineNode(nodeId) {
   activePipeline.edges = (activePipeline.edges || []).filter(e => e.from !== nodeId && e.to !== nodeId);
   renderPipelineCanvas();
   queuePipelineSave();
+  refreshPipelineDesc();
 }
 
 function deletePipelineEdge(edgeId) {

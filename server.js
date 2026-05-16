@@ -2394,6 +2394,54 @@ app.delete('/api/dropzones/:id', async (req, res) => {
   }
 });
 
+// ── Asset categories ─────────────────────────────────────────────────────────
+// A lightweight list of explicitly-created category names, stored alongside the
+// asset files. Categories that contain at least one asset are always visible;
+// this file lets empty categories persist after creation (or after all their
+// assets are deleted) until the user removes them.
+//
+//   GET    /api/asset-categories         — list all explicit categories
+//   POST   /api/asset-categories         — add a new category { name }
+//   DELETE /api/asset-categories/:name   — remove an explicit category
+
+const CATEGORIES_FILE = path.join(ASSETS_DIR, '_categories.json');
+
+async function readCategories() {
+  try {
+    const raw = await fsp.readFile(CATEGORIES_FILE, 'utf8');
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (_) { return []; }
+}
+
+async function writeCategories(list) {
+  await fsp.writeFile(CATEGORIES_FILE, JSON.stringify(list, null, 2));
+}
+
+app.get('/api/asset-categories', async (_req, res) => {
+  try { res.json({ categories: await readCategories() }); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/asset-categories', express.json({ limit: '10kb' }), async (req, res) => {
+  try {
+    const name = typeof req.body.name === 'string' ? req.body.name.trim() : '';
+    if (!name) return res.status(400).json({ error: 'name is required' });
+    const list = await readCategories();
+    if (!list.includes(name)) { list.push(name); list.sort(); await writeCategories(list); }
+    res.json({ ok: true, categories: list });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/asset-categories/:name', async (req, res) => {
+  try {
+    const name = decodeURIComponent(req.params.name);
+    const list = (await readCategories()).filter(c => c !== name);
+    await writeCategories(list);
+    res.json({ ok: true, categories: list });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ── Asset library ────────────────────────────────────────────────────────────
 // Stores serialised Figma node trees so designers can save selections from the
 // plugin and restore them onto the canvas later.

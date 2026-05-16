@@ -2884,12 +2884,17 @@ var _activeCategoryFilter = null;
 
 async function loadAssets() {
   try {
-    var data = await api('/api/assets');
-    savedAssets = data.assets || [];
-    // Populate category dropdown for save dialog
+    var [assetData, catData] = await Promise.all([
+      api('/api/assets'),
+      api('/api/asset-categories').catch(function() { return { categories: [] }; }),
+    ]);
+    savedAssets = assetData.assets || [];
+    // Merge asset-derived categories with explicit categories from server
     var catSel = document.getElementById('assetCategoryInput');
     if (catSel) {
-      var cats = [...new Set(savedAssets.map(function(a) { return a.category || 'General'; }))].sort();
+      var fromAssets = savedAssets.map(function(a) { return a.category || 'General'; });
+      var fromServer = catData.categories || [];
+      var cats = [...new Set([...fromAssets, ...fromServer])].sort();
       if (!cats.includes('General')) cats.unshift('General');
       catSel.innerHTML = cats.map(function(c) { return '<option value="' + esc(c) + '">' + esc(c) + '</option>'; }).join('') +
         '<option value="__new__">+ New category…</option>';

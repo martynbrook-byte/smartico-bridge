@@ -1967,7 +1967,7 @@
     <!-- New category dialog -->
     <div id="newCatDialog" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:14px">
       <div style="font-weight:600;margin-bottom:8px">Create new category</div>
-      <input id="newCatName" type="text" placeholder="Category name…" style="width:100%;box-sizing:border-box;margin-bottom:8px">
+      <input id="newCatName" type="text" placeholder="Category name…" style="width:100%;box-sizing:border-box;margin-bottom:8px" onkeydown="if(event.key==='Enter')createCategory();if(event.key==='Escape')hideNewCategoryDialog()">
       <div style="display:flex;gap:8px">
         <button class="btn btn-primary btn-small" onclick="createCategory()">Create</button>
         <button class="btn btn-small" onclick="hideNewCategoryDialog()">Cancel</button>
@@ -6096,11 +6096,18 @@ setInterval(loadHealth, 15000);
 
 // ── Asset library web management ─────────────────────────────────────────────
 var _webAssets = [];
+var _explicitCategories = [];  // categories created via "+ New Category", may be empty
 
 async function loadWebAssets() {
   try {
-    var data = await api('/api/assets');
-    _webAssets = (data.assets || []).sort((a, b) => (a.category||'General').localeCompare(b.category||'General') || String(b.savedAt||'').localeCompare(String(a.savedAt||'')));
+    var [assetData, catData] = await Promise.all([
+      api('/api/assets'),
+      api('/api/asset-categories').catch(function() { return { categories: [] }; }),
+    ]);
+    _webAssets = (assetData.assets || []).sort(function(a, b) {
+      return (a.category||'General').localeCompare(b.category||'General') || String(b.savedAt||'').localeCompare(String(a.savedAt||''));
+    });
+    _explicitCategories = catData.categories || [];
     renderWebAssets();
     var cnt = document.getElementById('tabCountAssets');
     if (cnt) cnt.textContent = _webAssets.length;
@@ -6117,17 +6124,21 @@ function renderWebAssets(filter) {
   var empty = document.getElementById('webAssetEmpty');
   if (!container) return;
   var assets = _webAssets;
-  if (filter) assets = assets.filter(a => (a.name||'').toLowerCase().includes(filter) || (a.category||'').toLowerCase().includes(filter));
-  if (!assets.length) { container.innerHTML = ''; if (empty) empty.style.display = ''; return; }
-  if (empty) empty.style.display = 'none';
-  // Group by category
+  if (filter) assets = assets.filter(function(a) { return (a.name||'').toLowerCase().includes(filter) || (a.category||'').toLowerCase().includes(filter); });
+  // Group by category (assets), then merge in any explicit empty categories
   var groups = {};
   assets.forEach(function(a) {
     var cat = a.category || 'General';
     if (!groups[cat]) groups[cat] = [];
     groups[cat].push(a);
   });
-  container.innerHTML = Object.entries(groups).sort((a,b)=>a[0].localeCompare(b[0])).map(function([cat, items]) {
+  // Add explicit categories that have no assets yet (shown as empty groups)
+  _explicitCategories.forEach(function(cat) { if (!groups[cat]) groups[cat] = []; });
+  var allCats = Object.keys(groups);
+  if (!allCats.length) { container.innerHTML = ''; if (empty) empty.style.display = ''; return; }
+  if (empty) empty.style.display = 'none';
+  container.innerHTML = allCats.sort(function(a,b){return a.localeCompare(b);}).map(function(cat) {
+    var items = groups[cat];
     return `<div class="web-asset-category" data-category="${esc(cat)}">
       <div class="web-asset-cat-hd">
         <span>📁 ${esc(cat)}</span>
@@ -6168,38 +6179,52 @@ function hideNewCategoryDialog() {
   var inp = document.getElementById('newCatName');
   if (inp) inp.value = '';
 }
-function createCategory() {
+async function createCategory() {
   var inp = document.getElementById('newCatName');
-  var name = (inp?.value || '').trim();
-  if (!name) return;
-  hideNewCategoryDialog();
-  alert('Category "' + name + '" created. Save an asset to this category from the Figma plugin, or move an existing asset here using the edit button.');
+  var name = (inp ? inp.value : '').trim();
+  if (!name) { if (inp) inp.focus(); return; }
+  try {
+    await api('/api/asset-categories', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name }) });
+    hideNewCategoryDialog();
+    await loadWebAssets();
+    showToastWeb('Category "' + name + '" created — save assets to it from the Figma plugin or move existing ones here.');
+  } catch(e) { showToastWeb('Error: ' + e.message, 'error'); }
 }
 
 async function renameCategoryPrompt(oldName) {
   var newName = prompt('Rename category "' + oldName + '" to:', oldName);
   if (!newName || !newName.trim() || newName.trim() === oldName) return;
   newName = newName.trim();
-  var toUpdate = _webAssets.filter(a => (a.category || 'General') === oldName);
-  if (!toUpdate.length) return;
+  // Rename all assets in this category
+  var toUpdate = _webAssets.filter(function(a) { return (a.category || 'General') === oldName; });
   var ok = 0;
-  for (var a of toUpdate) {
+  for (var i = 0; i < toUpdate.length; i++) {
     try {
-      await api('/api/assets/' + a.id, { method: 'PATCH', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ category: newName }) });
+      await api('/api/assets/' + toUpdate[i].id, { method: 'PATCH', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ category: newName }) });
       ok++;
     } catch(_) {}
   }
+  // Also rename in the explicit categories list
+  try {
+    await api('/api/asset-categories', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ name: newName }) });
+    await api('/api/asset-categories/' + encodeURIComponent(oldName), { method: 'DELETE' });
+  } catch(_) {}
   await loadWebAssets();
-  showToastWeb('Renamed "' + oldName + '" → "' + newName + '" (' + ok + ' assets updated)');
+  showToastWeb('Renamed "' + oldName + '" → "' + newName + '"' + (ok ? ' (' + ok + ' assets updated)' : ''));
 }
 
 async function deleteCategoryConfirm(cat) {
-  var count = _webAssets.filter(a => (a.category || 'General') === cat).length;
-  if (!confirm('Delete category "' + cat + '" and all ' + count + ' asset(s) in it? This cannot be undone.')) return;
-  var toDelete = _webAssets.filter(a => (a.category || 'General') === cat).map(a => a.id);
-  for (var id of toDelete) {
-    try { await api('/api/assets/' + id, { method: 'DELETE' }); } catch(_) {}
+  var count = _webAssets.filter(function(a) { return (a.category || 'General') === cat; }).length;
+  var msg = count > 0
+    ? 'Delete category "' + cat + '" and all ' + count + ' asset(s) in it? This cannot be undone.'
+    : 'Delete empty category "' + cat + '"?';
+  if (!confirm(msg)) return;
+  var toDelete = _webAssets.filter(function(a) { return (a.category || 'General') === cat; }).map(function(a) { return a.id; });
+  for (var i = 0; i < toDelete.length; i++) {
+    try { await api('/api/assets/' + toDelete[i], { method: 'DELETE' }); } catch(_) {}
   }
+  // Also remove from explicit categories list
+  try { await api('/api/asset-categories/' + encodeURIComponent(cat), { method: 'DELETE' }); } catch(_) {}
   await loadWebAssets();
   showToastWeb('Deleted category "' + cat + '" (' + toDelete.length + ' assets removed)');
 }

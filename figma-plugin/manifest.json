@@ -8,6 +8,7 @@
   "networkAccess": {
     "allowedDomains": [
       "https://888-smartico-bridge.888africa.com",
+      "https://smartico-bridge-production.up.railway.app",
       "http://localhost:3001",
       "https://888africa.com",
       "https://*.888bets.co.mz",

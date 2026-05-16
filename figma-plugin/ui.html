@@ -729,13 +729,24 @@
   <div class="panel-body hidden" id="panel-assets-body">
 
     <button id="saveSelBtn" onclick="saveAsset()" style="
-      width:100%; padding:16px 12px; border:none; border-radius:var(--radius);
+      width:100%; padding:14px 12px; border:none; border-radius:var(--radius);
       background:#3344FF; color:#fff;
-      font-family:var(--font-display); font-size:18px; font-weight:800;
+      font-family:var(--font-display); font-size:16px; font-weight:800;
       letter-spacing:0.02em; cursor:pointer; transition:background .15s;
-    " onmouseover="if(!this.disabled)this.style.background='#2233DD'" onmouseout="if(!this.disabled)this.style.background='#3344FF'">SAVE SELECTION</button>
+      display:flex; align-items:center; justify-content:center; gap:8px;
+    " onmouseover="if(!this.disabled)this.style.background='#2233DD'" onmouseout="if(!this.disabled)this.style.background='#3344FF'">
+      <span id="saveSelIcon" style="display:flex;align-items:center;flex-shrink:0"></span>
+      <span id="saveSelLabel">SAVE SELECTION</span>
+    </button>
 
     <div id="assetNameRow" style="display:none">
+      <!-- Dialog header: type icon + type name + "use Figma name" link -->
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;padding:6px 8px;background:var(--white-strong);border-radius:6px;border:1px solid var(--border)">
+        <span id="assetDialogIcon" style="display:flex;align-items:center;color:#3344FF;flex-shrink:0"></span>
+        <span id="assetDialogType" style="font-size:11px;font-weight:700;color:#3344FF;text-transform:uppercase;letter-spacing:0.05em">Frame</span>
+        <span id="assetDialogName" style="font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1" title=""></span>
+        <button onclick="useSelectionName()" style="flex-shrink:0;border:none;background:none;font-size:10px;color:#3344FF;cursor:pointer;padding:2px 4px;font-family:var(--font);font-weight:600;white-space:nowrap">↩ Use Figma name</button>
+      </div>
       <input type="text" id="assetNameInput" placeholder="Asset name…" style="margin-bottom:6px">
       <select id="assetCategoryInput" style="width:100%;margin-bottom:6px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-family:var(--font);font-size:12px;background:var(--white-strong);color:var(--text)">
         <option value="General">General</option>
@@ -1322,6 +1333,14 @@ window.addEventListener('message', function(ev) {
     if (txt) txt.textContent = nodes.length
       ? (nodes[0].name + (nodes.length > 1 ? ' +' + (nodes.length - 1) + ' more' : ''))
       : 'No selection';
+    // Update the Asset Library SAVE SELECTION button
+    try {
+      _updateSaveSelBtn(nodes.length ? {
+        count: nodes.length,
+        name:  nodes.length === 1 ? nodes[0].name : nodes.length + ' items',
+        type:  nodes.length === 1 ? nodes[0].type : 'GROUP',
+      } : { count: 0, name: '', type: '' });
+    } catch(_) {}
   }
 
   // ── 2. Main handler — selection, inject, assets, etc. ────────────────────────
@@ -2566,11 +2585,20 @@ function _sbMainOnMsg(event) {
     // ── Canvas preview — instant colour-swatch from fill data ─────────────────
     var _instantPreview = generateNodePreview(msg.nodes[0]);
 
-    _pendingAssetNodes = { name: msg.name, assetType: msg.assetType, nodeCount: msg.nodeCount,
-                           typeSummary: _derivedSummary, nodes: msg.nodes,
-                           previewDataUrl: _instantPreview };
+    _pendingAssetNodes = { name: msg.name, figmaName: msg.name, assetType: msg.assetType,
+                           nodeCount: msg.nodeCount, typeSummary: _derivedSummary,
+                           nodes: msg.nodes, previewDataUrl: _instantPreview };
     var nameEl = document.getElementById('assetNameInput');
     if (nameEl) nameEl.value = msg.name || '';
+    // Populate dialog header: icon, type label, Figma layer name
+    var _aType = msg.assetType || 'FRAME';
+    var _typeLabel = { FRAME:'Frame', SECTION:'Section', GROUP:'Group', COMPONENT:'Component', INSTANCE:'Instance' };
+    var dialogIcon = document.getElementById('assetDialogIcon');
+    var dialogType = document.getElementById('assetDialogType');
+    var dialogName = document.getElementById('assetDialogName');
+    if (dialogIcon) dialogIcon.innerHTML = _getAssetIcon(_aType);
+    if (dialogType) dialogType.textContent = _typeLabel[_aType] || _aType;
+    if (dialogName) { var _dn = msg.name || ''; dialogName.textContent = _dn; dialogName.title = _dn; }
     var row = document.getElementById('assetNameRow');
     if (row) row.style.display = 'block';
     // Disable Save until real preview arrives (or fails)
@@ -2814,6 +2842,43 @@ function generateNodePreview(node) {
 // ── Asset library ─────────────────────────────────────────────────────────────
 var savedAssets        = [];
 var _pendingAssetNodes = null;
+
+// SVG icons matching FRAME.svg / SECTION.svg / GROUP.svg
+// currentColor is used so the fill adapts to context (white on button, blue in dialog)
+var _ASSET_ICONS = {
+  FRAME:         '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg"><line x1="4" y1="1" x2="4" y2="13" stroke="currentColor"/><line x1="1" y1="10" x2="13" y2="10" stroke="currentColor"/><line x1="10" y1="1" x2="10" y2="13" stroke="currentColor"/><line x1="1" y1="4" x2="13" y2="4" stroke="currentColor"/></svg>',
+  SECTION:       '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="1.5" y="1.5" width="11" height="11" rx="0.5" stroke="currentColor"/><rect x="1.5" y="1.5" width="6" height="3" rx="0.5" stroke="currentColor"/></svg>',
+  GROUP:         '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="1.5" y="1.5" width="11" height="11" rx="0.5" stroke="currentColor" stroke-dasharray="2 2"/></svg>',
+  COMPONENT:     '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="1.5" y="1.5" width="11" height="11" rx="0.5" stroke="currentColor"/><line x1="7" y1="1" x2="7" y2="13" stroke="currentColor" stroke-dasharray="2 2"/></svg>',
+  INSTANCE:      '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="1.5" y="1.5" width="11" height="11" rx="0.5" stroke="currentColor"/></svg>',
+};
+function _getAssetIcon(type) {
+  return _ASSET_ICONS[type] || _ASSET_ICONS.FRAME;
+}
+
+// Update the SAVE SELECTION button to show type icon + Figma node name
+var _currentFigmaSel = { count: 0, name: '', type: '' };
+function _updateSaveSelBtn(sel) {
+  _currentFigmaSel = sel || { count: 0, name: '', type: '' };
+  var iconEl  = document.getElementById('saveSelIcon');
+  var labelEl = document.getElementById('saveSelLabel');
+  if (!iconEl || !labelEl) return;
+  if (!_currentFigmaSel.count) {
+    iconEl.innerHTML  = '';
+    labelEl.textContent = 'SAVE SELECTION';
+    return;
+  }
+  iconEl.innerHTML = _getAssetIcon(_currentFigmaSel.type);
+  var raw = _currentFigmaSel.name || 'Selection';
+  var display = raw.length > 20 ? raw.slice(0, 18) + '…' : raw;
+  labelEl.textContent = display.toUpperCase();
+}
+
+// "↩ Use Figma name" link — resets the name input back to the Figma layer name
+function useSelectionName() {
+  var nameEl = document.getElementById('assetNameInput');
+  if (nameEl && _pendingAssetNodes) nameEl.value = _pendingAssetNodes.figmaName || _pendingAssetNodes.name || '';
+}
 
 var _activeCategoryFilter = null;
 

@@ -748,9 +748,8 @@
         <button onclick="useSelectionName()" style="flex-shrink:0;border:none;background:none;font-size:10px;color:#3344FF;cursor:pointer;padding:2px 4px;font-family:var(--font);font-weight:600;white-space:nowrap">↩ Use Figma name</button>
       </div>
       <input type="text" id="assetNameInput" placeholder="Asset name…" style="margin-bottom:6px">
-      <select id="assetCategoryInput" style="width:100%;margin-bottom:6px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-family:var(--font);font-size:12px;background:var(--white-strong);color:var(--text)">
-        <option value="General">General</option>
-      </select>
+      <input type="text" id="assetCategoryInput" list="assetCatList" placeholder="Category (e.g. Buttons)" style="width:100%;margin-bottom:6px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-family:var(--font);font-size:12px;background:var(--white-strong);color:var(--text);box-sizing:border-box">
+      <datalist id="assetCatList"><option value="General"></option></datalist>
       <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);margin-bottom:8px;cursor:pointer">
         <input type="checkbox" id="assetSaveExportSettings"> Save with current export settings
       </label>
@@ -2889,16 +2888,19 @@ async function loadAssets() {
       api('/api/asset-categories').catch(function() { return { categories: [] }; }),
     ]);
     savedAssets = assetData.assets || [];
-    // Merge asset-derived categories with explicit categories from server
-    var catSel = document.getElementById('assetCategoryInput');
-    if (catSel) {
+    // Merge asset-derived categories with explicit categories from server.
+    // Populate the datalist so the text input gets autocomplete options.
+    var catList = document.getElementById('assetCatList');
+    if (catList) {
       var fromAssets = savedAssets.map(function(a) { return a.category || 'General'; });
       var fromServer = catData.categories || [];
       var cats = [...new Set([...fromAssets, ...fromServer])].sort();
       if (!cats.includes('General')) cats.unshift('General');
-      catSel.innerHTML = cats.map(function(c) { return '<option value="' + esc(c) + '">' + esc(c) + '</option>'; }).join('') +
-        '<option value="__new__">+ New category…</option>';
+      catList.innerHTML = cats.map(function(c) { return '<option value="' + esc(c) + '">'; }).join('');
     }
+    // Set default value on category input if it is currently empty
+    var catInput = document.getElementById('assetCategoryInput');
+    if (catInput && !catInput.value) catInput.value = 'General';
     renderCatFilter();
     renderAssets();
   } catch (e) {
@@ -2985,7 +2987,7 @@ async function confirmSaveAsset() {
   var catEl  = document.getElementById('assetCategoryInput');
   var expEl  = document.getElementById('assetSaveExportSettings');
   var name   = (nameEl && nameEl.value.trim()) || _pendingAssetNodes.name || 'Untitled';
-  var category = catEl ? (catEl.value === '__new__' ? (prompt('New category name:') || 'General') : catEl.value) : 'General';
+  var category = (catEl && catEl.value.trim()) ? catEl.value.trim() : 'General';
   var exportSettings = null;
   if (expEl && expEl.checked && window._sbOptimiserState) {
     var _os = window._sbOptimiserState;
@@ -3023,16 +3025,31 @@ async function restoreAsset(id) {
     var data = await api('/api/assets/' + id);
     if (!data || !data.nodes) throw new Error('Empty asset');
     parent.postMessage({ pluginMessage: { type: 'restore-asset', nodes: data.nodes } }, '*');
-    // If the asset has saved export settings, offer to restore them
+    // Auto-apply saved export settings if present.
+    // NOTE: confirm() is blocked in Figma plugin iframes and always returns false,
+    // so we apply automatically and notify via the banner instead of asking.
     if (data.exportSettings && window._sbApplyOptimiserSettings) {
-      var apply = confirm('This asset has saved export settings (quality/size targets). Apply them to the Optimiser?');
-      if (apply) window._sbApplyOptimiserSettings(data.exportSettings);
+      window._sbApplyOptimiserSettings(data.exportSettings);
+      setAssetBanner('Restoring… (export settings applied)');
+    } else {
+      setAssetBanner('Restoring…');
     }
-    setAssetBanner('Restoring…');
   } catch (e) { setAssetBanner('Restore failed: ' + e.message); }
 }
+var _pendingDeleteId = null;
+var _pendingDeleteTimer = null;
 async function deleteAsset(id) {
-  if (!confirm('Delete this asset from the library?')) return;
+  // Two-step delete: first click arms, second click executes.
+  // (confirm() is blocked in Figma plugin iframes.)
+  if (_pendingDeleteId !== id) {
+    _pendingDeleteId = id;
+    clearTimeout(_pendingDeleteTimer);
+    _pendingDeleteTimer = setTimeout(function() { _pendingDeleteId = null; }, 3500);
+    setAssetBanner('Click Delete again to confirm removal.');
+    return;
+  }
+  clearTimeout(_pendingDeleteTimer);
+  _pendingDeleteId = null;
   try {
     await api('/api/assets/' + id, { method: 'DELETE' });
     savedAssets = savedAssets.filter(function(a) { return a.id !== id; });

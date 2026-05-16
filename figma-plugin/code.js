@@ -1813,6 +1813,47 @@ figma.ui.onmessage = async function(msg) {
             try { rn.x = vtx2; rn.y = vty2; } catch(_) {}
           }
         }
+        // ── Section child safety-pass ────────────────────────────────────
+        // SectionNode does not always propagate its own position change to
+        // children in the Figma plugin API (behaviour differs by API version).
+        // After moving the section above, verify each direct child frame
+        // reached the expected absolute position.  If it hasn't (i.e. the
+        // section is not a proper coordinate container for this API version),
+        // apply the layout offset to the child explicitly.
+        //
+        // This is a no-op when sections DO auto-move children because the
+        // position check will match and the branch is skipped.
+        if (rn.type === 'SECTION') {
+          var scDefs = tree[ri].children || [];
+          var scNodes = rn.children;
+          for (var sci2 = 0; sci2 < scNodes.length; sci2++) {
+            var scNode = scNodes[sci2];
+            var scDef  = scDefs[sci2];
+            if (!scNode || !scDef || !scDef.absoluteTransform) continue;
+            var scAt = scDef.absoluteTransform;
+            var expAbsX = scAt[0][2] + layoutOffsetX;
+            var expAbsY = scAt[1][2] + layoutOffsetY;
+            var curAt;
+            try { curAt = scNode.absoluteTransform; } catch(_) { continue; }
+            if (!curAt) continue;
+            // Tolerance of 2px — sub-pixel rounding is expected.
+            if (Math.abs(curAt[0][2] - expAbsX) > 2 || Math.abs(curAt[1][2] - expAbsY) > 2) {
+              // Child did NOT auto-move with the section.  Push it to the
+              // correct page-space position by offsetting its current
+              // relativeTransform translation components.
+              try {
+                var scRt = scNode.relativeTransform;
+                scNode.relativeTransform = [
+                  [scRt[0][0], scRt[0][1], scRt[0][2] + layoutOffsetX],
+                  [scRt[1][0], scRt[1][1], scRt[1][2] + layoutOffsetY]
+                ];
+              } catch(_) {
+                try { scNode.x += layoutOffsetX; scNode.y += layoutOffsetY; } catch(_) {}
+              }
+            }
+          }
+        }
+
         restored.push(rn);
       }
     }

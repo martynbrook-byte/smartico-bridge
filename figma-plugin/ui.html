@@ -3516,6 +3516,7 @@ function saveOptimiserState() {
     globalQuality:  state.globalQuality,
     sizeTargetMode: state.sizeTargetMode,
     targetSizeKB:   state.targetSizeKB,
+    overrides:      state.overrides,   // per-asset quality/size targets
   });
 }
 
@@ -3526,6 +3527,7 @@ async function loadOptimiserState() {
     if (typeof saved.globalQuality  === 'number') state.globalQuality  = saved.globalQuality;
     if (typeof saved.sizeTargetMode === 'boolean') state.sizeTargetMode = saved.sizeTargetMode;
     if (typeof saved.targetSizeKB   === 'number') state.targetSizeKB   = saved.targetSizeKB;
+    if (saved.overrides && typeof saved.overrides === 'object') state.overrides = saved.overrides;
     // Sync DOM to restored state
     qualitySlider.value    = state.globalQuality;
     targetSizeInput.value  = state.targetSizeKB;
@@ -3647,6 +3649,7 @@ function createLayerRow(layer) {
   fmtSel.addEventListener('change', () => {
     if (!state.overrides[key]) state.overrides[key] = { qualityIsDefault: true };
     state.overrides[key].format = fmtSel.value;
+    saveOptimiserState();
   });
   const dimsEl = document.createElement('span'); dimsEl.className = 'layer-dims';
   dimsEl.textContent = `${layer.width}×${layer.height}px`;
@@ -3661,6 +3664,7 @@ function createLayerRow(layer) {
     if (!state.overrides[key]) state.overrides[key] = {};
     state.overrides[key].quality = Math.max(1, parseInt(qInput.value,10) || 1);
     state.overrides[key].qualityIsDefault = false; qInput.dataset.auto = 'false';
+    saveOptimiserState();
   });
   const pctLbl = document.createElement('span'); pctLbl.className = 'pct-label';
   pctLbl.textContent = state.sizeTargetMode ? 'KB' : '%';

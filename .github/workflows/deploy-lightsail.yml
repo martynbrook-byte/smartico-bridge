@@ -26,6 +26,8 @@ jobs:
       NGINX_SERVER_NAME: ${{ vars.LIGHTSAIL_NGINX_SERVER_NAME || '_' }}
       NGINX_ALLOW_CIDRS: ${{ vars.LIGHTSAIL_NGINX_ALLOW_CIDRS || '' }}
       INSTALL_NGINX: ${{ vars.LIGHTSAIL_INSTALL_NGINX || '1' }}
+      SETUP_HTTPS: ${{ vars.LIGHTSAIL_SETUP_HTTPS || '0' }}
+      HTTPS_EMAIL: ${{ vars.LIGHTSAIL_HTTPS_EMAIL || '' }}
 
     steps:
       - name: Check out code
@@ -89,6 +91,8 @@ jobs:
           NGINX_SERVER_NAME="$NGINX_SERVER_NAME" \
           NGINX_ALLOW_CIDRS="$NGINX_ALLOW_CIDRS" \
           INSTALL_NGINX="$INSTALL_NGINX" \
+          SETUP_HTTPS="$SETUP_HTTPS" \
+          HTTPS_EMAIL="$HTTPS_EMAIL" \
           ./scripts/start-production.sh
           docker compose ps || sudo docker compose ps
           EOF

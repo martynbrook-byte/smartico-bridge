@@ -2924,6 +2924,7 @@ function describeRule(rule) {
 }
 
 app.get('/api/pipelines/:id/describe', async (req, res) => {
+  const q = col => `"${col}"`;  // ANSI SQL double-quote column names
   try {
     const pipeline = await getPipeline(req.params.id);
     const s        = await readSettings();

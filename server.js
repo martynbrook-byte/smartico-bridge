@@ -2500,13 +2500,18 @@ app.get('/api/assets/:id', async (req, res) => {
   }
 });
 
-app.patch('/api/assets/:id', express.json({ limit: '1mb' }), async (req, res) => {
+// Limit raised to 10 MB to accommodate base64-encoded thumbnail uploads.
+app.patch('/api/assets/:id', express.json({ limit: '10mb' }), async (req, res) => {
   try {
     const filePath = path.join(ASSETS_DIR, `${req.params.id}.json`);
     const raw = await fsp.readFile(filePath, 'utf8');
     const record = JSON.parse(raw);
-    if (typeof req.body.name === 'string' && req.body.name.trim()) record.name = req.body.name.trim();
+    if (typeof req.body.name    === 'string' && req.body.name.trim())    record.name     = req.body.name.trim();
     if (typeof req.body.category === 'string' && req.body.category.trim()) record.category = req.body.category.trim();
+    // preview: accept a base64 data-URL (e.g. 'data:image/png;base64,...') or null to clear.
+    if (Object.prototype.hasOwnProperty.call(req.body, 'preview')) {
+      record.preview = (typeof req.body.preview === 'string' && req.body.preview) ? req.body.preview : null;
+    }
     await fsp.writeFile(filePath, JSON.stringify(record, null, 2));
     res.json({ ok: true, id: record.id, name: record.name, category: record.category });
   } catch (err) {

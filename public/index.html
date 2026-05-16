@@ -1562,8 +1562,18 @@
     .web-asset-card-thumb {
       width: 100%; aspect-ratio: 16/9; object-fit: cover; background: var(--bg);
       display: flex; align-items: center; justify-content: center; font-size: 28px; color: var(--muted);
+      position: relative; overflow: hidden; cursor: pointer;
     }
     .web-asset-card-thumb img { width: 100%; height: 100%; object-fit: cover; }
+    .web-asset-card-thumb:hover .thumb-upload-hint {
+      opacity: 1;
+    }
+    .thumb-upload-hint {
+      position: absolute; inset: 0; background: rgba(0,0,0,.45); color: #fff;
+      display: flex; align-items: center; justify-content: center; gap: 5px;
+      font-size: 0.72rem; font-weight: 600; opacity: 0; transition: opacity .15s;
+      pointer-events: none;
+    }
     .web-asset-card-body { padding: 8px; flex: 1; display: flex; flex-direction: column; gap: 4px; }
     .web-asset-card-name { font-weight: 600; font-size: 0.8rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .web-asset-card-meta { font-size: 0.72rem; color: var(--muted); }
@@ -1971,6 +1981,36 @@
       <div style="display:flex;gap:8px">
         <button class="btn btn-primary btn-small" onclick="createCategory()">Create</button>
         <button class="btn btn-small" onclick="hideNewCategoryDialog()">Cancel</button>
+      </div>
+    </div>
+
+    <!-- Edit asset dialog -->
+    <div id="editAssetDialog" style="display:none;position:fixed;inset:0;background:#0007;z-index:9000;align-items:center;justify-content:center">
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px;width:320px;max-width:90vw;box-shadow:0 8px 32px #0004">
+        <div style="font-weight:700;margin-bottom:14px;font-size:1rem">Edit asset</div>
+        <label style="display:block;font-size:0.8rem;color:var(--muted);margin-bottom:4px">Name</label>
+        <input id="editAssetName" type="text" style="width:100%;box-sizing:border-box;margin-bottom:10px" onkeydown="if(event.key==='Enter')saveEditAsset();if(event.key==='Escape')closeEditAsset()">
+        <label style="display:block;font-size:0.8rem;color:var(--muted);margin-bottom:4px">Category</label>
+        <input id="editAssetCat" type="text" list="editAssetCatList" style="width:100%;box-sizing:border-box;margin-bottom:14px" onkeydown="if(event.key==='Enter')saveEditAsset();if(event.key==='Escape')closeEditAsset()">
+        <datalist id="editAssetCatList"></datalist>
+        <input type="hidden" id="editAssetId">
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-primary btn-small" onclick="saveEditAsset()">Save</button>
+          <button class="btn btn-small" onclick="closeEditAsset()">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Rename category dialog -->
+    <div id="renameCatDialog" style="display:none;position:fixed;inset:0;background:#0007;z-index:9000;align-items:center;justify-content:center">
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px;width:320px;max-width:90vw;box-shadow:0 8px 32px #0004">
+        <div style="font-weight:700;margin-bottom:14px;font-size:1rem">Rename category</div>
+        <input id="renameCatInput" type="text" style="width:100%;box-sizing:border-box;margin-bottom:14px" onkeydown="if(event.key==='Enter')saveRenameCategory();if(event.key==='Escape')closeRenameCategory()">
+        <input type="hidden" id="renameCatOld">
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-primary btn-small" onclick="saveRenameCategory()">Rename</button>
+          <button class="btn btn-small" onclick="closeRenameCategory()">Cancel</button>
+        </div>
       </div>
     </div>
 
@@ -6095,14 +6135,30 @@ setInterval(tickUptime, 1000);
 setInterval(loadHealth, 15000);
 
 // ── Asset library web management ─────────────────────────────────────────────
+// All asset/category API calls go to the Railway server (same as the Figma
+// plugin), so categories and assets are shared between the website and plugin.
+var ASSET_LIB_URL = 'https://smartico-bridge-production.up.railway.app';
+
+async function assetApi(path, opts) {
+  opts = opts || {};
+  var headers = Object.assign({ 'Content-Type': 'application/json' }, opts.headers || {});
+  var res = await fetch(ASSET_LIB_URL + path, Object.assign({}, opts, { headers: headers }));
+  if (!res.ok) {
+    var msg = 'HTTP ' + res.status;
+    try { var j = await res.json(); if (j.error) msg = j.error; } catch(_) {}
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
 var _webAssets = [];
 var _explicitCategories = [];  // categories created via "+ New Category", may be empty
 
 async function loadWebAssets() {
   try {
     var [assetData, catData] = await Promise.all([
-      api('/api/assets'),
-      api('/api/asset-categories').catch(function() { return { categories: [] }; }),
+      assetApi('/api/assets'),
+      assetApi('/api/asset-categories').catch(function() { return { categories: [] }; }),
     ]);
     _webAssets = (assetData.assets || []).sort(function(a, b) {
       return (a.category||'General').localeCompare(b.category||'General') || String(b.savedAt||'').localeCompare(String(a.savedAt||''));
@@ -6151,15 +6207,19 @@ function renderWebAssets(filter) {
       <div class="web-asset-grid">
         ${items.length === 0 ? '<div style="grid-column:1/-1;color:var(--muted);font-size:0.8rem;padding:12px 0;font-style:italic">No assets yet — save selections to this category from the Figma plugin, or move existing assets here using the ✏ edit button.</div>' : ''}
         ${items.map(function(a) {
-          var thumb = a.preview ? `<img src="${esc(a.preview)}" alt="">` : '▣';
-          var expBadge = a.exportSettings ? '<span title="Has saved export settings" style="background:#3b82f6;color:#fff;border-radius:3px;padding:1px 4px;font-size:10px">⚙ Export</span>' : '';
+          var thumb = a.preview ? `<img src="${esc(a.preview)}" alt="">` : '<span>▣</span>';
+          var expBadge = a.exportSettings ? '<span title="Has saved export settings" style="background:#3b82f6;color:#fff;border-radius:3px;padding:1px 4px;font-size:10px">⚙</span>' : '';
           return `<div class="web-asset-card">
-            <div class="web-asset-card-thumb">${thumb}</div>
+            <label class="web-asset-card-thumb" title="Click to upload thumbnail">
+              ${thumb}
+              <span class="thumb-upload-hint">📷 Upload thumbnail</span>
+              <input type="file" accept="image/*" style="display:none" onchange="uploadAssetThumbnail('${esc(a.id)}',this)">
+            </label>
             <div class="web-asset-card-body">
               <div class="web-asset-card-name" title="${esc(a.name)}">${esc(a.name)}</div>
               <div class="web-asset-card-meta">${esc(a.typeSummary||'')} ${expBadge}</div>
               <div class="web-asset-card-actions">
-                <button class="btn btn-small" onclick="editAssetPrompt('${esc(a.id)}','${esc(a.name)}','${esc(a.category||'General')}')">✏</button>
+                <button class="btn btn-small" onclick="openEditAsset('${esc(a.id)}','${esc(a.name)}','${esc(a.category||'General')}')">✏ Edit</button>
                 <button class="btn btn-small" style="color:#b91c1c" onclick="deleteWebAsset('${esc(a.id)}')">✕</button>
               </div>
             </div>
@@ -6185,74 +6245,144 @@ async function createCategory() {
   var name = (inp ? inp.value : '').trim();
   if (!name) { if (inp) inp.focus(); return; }
   try {
-    await api('/api/asset-categories', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name }) });
+    await assetApi('/api/asset-categories', { method: 'POST', body: JSON.stringify({ name: name }) });
     hideNewCategoryDialog();
     await loadWebAssets();
     showToastWeb('Category "' + name + '" created — save assets to it from the Figma plugin or move existing ones here.');
   } catch(e) { showToastWeb('Error: ' + e.message, 'error'); }
 }
 
-async function renameCategoryPrompt(oldName) {
-  var newName = prompt('Rename category "' + oldName + '" to:', oldName);
-  if (!newName || !newName.trim() || newName.trim() === oldName) return;
-  newName = newName.trim();
-  // Rename all assets in this category
+// ── Rename category (inline dialog, no prompt()) ──────────────────────────
+function renameCategoryPrompt(oldName) {
+  var d = document.getElementById('renameCatDialog');
+  var inp = document.getElementById('renameCatInput');
+  var hidden = document.getElementById('renameCatOld');
+  if (!d || !inp || !hidden) return;
+  inp.value = oldName;
+  hidden.value = oldName;
+  d.style.display = 'flex';
+  setTimeout(function() { inp.select(); }, 60);
+}
+function closeRenameCategory() {
+  var d = document.getElementById('renameCatDialog');
+  if (d) d.style.display = 'none';
+}
+async function saveRenameCategory() {
+  var inp = document.getElementById('renameCatInput');
+  var hidden = document.getElementById('renameCatOld');
+  var oldName = hidden ? hidden.value : '';
+  var newName = (inp ? inp.value : '').trim();
+  if (!newName || newName === oldName) { closeRenameCategory(); return; }
+  closeRenameCategory();
   var toUpdate = _webAssets.filter(function(a) { return (a.category || 'General') === oldName; });
   var ok = 0;
   for (var i = 0; i < toUpdate.length; i++) {
     try {
-      await api('/api/assets/' + toUpdate[i].id, { method: 'PATCH', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ category: newName }) });
+      await assetApi('/api/assets/' + toUpdate[i].id, { method: 'PATCH', body: JSON.stringify({ category: newName }) });
       ok++;
     } catch(_) {}
   }
-  // Also rename in the explicit categories list
   try {
-    await api('/api/asset-categories', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ name: newName }) });
-    await api('/api/asset-categories/' + encodeURIComponent(oldName), { method: 'DELETE' });
+    await assetApi('/api/asset-categories', { method: 'POST', body: JSON.stringify({ name: newName }) });
+    await assetApi('/api/asset-categories/' + encodeURIComponent(oldName), { method: 'DELETE' });
   } catch(_) {}
   await loadWebAssets();
   showToastWeb('Renamed "' + oldName + '" → "' + newName + '"' + (ok ? ' (' + ok + ' assets updated)' : ''));
 }
 
+// ── Delete category (two-step, no confirm()) ──────────────────────────────
+var _pendingDeleteCat = null;
+var _pendingDeleteCatTimer = null;
 async function deleteCategoryConfirm(cat) {
-  var count = _webAssets.filter(function(a) { return (a.category || 'General') === cat; }).length;
-  var msg = count > 0
-    ? 'Delete category "' + cat + '" and all ' + count + ' asset(s) in it? This cannot be undone.'
-    : 'Delete empty category "' + cat + '"?';
-  if (!confirm(msg)) return;
+  if (_pendingDeleteCat !== cat) {
+    _pendingDeleteCat = cat;
+    clearTimeout(_pendingDeleteCatTimer);
+    _pendingDeleteCatTimer = setTimeout(function() { _pendingDeleteCat = null; }, 3500);
+    var count = _webAssets.filter(function(a) { return (a.category || 'General') === cat; }).length;
+    showToastWeb('Click 🗑 again to confirm deleting "' + cat + '"' + (count ? ' and ' + count + ' asset(s)' : ''));
+    return;
+  }
+  clearTimeout(_pendingDeleteCatTimer);
+  _pendingDeleteCat = null;
   var toDelete = _webAssets.filter(function(a) { return (a.category || 'General') === cat; }).map(function(a) { return a.id; });
   for (var i = 0; i < toDelete.length; i++) {
-    try { await api('/api/assets/' + toDelete[i], { method: 'DELETE' }); } catch(_) {}
+    try { await assetApi('/api/assets/' + toDelete[i], { method: 'DELETE' }); } catch(_) {}
   }
-  // Also remove from explicit categories list
-  try { await api('/api/asset-categories/' + encodeURIComponent(cat), { method: 'DELETE' }); } catch(_) {}
+  try { await assetApi('/api/asset-categories/' + encodeURIComponent(cat), { method: 'DELETE' }); } catch(_) {}
   await loadWebAssets();
   showToastWeb('Deleted category "' + cat + '" (' + toDelete.length + ' assets removed)');
 }
 
-async function editAssetPrompt(id, currentName, currentCategory) {
-  var allCats = [...new Set(_webAssets.map(a => a.category || 'General'))].sort();
-  var newName = prompt('Asset name:', currentName);
-  if (newName === null) return;
-  var catList = allCats.join(', ');
-  var newCat = prompt('Category (existing: ' + catList + '):', currentCategory);
-  if (newCat === null) return;
-  newName = (newName || '').trim() || currentName;
-  newCat = (newCat || '').trim() || currentCategory;
+// ── Edit asset (inline dialog, no prompt()) ───────────────────────────────
+function openEditAsset(id, currentName, currentCategory) {
+  var d = document.getElementById('editAssetDialog');
+  var nameEl = document.getElementById('editAssetName');
+  var catEl = document.getElementById('editAssetCat');
+  var idEl = document.getElementById('editAssetId');
+  var dl = document.getElementById('editAssetCatList');
+  if (!d) return;
+  if (idEl) idEl.value = id;
+  if (nameEl) nameEl.value = currentName;
+  if (catEl) catEl.value = currentCategory;
+  // Populate category datalist
+  if (dl) {
+    var cats = [...new Set([..._explicitCategories, ..._webAssets.map(function(a) { return a.category || 'General'; })])].sort();
+    dl.innerHTML = cats.map(function(c) { return '<option value="' + esc(c) + '">'; }).join('');
+  }
+  d.style.display = 'flex';
+  setTimeout(function() { if (nameEl) nameEl.select(); }, 60);
+}
+function closeEditAsset() {
+  var d = document.getElementById('editAssetDialog');
+  if (d) d.style.display = 'none';
+}
+async function saveEditAsset() {
+  var id = document.getElementById('editAssetId')?.value;
+  var newName = (document.getElementById('editAssetName')?.value || '').trim();
+  var newCat = (document.getElementById('editAssetCat')?.value || '').trim() || 'General';
+  if (!id || !newName) return;
+  closeEditAsset();
   try {
-    await api('/api/assets/' + id, { method: 'PATCH', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ name: newName, category: newCat }) });
+    await assetApi('/api/assets/' + id, { method: 'PATCH', body: JSON.stringify({ name: newName, category: newCat }) });
     await loadWebAssets();
     showToastWeb('Asset updated');
   } catch(e) { showToastWeb('Error: ' + e.message, 'error'); }
 }
 
+// ── Delete asset (two-step, no confirm()) ─────────────────────────────────
+var _pendingDeleteAsset = null;
+var _pendingDeleteAssetTimer = null;
 async function deleteWebAsset(id) {
-  if (!confirm('Delete this asset? This cannot be undone.')) return;
+  if (_pendingDeleteAsset !== id) {
+    _pendingDeleteAsset = id;
+    clearTimeout(_pendingDeleteAssetTimer);
+    _pendingDeleteAssetTimer = setTimeout(function() { _pendingDeleteAsset = null; }, 3500);
+    showToastWeb('Click ✕ again to confirm deleting this asset.');
+    return;
+  }
+  clearTimeout(_pendingDeleteAssetTimer);
+  _pendingDeleteAsset = null;
   try {
-    await api('/api/assets/' + id, { method: 'DELETE' });
+    await assetApi('/api/assets/' + id, { method: 'DELETE' });
     await loadWebAssets();
     showToastWeb('Asset deleted');
   } catch(e) { showToastWeb('Error: ' + e.message, 'error'); }
+}
+
+// ── Upload / replace thumbnail ────────────────────────────────────────────
+async function uploadAssetThumbnail(id, inputEl) {
+  var file = inputEl && inputEl.files && inputEl.files[0];
+  if (!file) return;
+  var reader = new FileReader();
+  reader.onload = async function(ev) {
+    var dataUrl = ev.target.result;
+    try {
+      await assetApi('/api/assets/' + id, { method: 'PATCH', body: JSON.stringify({ preview: dataUrl }) });
+      await loadWebAssets();
+      showToastWeb('Thumbnail updated');
+    } catch(e) { showToastWeb('Upload failed: ' + e.message, 'error'); }
+  };
+  reader.readAsDataURL(file);
 }
 
 function showToastWeb(msg, type) {

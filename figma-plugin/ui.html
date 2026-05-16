@@ -234,6 +234,8 @@
   .ds-meta { font-size: var(--fs-micro); color: var(--muted); margin-top: 3px; display: flex; gap: 8px; flex-wrap: wrap; }
   .ds-chip { background: rgba(0,0,0,.07); border-radius: var(--radius-xs); padding: 1px 5px; }
   .ds-chip.proc { background: #d1fae5; color: #065f46; }
+  .ds-chip-new { background: #f59e0b; color: #fff; font-weight: 700; font-size: 9px; letter-spacing: 0.06em; animation: ds-new-pulse 2s ease-in-out infinite; }
+  @keyframes ds-new-pulse { 0%,100% { opacity:1; } 50% { opacity:.65; } }
   .ds-country-badge { font-size: var(--fs-tiny); font-weight: 800; letter-spacing: 0.04em; background: #1e40af; color: #fff; border-radius: 3px; padding: 1px 5px; line-height: 1.4; }
   .ds-eye-btn { position: absolute; top: 6px; right: 6px; background: none; border: none; cursor: pointer; padding: 2px 4px; font-size: var(--fs-label); opacity: 0.45; line-height: 1; border-radius: var(--radius-xs); transition: opacity .15s, background .15s; }
   .ds-eye-btn:hover { opacity: 1; background: rgba(0,0,0,.07); }
@@ -1374,8 +1376,29 @@ async function fetchImageAsPng(imageUrl) {
 }
 var allDatasets  = [];
 var activeDataset = null;
-var hiddenCardIds = new Set(); // dataset IDs hidden from the active list
+var hiddenCardIds = new Set(); // dataset IDs hidden from the active list — persisted via clientStorage
 var dsFilter = 'active'; // 'active' | 'hidden'
+var _seenAt = {};  // { [datasetId]: ISO string } — tracks when each dataset was last opened
+
+// ── figma.clientStorage bridge ────────────────────────────────────────────────
+// figma.clientStorage lives in the sandbox (code.js). We communicate via
+// postMessage. sbGet returns a Promise; sbSet is fire-and-forget.
+var _sbStorageReqs = {};
+var _sbStorageReqId = 0;
+function sbGet(key) {
+  return new Promise(function(resolve) {
+    var id = ++_sbStorageReqId;
+    _sbStorageReqs[id] = resolve;
+    // Timeout fallback — resolve undefined if code.js doesn't reply in 3s
+    setTimeout(function() {
+      if (_sbStorageReqs[id]) { _sbStorageReqs[id](undefined); delete _sbStorageReqs[id]; }
+    }, 3000);
+    parent.postMessage({ pluginMessage: { type: 'storage-get', key: key, reqId: id } }, '*');
+  });
+}
+function sbSet(key, value) {
+  parent.postMessage({ pluginMessage: { type: 'storage-set', key: key, value: value } }, '*');
+}
 var scannedRefs  = [];
 // Component search scope: null until user picks, then 'selection'|'page'|'document'
 var _searchScope = null;
@@ -1525,6 +1548,17 @@ async function pingServer() {
 async function connect() {
   setStatus('Connecting…', null);
   _dataConnected = true;
+  // Restore persisted hidden-card list and seen-at map before first render
+  try {
+    var storedHidden = await sbGet('sb_hidden_cards');
+    if (Array.isArray(storedHidden)) {
+      hiddenCardIds = new Set(storedHidden);
+    }
+    var storedSeen = await sbGet('sb_seen_at');
+    if (storedSeen && typeof storedSeen === 'object') {
+      _seenAt = storedSeen;
+    }
+  } catch (_) {}
   loadDatasets();   // start loading right away — don't wait for health check
   startPolling();
   // Health check runs in background just to update the status dot
@@ -1646,6 +1680,8 @@ function toggleCardHidden(id) {
       show('injectBar', false);
     }
   }
+  // Persist hidden card list so it survives plugin restarts
+  sbSet('sb_hidden_cards', Array.from(hiddenCardIds));
   renderDsList();
 }
 
@@ -1720,7 +1756,14 @@ function renderDsList() {
         dateStr = dt.getDate() + ' ' + months[dt.getMonth()] + ' ' + dt.getFullYear();
       }
     }
+    // NEW badge — shown when dataset was uploaded after we last opened it
+    var isNew = false;
+    if (d.uploadedAt) {
+      var seenTs = _seenAt[d.id];
+      isNew = !seenTs || (new Date(d.uploadedAt) > new Date(seenTs));
+    }
     var chips = [];
+    if (isNew)    chips.push('<span class="ds-chip ds-chip-new">● NEW</span>');
     if (version)  chips.push('<span class="ds-chip">' + esc(version) + '</span>');
     if (dateStr)  chips.push('<span class="ds-chip">' + esc(dateStr) + '</span>');
     chips = chips.concat(codes.map(function(c) { return '<span class="ds-country-badge">' + esc(c) + '</span>'; }));
@@ -1761,6 +1804,9 @@ async function selectDataset(id) {
   try {
     var full = await api('/api/figma/datasets/' + id);
     activeDataset = full;
+    // Mark as seen — clears the NEW badge and persists the timestamp
+    _seenAt[id] = new Date().toISOString();
+    sbSet('sb_seen_at', _seenAt);
     playSound('ping');
     // Reset bind state so panel stays hidden until a row is clicked
     bindRowIndex  = null;
@@ -2300,6 +2346,13 @@ function _sbMainOnMsg(event) {
     return;
   }
 
+
+  // ── clientStorage reply ─────────────────────────────────────────────────────
+  if (msg.type === 'storage-value') {
+    var _resolve = _sbStorageReqs[msg.reqId];
+    if (_resolve) { _resolve(msg.value); delete _sbStorageReqs[msg.reqId]; }
+    return;
+  }
 
   if (msg.type === 'inject-img-applied') {
     console.log('[SB-img] batch applied:', msg.count, 'fills');
@@ -3466,15 +3519,42 @@ function updateQualityDisplay() {
   });
 }
 
+function saveOptimiserState() {
+  sbSet('sb_optimiser', {
+    globalQuality:  state.globalQuality,
+    sizeTargetMode: state.sizeTargetMode,
+    targetSizeKB:   state.targetSizeKB,
+  });
+}
+
+async function loadOptimiserState() {
+  try {
+    var saved = await sbGet('sb_optimiser');
+    if (!saved || typeof saved !== 'object') return;
+    if (typeof saved.globalQuality  === 'number') state.globalQuality  = saved.globalQuality;
+    if (typeof saved.sizeTargetMode === 'boolean') state.sizeTargetMode = saved.sizeTargetMode;
+    if (typeof saved.targetSizeKB   === 'number') state.targetSizeKB   = saved.targetSizeKB;
+    // Sync DOM to restored state
+    qualitySlider.value    = state.globalQuality;
+    targetSizeInput.value  = state.targetSizeKB;
+    sizeTargetToggle.checked = state.sizeTargetMode;
+    qualitySliderWrap.style.display = state.sizeTargetMode ? 'none' : '';
+    sizeTargetWrap.classList.toggle('visible', state.sizeTargetMode);
+    updateQualityDisplay();
+  } catch (_) {}
+}
+
 qualitySlider.addEventListener('input', () => {
   state.globalQuality = parseInt(qualitySlider.value, 10);
   updateQualityDisplay();
+  saveOptimiserState();
 });
 sizeTargetToggle.addEventListener('change', () => {
   state.sizeTargetMode = sizeTargetToggle.checked;
   qualitySliderWrap.style.display = state.sizeTargetMode ? 'none' : '';
   sizeTargetWrap.classList.toggle('visible', state.sizeTargetMode);
   updateQualityDisplay();
+  saveOptimiserState();
   document.querySelectorAll('.layer-quality-input').forEach(input => {
     input.classList.toggle('size-mode', state.sizeTargetMode);
     const lbl = input.nextElementSibling;
@@ -3485,7 +3565,11 @@ sizeTargetToggle.addEventListener('change', () => {
 targetSizeInput.addEventListener('input', () => {
   state.targetSizeKB = Math.max(1, parseInt(targetSizeInput.value, 10) || 200);
   updateQualityDisplay();
+  saveOptimiserState();
 });
+
+// Load persisted optimiser state on startup
+loadOptimiserState();
 
 // ── Select all ────────────────────────────────────────────────────────
 function updateSelectAllVisual() {

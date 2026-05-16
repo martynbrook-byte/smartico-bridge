@@ -794,6 +794,22 @@ figma.ui.onmessage = async function(msg) {
     return;
   }
 
+  // ── clientStorage bridge: persist UI state across plugin sessions ──────────
+  // Figma's clientStorage lives in the sandbox (code.js) — the UI iframe cannot
+  // call it directly. These two message types bridge the gap.
+  if (msg.type === 'storage-get') {
+    figma.clientStorage.getAsync(msg.key).then(function(val) {
+      figma.ui.postMessage({ type: 'storage-value', key: msg.key, value: val, reqId: msg.reqId });
+    }).catch(function() {
+      figma.ui.postMessage({ type: 'storage-value', key: msg.key, value: undefined, reqId: msg.reqId });
+    });
+    return;
+  }
+  if (msg.type === 'storage-set') {
+    figma.clientStorage.setAsync(msg.key, msg.value).catch(function() {});
+    return;
+  }
+
   // ── rename-node: rename a layer to a #col.row binding ref ────────────────
   // msg.nodeId:  Figma node ID (string)
   // msg.newName: the new layer name, e.g. '#prize.1'

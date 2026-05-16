@@ -2982,11 +2982,12 @@ async function confirmSaveAsset() {
   var name   = (nameEl && nameEl.value.trim()) || _pendingAssetNodes.name || 'Untitled';
   var category = catEl ? (catEl.value === '__new__' ? (prompt('New category name:') || 'General') : catEl.value) : 'General';
   var exportSettings = null;
-  if (expEl && expEl.checked && typeof state !== 'undefined') {
+  if (expEl && expEl.checked && window._sbOptimiserState) {
+    var _os = window._sbOptimiserState;
     exportSettings = {
-      globalQuality:  state.globalQuality,
-      sizeTargetMode: state.sizeTargetMode,
-      targetSizeKB:   state.targetSizeKB,
+      globalQuality:  _os.globalQuality,
+      sizeTargetMode: _os.sizeTargetMode,
+      targetSizeKB:   _os.targetSizeKB,
     };
   }
   try {
@@ -3018,16 +3019,9 @@ async function restoreAsset(id) {
     if (!data || !data.nodes) throw new Error('Empty asset');
     parent.postMessage({ pluginMessage: { type: 'restore-asset', nodes: data.nodes } }, '*');
     // If the asset has saved export settings, offer to restore them
-    if (data.exportSettings && typeof state !== 'undefined') {
+    if (data.exportSettings && window._sbApplyOptimiserSettings) {
       var apply = confirm('This asset has saved export settings (quality/size targets). Apply them to the Optimiser?');
-      if (apply) {
-        var es = data.exportSettings;
-        if (typeof es.globalQuality  === 'number') { state.globalQuality  = es.globalQuality;  if (qualitySlider) qualitySlider.value = es.globalQuality; }
-        if (typeof es.sizeTargetMode === 'boolean') { state.sizeTargetMode = es.sizeTargetMode; if (sizeTargetToggle) sizeTargetToggle.checked = es.sizeTargetMode; }
-        if (typeof es.targetSizeKB   === 'number') { state.targetSizeKB   = es.targetSizeKB;   if (targetSizeInput) targetSizeInput.value  = es.targetSizeKB; }
-        if (typeof updateQualityDisplay === 'function') updateQualityDisplay();
-        if (typeof saveOptimiserState   === 'function') saveOptimiserState();
-      }
+      if (apply) window._sbApplyOptimiserSettings(data.exportSettings);
     }
     setAssetBanner('Restoring…');
   } catch (e) { setAssetBanner('Restore failed: ' + e.message); }
@@ -3675,6 +3669,26 @@ async function loadOptimiserState() {
   } catch (_) {}
 }
 
+// ── Window-level bridge: exposes IIFE-scoped state to outer functions ─────────
+// confirmSaveAsset() and restoreAsset() live outside this IIFE so they cannot
+// reference `state`, `qualitySlider`, etc. directly. These window properties
+// give them safe read/write access without breaking encapsulation.
+window._sbOptimiserState = state;  // live reference — mutations reflect immediately
+
+window._sbApplyOptimiserSettings = function(es) {
+  // Called by restoreAsset() when user accepts saved export settings.
+  if (typeof es.globalQuality  === 'number') { state.globalQuality  = es.globalQuality;  qualitySlider.value = es.globalQuality; }
+  if (typeof es.sizeTargetMode === 'boolean') {
+    state.sizeTargetMode = es.sizeTargetMode;
+    sizeTargetToggle.checked = es.sizeTargetMode;
+    qualitySliderWrap.style.display = es.sizeTargetMode ? 'none' : '';
+    sizeTargetWrap.classList.toggle('visible', es.sizeTargetMode);
+  }
+  if (typeof es.targetSizeKB === 'number') { state.targetSizeKB = es.targetSizeKB; targetSizeInput.value = es.targetSizeKB; }
+  updateQualityDisplay();
+  saveOptimiserState();
+};
+
 qualitySlider.addEventListener('input', () => {
   state.globalQuality = parseInt(qualitySlider.value, 10);
   updateQualityDisplay();
@@ -3693,11 +3707,13 @@ sizeTargetToggle.addEventListener('change', () => {
     if (input.dataset.auto === 'true') input.value = state.sizeTargetMode ? state.targetSizeKB : state.globalQuality;
   });
 });
-targetSizeInput.addEventListener('input', () => {
+function _commitTargetSize() {
   state.targetSizeKB = Math.max(1, parseInt(targetSizeInput.value, 10) || 200);
   updateQualityDisplay();
   saveOptimiserState();
-});
+}
+targetSizeInput.addEventListener('input',  _commitTargetSize);  // fires on each keystroke
+targetSizeInput.addEventListener('change', _commitTargetSize);  // fires on blur / spinner / Enter
 
 // Load persisted optimiser state on startup
 loadOptimiserState();

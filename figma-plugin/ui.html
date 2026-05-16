@@ -1223,7 +1223,7 @@
 <div id="uploadSection" style="display:none"></div>
 <div id="assetSection"  style="display:none"></div>
 <!-- <input type="text" id="serverUrl" value="http://35.179.167.137/" style="display:none"> -->
-<input type="text" id="serverUrl" value="https://888-smartico-bridge.888africa.com" style="display:none">
+<input type="text" id="serverUrl" value="http://888-smartico-bridge.888africa.com" style="display:none">
 
 
 </div><!-- /.app-content -->
@@ -1328,7 +1328,7 @@ window.addEventListener('message', function(ev) {
   }
 });
 
-var serverUrl    = 'https://888-smartico-bridge.888africa.com';
+var serverUrl    = 'http://888-smartico-bridge.888africa.com';
 
 // Convert any image URL → PNG bytes via canvas.
 // Figma's createImage() only accepts JPEG and PNG — WebP/AVIF/etc. will fail.
@@ -1548,18 +1548,10 @@ async function pingServer() {
 async function connect() {
   setStatus('Connecting…', null);
   _dataConnected = true;
-  // Restore persisted hidden-card list and seen-at map before first render
-  try {
-    var storedHidden = await sbGet('sb_hidden_cards');
-    if (Array.isArray(storedHidden)) {
-      hiddenCardIds = new Set(storedHidden);
-    }
-    var storedSeen = await sbGet('sb_seen_at');
-    if (storedSeen && typeof storedSeen === 'object') {
-      _seenAt = storedSeen;
-    }
-  } catch (_) {}
-  loadDatasets();   // start loading right away — don't wait for health check
+  // Restore persisted hidden-card list and seen-at map in background — don't block loadDatasets()
+  sbGet('sb_hidden_cards').then(function(v) { if (Array.isArray(v)) hiddenCardIds = new Set(v); }).catch(function(){});
+  sbGet('sb_seen_at').then(function(v) { if (v && typeof v === 'object') _seenAt = v; }).catch(function(){});
+  loadDatasets();   // start immediately — storage loads in background
   startPolling();
   // Health check runs in background just to update the status dot
   try {

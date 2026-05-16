@@ -7,7 +7,7 @@
   "editorType": ["figma"],
   "networkAccess": {
     "allowedDomains": [
-      
+      "http://888-smartico-bridge.888africa.com",
       "https://888-smartico-bridge.888africa.com",
       "http://localhost:3001",
       "https://888africa.com",

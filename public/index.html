@@ -2185,11 +2185,22 @@ function rid(prefix = 'r') {
 }
 
 // ── API ─────────────────────────────────────────────────────────────────────
+// Pipelines, datasets, and dropzones are stored on Railway (HTTPS) so that
+// files uploaded from the Figma plugin (which also uses Railway) appear here.
+var DATA_SERVER_URL = 'https://smartico-bridge-production.up.railway.app';
+var _DATA_PATHS = ['/api/pipelines', '/api/datasets', '/api/dropzones'];
+function _resolveUrl(path) {
+  for (var _i = 0; _i < _DATA_PATHS.length; _i++) {
+    if (path === _DATA_PATHS[_i] || path.startsWith(_DATA_PATHS[_i] + '/') || path.startsWith(_DATA_PATHS[_i] + '?')) {
+      return DATA_SERVER_URL + path;
+    }
+  }
+  return path; // relative → Lightsail (settings, health, etc.)
+}
 async function api(path, opts = {}) {
-  const res = await fetch(path, {
-    headers: { 'Content-Type': 'application/json' },
-    ...opts,
-  });
+  const url = _resolveUrl(path);
+  const headers = Object.assign({ 'Content-Type': 'application/json' }, opts.headers || {});
+  const res = await fetch(url, { ...opts, headers });
   if (!res.ok) {
     let msg = `HTTP ${res.status}`;
     try { const j = await res.json(); if (j.error) msg = j.error; } catch (_) {}
@@ -4768,7 +4779,7 @@ async function runPipelineDropzone(pipelineId, file, card) {
   try {
     const form = new FormData();
     form.append('file', file);
-    const resp = await fetch(`/api/pipelines/${pipelineId}/run`, { method: 'POST', body: form });
+    const resp = await fetch(`${DATA_SERVER_URL}/api/pipelines/${pipelineId}/run`, { method: 'POST', body: form });
     const data = await resp.json();
     if (!resp.ok) throw new Error(data.error || 'Run failed');
     setStatus(`✓ Done — ${data.rowCount || '?'} rows`, 'success');
@@ -4823,7 +4834,7 @@ function renderDropZoneCard(dz) {
 
 async function resetDropZoneIteration(id) {
   try {
-    const res = await fetch(`/api/dropzones/${id}`, {
+    const res = await fetch(`${DATA_SERVER_URL}/api/dropzones/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ runCount: 0 }),
@@ -4904,7 +4915,7 @@ async function runDropZone(id, file) {
     // Send the drop-zone id so the runner can bump the iteration counter and
     // expose {dropZoneName} / {iteration} to the filename template.
     fd.append('dropZoneId', id);
-    const res = await fetch(`/api/pipelines/${dz.pipelineId}/run`, { method: 'POST', body: fd });
+    const res = await fetch(`${DATA_SERVER_URL}/api/pipelines/${dz.pipelineId}/run`, { method: 'POST', body: fd });
     const j = await res.json();
     if (!res.ok || !j.ok) {
       throw new Error(j.error || `HTTP ${res.status}`);

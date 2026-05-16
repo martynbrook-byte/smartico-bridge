@@ -6149,6 +6149,7 @@ function renderWebAssets(filter) {
         </div>
       </div>
       <div class="web-asset-grid">
+        ${items.length === 0 ? '<div style="grid-column:1/-1;color:var(--muted);font-size:0.8rem;padding:12px 0;font-style:italic">No assets yet — save selections to this category from the Figma plugin, or move existing assets here using the ✏ edit button.</div>' : ''}
         ${items.map(function(a) {
           var thumb = a.preview ? `<img src="${esc(a.preview)}" alt="">` : '▣';
           var expBadge = a.exportSettings ? '<span title="Has saved export settings" style="background:#3b82f6;color:#fff;border-radius:3px;padding:1px 4px;font-size:10px">⚙ Export</span>' : '';
@@ -6255,12 +6256,18 @@ async function deleteWebAsset(id) {
 }
 
 function showToastWeb(msg, type) {
-  var el = document.getElementById('globalToast') || document.getElementById('toast');
-  if (el) {
-    el.textContent = msg;
-    el.className = 'toast show' + (type === 'error' ? ' error' : '');
-    setTimeout(() => el.classList.remove('show'), 3000);
+  var el = document.getElementById('globalToast');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'globalToast';
+    el.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1a1a2e;color:#fff;padding:10px 20px;border-radius:8px;font-size:0.85rem;font-family:inherit;z-index:9999;pointer-events:none;opacity:0;transition:opacity .2s;max-width:420px;text-align:center;box-shadow:0 4px 16px #0004';
+    document.body.appendChild(el);
   }
+  el.textContent = msg;
+  el.style.background = type === 'error' ? '#b91c1c' : '#1a1a2e';
+  el.style.opacity = '1';
+  clearTimeout(el._t);
+  el._t = setTimeout(function() { el.style.opacity = '0'; }, 3500);
 }
 </script>
 

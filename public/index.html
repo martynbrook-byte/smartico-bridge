@@ -1799,6 +1799,14 @@
             <div class="canvas-hint" id="pipelineCanvasHint">Add a step above to begin</div>
           </div>
 
+          <!-- Full data specification panel -->
+          <details class="pipe-api-panel" id="pipelineSpecPanel">
+            <summary>📋 Data Specification &amp; SQL</summary>
+            <div class="pipe-api-inner" id="pipelineSpecInner">
+              <!-- filled by renderPipelineSpecPanel() -->
+            </div>
+          </details>
+
           <!-- API info panel -->
           <details class="pipe-api-panel" id="pipelineApiPanel">
             <summary>🔌 API &amp; Integration</summary>
@@ -4200,6 +4208,8 @@ async function refreshPipelineDesc() {
   bar.textContent = 'Analysing pipeline…';
   try {
     const data = await api(`/api/pipelines/${activePipeline.id}/describe`);
+
+    // Update the brief summary strip
     const summary = (data.summary || '').trim();
     if (summary) {
       bar.className = 'pipe-desc-bar';
@@ -4208,10 +4218,80 @@ async function refreshPipelineDesc() {
       bar.className = 'pipe-desc-bar empty';
       bar.textContent = '';
     }
+
+    // Update the full data spec inside the API panel
+    renderPipelineSpecPanel(data);
   } catch (_) {
     bar.className = 'pipe-desc-bar empty';
     bar.textContent = '';
   }
+}
+
+function renderPipelineSpecPanel(data) {
+  const inner = document.getElementById('pipelineSpecInner');
+  if (!inner) return;
+
+  const sections = [];
+
+  // ── Mapping section ──
+  if (data.mappingEnglish) {
+    sections.push(`<div class="pipe-api-block" style="grid-column:1/-1">
+      <h4>📥 Step 0 — Column Mapping</h4>
+      <p style="white-space:pre-wrap">${esc(data.mappingEnglish)}</p>
+    </div>`);
+  }
+
+  // ── Enrichment section ──
+  if (data.enrichEnglish) {
+    sections.push(`<div class="pipe-api-block" style="grid-column:1/-1">
+      <h4>✨ Enrichment — Player Profile Data</h4>
+      <p style="white-space:pre-wrap">${esc(data.enrichEnglish)}</p>
+    </div>`);
+  }
+
+  // ── Per-step sections ──
+  (data.steps || []).forEach(function(step) {
+    const rulesHtml = step.rules.map(function(r) {
+      return `<div style="margin-bottom:10px">
+        <div style="font-size:0.72rem;font-weight:700;color:var(--muted);margin-bottom:3px">Rule ${r.index}: ${esc(r.name)}</div>
+        <p style="white-space:pre-wrap;margin:0 0 5px">${esc(r.english)}</p>
+        <pre class="pipe-api-code">${esc(r.sql)}</pre>
+      </div>`;
+    }).join('');
+
+    sections.push(`<div class="pipe-api-block" style="grid-column:1/-1">
+      <h4>⚙️ Step ${step.stepNumber} — ${esc(step.name)}</h4>
+      ${rulesHtml || '<p>No rules configured.</p>'}
+    </div>`);
+  });
+
+  // ── Column filter section ──
+  if (data.filterEnglish) {
+    sections.push(`<div class="pipe-api-block" style="grid-column:1/-1">
+      <h4>🔍 Final Step — Column Filter</h4>
+      <p style="white-space:pre-wrap">${esc(data.filterEnglish)}</p>
+    </div>`);
+  }
+
+  // ── Combined SQL ──
+  if (data.combinedSql) {
+    sections.push(`<div class="pipe-api-block" style="grid-column:1/-1">
+      <h4>🗄️ Complete SQL — replicate this pipeline in your database</h4>
+      <p>Copy this query and adapt it to your schema. Run it in your database to produce a result set that matches exactly what this pipeline outputs, then POST the rows to the <strong>Direct Inject</strong> endpoint to bypass the pipeline entirely.</p>
+      <div style="position:relative">
+        <button class="btn btn-small" style="position:absolute;top:6px;right:6px;z-index:1"
+          onclick="navigator.clipboard.writeText(document.getElementById('pipelineCombinedSql').textContent).then(function(){var b=this;b.textContent='Copied!';setTimeout(function(){b.textContent='Copy SQL';},1600);}.bind(this))">Copy SQL</button>
+        <pre class="pipe-api-code" id="pipelineCombinedSql">${esc(data.combinedSql)}</pre>
+      </div>
+    </div>`);
+  }
+
+  if (!sections.length) {
+    inner.innerHTML = '<p style="color:var(--muted);font-size:0.78rem;padding:0 0 8px">No steps configured yet. Add rule sets to the pipeline canvas to see the full data specification here.</p>';
+    return;
+  }
+
+  inner.innerHTML = sections.join('');
 }
 
 async function createPipeline() {

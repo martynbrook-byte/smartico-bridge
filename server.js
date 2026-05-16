@@ -2750,105 +2750,175 @@ app.post('/api/pipelines/:id/inject', express.json({ limit: '20mb' }), requireBr
 //       sql         — approximate SQL that would produce the same result
 // ════════════════════════════════════════════════════════════════════════════
 
+// Returns { english, sql, outputColumns } for a single rule.
+// outputColumns lists columns added/removed so the caller can track lineage.
 function describeRule(rule) {
   const cfg = rule.config || {};
-  const q   = s => `\`${s}\``;   // backtick-quote a column name
+  const q   = s => `"${s}"`;  // double-quote column names (ANSI SQL standard)
+
   switch (rule.type) {
 
     case 'rename':
       return {
-        english: `Rename the column "${cfg.from}" to "${cfg.to}".`,
-        sql:     `SELECT *, ${q(cfg.from)} AS ${q(cfg.to)} FROM data;\n-- (then drop original ${q(cfg.from)} column)`,
+        english: `Rename column ${q(cfg.from)} to ${q(cfg.to)}. ` +
+          `All existing values are preserved — only the column header changes. ` +
+          `Any downstream step should reference the column as ${q(cfg.to)}.`,
+        sql: `-- Rename: "${cfg.from}" → "${cfg.to}"\n` +
+          `SELECT\n  * EXCEPT(${q(cfg.from)}),\n  ${q(cfg.from)} AS ${q(cfg.to)}\nFROM data;`,
+        adds:    [cfg.to],
+        removes: [cfg.from],
       };
 
-    case 'sort':
+    case 'sort': {
+      const dir = cfg.direction === 'desc' ? 'DESC' : 'ASC';
+      const dirLabel = cfg.direction === 'desc' ? 'descending (highest first)' : 'ascending (lowest first)';
       return {
-        english: `Sort all rows by "${cfg.column}" in ${cfg.direction === 'desc' ? 'descending (highest first)' : 'ascending (lowest first)'} order.`,
-        sql:     `SELECT * FROM data ORDER BY ${q(cfg.column)} ${(cfg.direction || 'asc').toUpperCase()};`,
+        english: `Sort all rows by ${q(cfg.column)} in ${dirLabel} order. ` +
+          `Row count and columns are unchanged — only the row order changes. ` +
+          `This determines the order rows appear in Figma templates (row 1 = first place, etc.).`,
+        sql: `-- Sort by "${cfg.column}" ${dir}\nSELECT * FROM data\nORDER BY ${q(cfg.column)} ${dir};`,
+        adds: [], removes: [],
       };
+    }
 
     case 'select-columns': {
-      const cols = (cfg.columns || []).join(', ');
+      const cols = (cfg.columns || []);
       return {
-        english: `Keep only these columns (drop everything else): ${cfg.columns && cfg.columns.map(c => `"${c}"`).join(', ')}.`,
-        sql:     `SELECT ${(cfg.columns || []).map(q).join(', ')} FROM data;`,
+        english: `Keep only the following ${cols.length} column${cols.length === 1 ? '' : 's'} and drop all others: ` +
+          cols.map(c => q(c)).join(', ') + '. ' +
+          `This is a column-level filter — row count is unchanged. ` +
+          `If the database query already returns only these columns, this step is unnecessary.`,
+        sql: `-- Select specific columns only\nSELECT\n  ${cols.map(q).join(',\n  ')}\nFROM data;`,
+        adds: [], removes: ['(all columns not in the list above)'],
       };
     }
 
     case 'extract-number': {
-      const fmtNote = cfg.format && cfg.format !== 'plain'
-        ? ` A formatted display version (e.g. "${cfg.format}" style) is also stored as "${cfg.targetColumn}_display".`
+      const hasFmt   = cfg.format && cfg.format !== 'plain';
+      const dispCol  = `${cfg.targetColumn}_display`;
+      const fmtDesc  = hasFmt
+        ? ` A human-readable formatted version (${cfg.format} style${cfg.currencyCode ? ', currency: ' + cfg.currencyCode : ''}) ` +
+          `is also stored in a second new column ${q(dispCol)}.`
         : '';
       return {
-        english: `Read "${cfg.sourceColumn}", strip out any currency symbols/commas and extract the numeric value, then store it in a new column "${cfg.targetColumn}".${fmtNote}`,
-        sql:     `SELECT *, CAST(REGEXP_REPLACE(${q(cfg.sourceColumn)}, '[^0-9.]', '') AS DECIMAL) AS ${q(cfg.targetColumn)} FROM data;`,
+        english: `Read ${q(cfg.sourceColumn)}, strip any currency symbols, spaces, and thousand-separator commas, ` +
+          `then cast the result to a numeric value and store it in a new column ${q(cfg.targetColumn)}.${fmtDesc} ` +
+          `If the source column already contains clean numeric values in the database, output it directly as ${q(cfg.targetColumn)} ` +
+          `(and optionally format it as ${q(dispCol)}).`,
+        sql: `-- Extract numeric value from "${cfg.sourceColumn}"\nSELECT\n  *,\n` +
+          `  CAST(REGEXP_REPLACE(${q(cfg.sourceColumn)}, '[^0-9.\\-]', '', 'g') AS NUMERIC) AS ${q(cfg.targetColumn)}` +
+          (hasFmt ? `,\n  -- formatted display (apply your locale formatting):\n  TO_CHAR(CAST(REGEXP_REPLACE(${q(cfg.sourceColumn)}, '[^0-9.\\-]', '', 'g') AS NUMERIC), 'FM999,999,990.00') AS ${q(dispCol)}` : '') +
+          `\nFROM data;`,
+        adds: hasFmt ? [cfg.targetColumn, dispCol] : [cfg.targetColumn],
+        removes: [],
       };
     }
 
     case 'count': {
-      const match = cfg.matchMode === 'exact' ? `= '${cfg.value}'` : `LIKE '%${cfg.value}%'`;
+      const exact = cfg.matchMode === 'exact';
+      const pred  = exact ? `= '${cfg.value}'` : `LIKE '%${cfg.value}%'`;
       return {
-        english: `Count how many rows have "${cfg.column}" ${cfg.matchMode === 'exact' ? 'exactly equal to' : 'containing'} "${cfg.value}". The result is stored as a single metric (not a column).`,
-        sql:     `SELECT COUNT(*) AS metric_count FROM data WHERE ${q(cfg.column)} ${match};`,
+        english: `Count rows where ${q(cfg.column)} ${exact ? `exactly equals "${cfg.value}"` : `contains "${cfg.value}"`}. ` +
+          `The result is a single integer metric (not a row-level column). ` +
+          `In the database this can be computed as a scalar subquery and returned alongside the main result set.`,
+        sql: `-- Metric: count rows matching "${cfg.value}" in "${cfg.column}"\nSELECT COUNT(*) AS metric_count\nFROM data\nWHERE ${q(cfg.column)} ${pred};`,
+        adds: [], removes: [],
       };
     }
 
     case 'count-times': {
-      const match = cfg.matchMode === 'exact' ? `= '${cfg.value}'` : `LIKE '%${cfg.value}%'`;
+      const exact = cfg.matchMode === 'exact';
+      const pred  = exact ? `= '${cfg.value}'` : `LIKE '%${cfg.value}%'`;
       return {
-        english: `Count rows where "${cfg.column}" ${cfg.matchMode === 'exact' ? 'equals' : 'contains'} "${cfg.value}", then multiply that count by ${cfg.multiplier} to get the final metric value.`,
-        sql:     `SELECT COUNT(*) * ${cfg.multiplier} AS metric_value FROM data WHERE ${q(cfg.column)} ${match};`,
+        english: `Count rows where ${q(cfg.column)} ${exact ? `exactly equals "${cfg.value}"` : `contains "${cfg.value}"`}, ` +
+          `then multiply that count by ${cfg.multiplier}. ` +
+          `The result is a single numeric metric. ` +
+          `Use this when a row represents multiple units (e.g. each entry equals ${cfg.multiplier} points).`,
+        sql: `-- Metric: count × ${cfg.multiplier} for "${cfg.value}" in "${cfg.column}"\nSELECT COUNT(*) * ${cfg.multiplier} AS metric_value\nFROM data\nWHERE ${q(cfg.column)} ${pred};`,
+        adds: [], removes: [],
       };
     }
 
     case 'sum':
       return {
-        english: `Add up all numeric values in "${cfg.column}" and store the total as a metric.`,
-        sql:     `SELECT SUM(${q(cfg.column)}) AS metric_sum FROM data;`,
+        english: `Sum all values in ${q(cfg.column)}. ` +
+          `The column must contain numeric data (or data cleaned by an extract-number step). ` +
+          `The result is a single numeric metric — the grand total of that column across all rows.`,
+        sql: `-- Metric: sum of "${cfg.column}"\nSELECT SUM(CAST(${q(cfg.column)} AS NUMERIC)) AS metric_sum\nFROM data;`,
+        adds: [], removes: [],
       };
 
     case 'avg':
       return {
-        english: `Calculate the average (mean) of all values in "${cfg.column}" and store it as a metric.`,
-        sql:     `SELECT AVG(${q(cfg.column)}) AS metric_avg FROM data;`,
+        english: `Calculate the arithmetic mean of ${q(cfg.column)} across all rows. ` +
+          `The result is a single numeric metric. NULL / empty values are excluded from the average.`,
+        sql: `-- Metric: average of "${cfg.column}"\nSELECT AVG(CAST(${q(cfg.column)} AS NUMERIC)) AS metric_avg\nFROM data\nWHERE ${q(cfg.column)} IS NOT NULL AND ${q(cfg.column)} <> '';`,
+        adds: [], removes: [],
       };
 
     case 'min':
       return {
-        english: `Find the smallest value in "${cfg.column}" and store it as a metric.`,
-        sql:     `SELECT MIN(${q(cfg.column)}) AS metric_min FROM data;`,
+        english: `Find the minimum (smallest) value in ${q(cfg.column)} across all rows. ` +
+          `The result is a single metric — useful for showing the lowest score, earliest date, etc.`,
+        sql: `-- Metric: minimum of "${cfg.column}"\nSELECT MIN(CAST(${q(cfg.column)} AS NUMERIC)) AS metric_min\nFROM data;`,
+        adds: [], removes: [],
       };
 
     case 'max':
       return {
-        english: `Find the largest value in "${cfg.column}" and store it as a metric.`,
-        sql:     `SELECT MAX(${q(cfg.column)}) AS metric_max FROM data;`,
+        english: `Find the maximum (largest) value in ${q(cfg.column)} across all rows. ` +
+          `The result is a single metric — useful for showing the top score, latest date, etc.`,
+        sql: `-- Metric: maximum of "${cfg.column}"\nSELECT MAX(CAST(${q(cfg.column)} AS NUMERIC)) AS metric_max\nFROM data;`,
+        adds: [], removes: [],
       };
 
-    case 'count-by':
+    case 'count-by': {
       return {
-        english: `Group rows by the unique values in "${cfg.column}" and count how many rows belong to each group (like a GROUP BY). The result is a breakdown table stored as a metric.`,
-        sql:     `SELECT ${q(cfg.column)}, COUNT(*) AS count FROM data GROUP BY ${q(cfg.column)} ORDER BY count DESC;`,
+        english: `Group rows by the distinct values in ${q(cfg.column)} and count how many rows fall into each group. ` +
+          `The result is a breakdown table (multiple rows: one per distinct value). ` +
+          `This is returned as a metric object — the database should return this as a separate result set ` +
+          `or a JSON aggregation alongside the main rows.`,
+        sql: `-- Metric: row count grouped by "${cfg.column}"\nSELECT\n  ${q(cfg.column)},\n  COUNT(*) AS count\nFROM data\nGROUP BY ${q(cfg.column)}\nORDER BY count DESC;`,
+        adds: [], removes: [],
       };
+    }
 
-    case 'aggregate-metrics':
+    case 'aggregate-metrics': {
+      const op    = (cfg.op || 'sum').toUpperCase();
+      const ids   = (cfg.ruleIds || []);
       return {
-        english: `Take the numeric results of earlier metrics (by their rule IDs) and combine them using "${cfg.op || 'sum'}" to produce a single rolled-up total.`,
-        sql:     `-- This combines previously computed metric values in application code, not in SQL.\n-- Equivalent to: SELECT ${(cfg.op || 'SUM').toUpperCase()}(metric_value) FROM (SELECT value FROM prior_metrics WHERE id IN (${(cfg.ruleIds || []).map(id => `'${id}'`).join(', ')})) t;`,
+        english: `Combine the numeric results of ${ids.length} earlier metric${ids.length === 1 ? '' : 's'} using ${op}. ` +
+          `This does not operate on the row data directly — it aggregates previously computed scalar metric values ` +
+          `into a single rolled-up number. If the database is computing all metrics natively, ` +
+          `replace this with: ${op}(metric_a, metric_b, ...).`,
+        sql: `-- Aggregate previously computed metric values using ${op}\n` +
+          `-- Replace metric_a, metric_b, ... with the actual computed values from earlier steps.\nSELECT ${op}(v) AS aggregated_metric\nFROM (VALUES\n  (metric_a),\n  (metric_b)\n) AS t(v);`,
+        adds: [], removes: [],
       };
+    }
 
     case 'country-code': {
-      const mappingCount = Object.keys(cfg.mapping || {}).length;
+      const entries = Object.entries(cfg.mapping || {});
+      const mappingLines = entries.slice(0, 8).map(([k, v]) => `  '${k}' → '${v}'`).join('\n');
+      const more = entries.length > 8 ? `\n  ... and ${entries.length - 8} more` : '';
+      const fallback = cfg.fallback || '';
       return {
-        english: `Look up each value in "${cfg.sourceColumn}" against a mapping table (${mappingCount} entr${mappingCount === 1 ? 'y' : 'ies'}) and write the matching country code into a new column "${cfg.targetColumn || 'country_code'}". Values not found in the mapping are set to "${cfg.fallback || '(empty)'}" .`,
-        sql:     `SELECT d.*, m.country_code AS ${q(cfg.targetColumn || 'country_code')}\nFROM data d\nLEFT JOIN country_mapping m ON LOWER(d.${q(cfg.sourceColumn)}) = LOWER(m.raw_value);`,
+        english: `Look up each value in ${q(cfg.sourceColumn)} against the mapping table below and write the result into a new column ${q(cfg.targetColumn || 'country_code')}. ` +
+          `Values not found in the table are set to "${fallback || '(empty string)'}".\n\nMapping (${entries.length} entr${entries.length === 1 ? 'y' : 'ies'}):\n${mappingLines}${more}`,
+        sql: `-- Country-code lookup: "${cfg.sourceColumn}" → "${cfg.targetColumn || 'country_code'}"\n` +
+          `-- Create a VALUES-based lookup table with all ${entries.length} mapping entries:\nWITH country_map(raw, code) AS (\n  VALUES\n` +
+          entries.map(([k, v]) => `    (LOWER('${k}'), '${v}')`).join(',\n') +
+          `\n)\nSELECT\n  d.*,\n  COALESCE(cm.code, '${fallback}') AS ${q(cfg.targetColumn || 'country_code')}\nFROM data d\nLEFT JOIN country_map cm\n  ON LOWER(d.${q(cfg.sourceColumn)}) = cm.raw;`,
+        adds: [cfg.targetColumn || 'country_code'],
+        removes: [],
       };
     }
 
     default:
       return {
         english: `Apply rule "${rule.name || rule.type}" (type: ${rule.type}).`,
-        sql:     `-- No SQL equivalent for rule type "${rule.type}".`,
+        sql: `-- Rule type "${rule.type}" has no SQL equivalent defined.`,
+        adds: [], removes: [],
       };
   }
 }
@@ -2859,6 +2929,23 @@ app.get('/api/pipelines/:id/describe', async (req, res) => {
     const s        = await readSettings();
     const allRS    = s.ruleSets || [];
 
+    // Resolve which mapping set applies to this pipeline.
+    let activeMappings     = s.columnMappings || {};
+    let activeMappingName  = 'Active mapping set (configured in Settings)';
+    if (pipeline.mappingSetId) {
+      const pinned = (s.mappingSets || []).find(m => m.id === pipeline.mappingSetId);
+      if (pinned) { activeMappings = pinned.mappings || {}; activeMappingName = pinned.name; }
+    }
+    const mappingEntries = Object.entries(activeMappings).filter(([k, v]) => k !== v && v);
+
+    // Resolve column filter preset.
+    let filterCols     = null;
+    let filterPreset   = null;
+    if (pipeline.columnFilterPresetId) {
+      const preset = (s.columnPresets || []).find(p => p.id === pipeline.columnFilterPresetId);
+      if (preset) { filterCols = preset.columns || []; filterPreset = preset.name; }
+    }
+
     // Walk the pipeline nodes in topological order.
     const ordered = orderPipelineNodes(pipeline.nodes || [], pipeline.edges || []);
 
@@ -2867,52 +2954,177 @@ app.get('/api/pipelines/:id/describe', async (req, res) => {
       const rs = allRS.find(r => r.id === node.ruleSetId);
       if (!rs) continue;
 
-      const ruleDescriptions = (rs.rules || []).map(rule => ({
-        ruleName: rule.name || rule.type,
-        ...describeRule(rule),
-      }));
+      const rules = (rs.rules || []).map((rule, idx) => {
+        const d = describeRule(rule);
+        return {
+          index:   idx + 1,
+          name:    rule.name || rule.type,
+          type:    rule.type,
+          english: d.english,
+          sql:     d.sql,
+          adds:    d.adds    || [],
+          removes: d.removes || [],
+        };
+      });
 
-      // Build a short plain-English paragraph summarising this step.
-      const stepEnglish = ruleDescriptions.length === 0
-        ? `This step ("${rs.name}") has no rules configured yet.`
-        : `Step "${rs.name}" applies ${ruleDescriptions.length} rule${ruleDescriptions.length > 1 ? 's' : ''}: ` +
-          ruleDescriptions.map(r => r.english).join(' Then ');
+      // Plain-English step summary — one paragraph per rule, clearly numbered.
+      const stepEnglish = rules.length === 0
+        ? `Step "${rs.name}" has no rules configured yet.`
+        : `Step "${rs.name}" (${rules.length} rule${rules.length === 1 ? '' : 's'}):\n` +
+          rules.map(r => `  ${r.index}. ${r.english}`).join('\n');
 
-      // Combine SQL blocks with comments.
-      const stepSql = ruleDescriptions.length === 0
-        ? `-- Step "${rs.name}": no rules.`
-        : `-- Step: ${rs.name}\n` +
-          ruleDescriptions.map((r, i) => `-- Rule ${i + 1}: ${r.ruleName}\n${r.sql}`).join('\n\n');
+      // Per-step SQL block (each rule on its own labelled query).
+      const stepSql = rules.length === 0
+        ? `-- Step "${rs.name}": no rules configured.`
+        : `-- ─── Step: ${rs.name} ${'─'.repeat(Math.max(0, 50 - rs.name.length))}\n\n` +
+          rules.map(r => `${r.sql}`).join('\n\n');
 
       steps.push({
         stepNumber: steps.length + 1,
         ruleSetId:  rs.id,
         name:       rs.name,
-        ruleCount:  ruleDescriptions.length,
+        ruleCount:  rules.length,
         english:    stepEnglish,
         sql:        stepSql,
-        rules:      ruleDescriptions,
+        rules,
       });
     }
 
-    // Top-level plain-English summary.
-    const dataOps  = steps.filter(s => s.rules.some(r => ['rename','sort','select-columns','extract-number','country-code'].includes(r.ruleName)));
-    const metrics  = steps.filter(s => s.rules.some(r => ['count','count-times','sum','avg','min','max','count-by','aggregate-metrics'].includes(r.ruleName)));
+    // ── Column mapping section ───────────────────────────────────────────────
+    let mappingEnglish = '';
+    let mappingSql     = '';
+    if (mappingEntries.length > 0) {
+      mappingEnglish =
+        `Before any rule steps run, the following column renames (mappings) are applied to normalise ` +
+        `incoming column names from the source data:\n` +
+        mappingEntries.map(([from, to]) => `  "${from}" → "${to}"`).join('\n') + '\n' +
+        `Mapping set: "${activeMappingName}". ` +
+        `If the database query already outputs columns with the final names, this step can be skipped.`;
+      mappingSql =
+        `-- ─── Column Mapping: ${activeMappingName} ${'─'.repeat(Math.max(0, 40 - activeMappingName.length))}\n` +
+        `-- Rename source columns to match the pipeline's expected names.\nSELECT\n` +
+        mappingEntries.map(([from, to]) => `  ${q(from)} AS ${q(to)}`).join(',\n') +
+        `,\n  * EXCEPT(${mappingEntries.map(([from]) => q(from)).join(', ')})\nFROM source_data;`;
+    }
 
-    const summary = steps.length === 0
-      ? `Pipeline "${pipeline.name}" has no steps configured.`
-      : `Pipeline "${pipeline.name}" processes data in ${steps.length} step${steps.length > 1 ? 's' : ''}. ` +
-        (dataOps.length  ? `It transforms the data (renaming columns, sorting, filtering, extracting numbers, etc.) in ${dataOps.length} step${dataOps.length > 1 ? 's' : ''}. ` : '') +
-        (metrics.length  ? `It also calculates ${metrics.length} metric step${metrics.length > 1 ? 's' : ''} (counts, sums, averages, etc.) that produce summary numbers used in Figma templates. ` : '') +
-        `The steps run in this order: ${steps.map(s => `"${s.name}"`).join(' → ')}.`;
+    // ── Enrichment section ───────────────────────────────────────────────────
+    let enrichEnglish = '';
+    if (pipeline.enrichAfterRun) {
+      enrichEnglish =
+        `After column mapping and before any rule steps, the pipeline enriches each row with player ` +
+        `profile data by looking up the player ID against the 888 profile API. ` +
+        `Four columns are added to every row:\n` +
+        `  "profile_name"  — player's display name\n` +
+        `  "avatar"        — avatar URL (thumbnail)\n` +
+        `  "avatar_image"  — full-resolution avatar URL\n` +
+        `  "phone"         — player's phone number\n` +
+        `If the database owns the player data, JOIN to the player/profile table on the player ID column ` +
+        `and include these four fields in the output instead.`;
+    }
+
+    // ── Column filter section ────────────────────────────────────────────────
+    let filterEnglish = '';
+    let filterSql     = '';
+    if (filterCols && filterCols.length > 0) {
+      filterEnglish =
+        `As a final step, only the following ${filterCols.length} column${filterCols.length === 1 ? '' : 's'} ` +
+        `are kept in the output (preset: "${filterPreset}"). All other columns are dropped before the ` +
+        `dataset is saved and made available to the Figma plugin:\n` +
+        filterCols.map(c => `  "${c}"`).join('\n') + '\n' +
+        `If the database query already returns only these columns, this step is unnecessary.`;
+      filterSql =
+        `-- ─── Final Column Filter: ${filterPreset} ${'─'.repeat(Math.max(0, 38 - (filterPreset || '').length))}\n` +
+        `SELECT\n  ${filterCols.map(q).join(',\n  ')}\nFROM pipeline_output;`;
+    }
+
+    // ── Combined pipeline SQL ────────────────────────────────────────────────
+    // One CTE per step, chained together into a single query the DBA can run.
+    const cteParts = [];
+    if (mappingEntries.length > 0) {
+      cteParts.push(
+        `step_0_mapped AS (\n` +
+        `  -- Column mapping: normalise source column names\n` +
+        `  SELECT\n` +
+        mappingEntries.map(([from, to]) => `    ${q(from)} AS ${q(to)}`).join(',\n') +
+        `,\n    * EXCEPT(${mappingEntries.map(([from]) => q(from)).join(', ')})\n` +
+        `  FROM source_data\n)`
+      );
+    }
+    if (pipeline.enrichAfterRun) {
+      const prev = cteParts.length ? `step_${cteParts.length - 1}_${cteParts.length === 1 ? 'mapped' : steps[cteParts.length - 2]?.name.replace(/\W+/g,'_').toLowerCase() || 'prev'}` : 'source_data';
+      cteParts.push(
+        `step_enriched AS (\n` +
+        `  -- Enrich with player profile data (JOIN to your player/profile table)\n` +
+        `  SELECT d.*, p.display_name AS "profile_name", p.avatar_url AS "avatar_image",\n` +
+        `         p.avatar_thumb AS "avatar", p.phone AS "phone"\n` +
+        `  FROM ${prev} d\n` +
+        `  LEFT JOIN players p ON d.player_id = p.id\n)`
+      );
+    }
+    for (let i = 0; i < steps.length; i++) {
+      const step   = steps[i];
+      const prev   = cteParts.length > 0
+        ? `step_${cteParts.length - 1}_${i === 0 ? (pipeline.enrichAfterRun ? 'enriched' : (mappingEntries.length ? 'mapped' : 'source_data')) : steps[i-1].name.replace(/\W+/g,'_').toLowerCase()}`
+        : 'source_data';
+      const alias  = `step_${cteParts.length}_${step.name.replace(/\W+/g,'_').toLowerCase()}`;
+      const rulesSql = step.rules.map(r => `  -- Rule ${r.index}: ${r.name}\n  ${r.sql.replace(/\n/g, '\n  ')}`).join('\n\n');
+      cteParts.push(
+        `${alias} AS (\n` +
+        `  -- ${step.name}\n` +
+        (step.rules.length === 0
+          ? `  SELECT * FROM ${prev} -- no rules configured\n`
+          : step.rules.map(r => {
+              // Inline each rule's SQL into the CTE, reading from prev alias.
+              const inlined = r.sql.replace(/\bFROM data\b/gi, `FROM ${prev}`);
+              return `  -- Rule ${r.index}: ${r.name}\n  ${inlined.replace(/\n/g, '\n  ')}`;
+            }).join('\n\n  -- ↓ feeds into next rule\n\n')) +
+        `)`
+      );
+    }
+    const lastAlias = cteParts.length > 0
+      ? `step_${cteParts.length - 1}_${steps.length > 0 ? steps[steps.length-1].name.replace(/\W+/g,'_').toLowerCase() : 'source_data'}`
+      : 'source_data';
+    const finalSelect = filterCols && filterCols.length > 0
+      ? `SELECT\n  ${filterCols.map(q).join(',\n  ')}\nFROM ${lastAlias};`
+      : `SELECT * FROM ${lastAlias};`;
+
+    const combinedSql = cteParts.length > 0
+      ? `-- ═══════════════════════════════════════════════════════════════════════\n` +
+        `-- Pipeline: ${pipeline.name}\n` +
+        `-- Generated by Smartico Bridge — replicate this in your database to\n` +
+        `-- bypass the pipeline and send pre-processed data via the inject API.\n` +
+        `-- ═══════════════════════════════════════════════════════════════════════\n\n` +
+        `WITH\n${cteParts.join(',\n\n')}\n\n${finalSelect}`
+      : `-- Pipeline "${pipeline.name}" has no steps to replicate.\nSELECT * FROM source_data;`;
+
+    // ── Brief summary (shown in the desc bar) ────────────────────────────────
+    const transformSteps = steps.filter(st => st.rules.some(r => ['rename','sort','select-columns','extract-number','country-code'].includes(r.type)));
+    const metricSteps    = steps.filter(st => st.rules.some(r => ['count','count-times','sum','avg','min','max','count-by','aggregate-metrics'].includes(r.type)));
+
+    let summary = '';
+    if (steps.length === 0 && !pipeline.enrichAfterRun) {
+      summary = `"${pipeline.name}" has no steps configured yet.`;
+    } else {
+      const parts = [];
+      if (mappingEntries.length)   parts.push(`renames ${mappingEntries.length} incoming column${mappingEntries.length === 1 ? '' : 's'}`);
+      if (pipeline.enrichAfterRun) parts.push('enriches rows with player profile data');
+      if (transformSteps.length)   parts.push(`applies ${transformSteps.length} transform step${transformSteps.length === 1 ? '' : 's'} (${transformSteps.map(s => s.name).join(', ')})`);
+      if (metricSteps.length)      parts.push(`computes ${metricSteps.length} metric step${metricSteps.length === 1 ? '' : 's'} (${metricSteps.map(s => s.name).join(', ')})`);
+      if (filterCols)              parts.push(`then filters to ${filterCols.length} output column${filterCols.length === 1 ? '' : 's'}`);
+      summary = `"${pipeline.name}" — ` + parts.join(', then ') + '.';
+    }
 
     res.json({
-      ok:       true,
-      pipelineId: pipeline.id,
-      title:    pipeline.name,
+      ok:           true,
+      pipelineId:   pipeline.id,
+      title:        pipeline.name,
       summary,
-      stepCount: steps.length,
+      mappingEnglish,
+      enrichEnglish,
+      filterEnglish,
+      stepCount:    steps.length,
       steps,
+      combinedSql,
     });
   } catch (e) {
     if (e.code === 'ENOENT') return res.status(404).json({ error: 'Pipeline not found.' });

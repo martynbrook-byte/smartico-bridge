@@ -3250,25 +3250,66 @@ app.get('/api/exports', async (_req, res) => {
 app.post('/api/exports', uploadMemory.single('file'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
-    const id       = crypto.randomUUID();
-    const origName = req.file.originalname || 'export.zip';
-    const ext      = path.extname(origName) || '.zip';
-    const filename = id + ext;
-    const dest     = path.join(EXPORTS_DIR, filename);
+    const id          = crypto.randomUUID();
+    const origName    = req.file.originalname || 'export.zip';
+    const ext         = path.extname(origName) || '.zip';
+    const filename    = id + ext;
+    const sectionName = typeof req.body.sectionName === 'string' && req.body.sectionName.trim()
+      ? req.body.sectionName.trim() : null;
+    const dest = path.join(EXPORTS_DIR, filename);
     await fsp.writeFile(dest, req.file.buffer);
+    const baseUrl = process.env.APP_URL || 'https://smartico-bridge-production.up.railway.app';
     const record = {
       id,
-      name:      origName,
+      name:        origName,
       filename,
-      size:      req.file.size,
-      mimeType:  req.file.mimetype || 'application/zip',
-      uploadedAt: new Date().toISOString(),
+      size:        req.file.size,
+      mimeType:    req.file.mimetype || 'application/zip',
+      sectionName,
+      folderUrl:   sectionName ? `${baseUrl}/exports/${encodeURIComponent(sectionName)}` : null,
+      uploadedAt:  new Date().toISOString(),
     };
     const list = await readExportsMeta();
     list.unshift(record);
     await writeExportsMeta(list);
     res.json({ ok: true, export: record });
   } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// Public folder page — shareable URL listing all exports for a section
+app.get('/exports/:sectionName', async (req, res) => {
+  try {
+    const section = decodeURIComponent(req.params.sectionName);
+    const all     = await readExportsMeta();
+    const files   = all.filter(e => e.sectionName === section);
+    const baseUrl = process.env.APP_URL || 'https://smartico-bridge-production.up.railway.app';
+    const rows    = files.map(f => {
+      const kb   = f.size ? Math.round(f.size / 1024) + ' KB' : '';
+      const date = f.uploadedAt ? new Date(f.uploadedAt).toLocaleString() : '';
+      return `<tr>
+        <td style="padding:10px 14px;border-bottom:1px solid #e5e7eb">${f.name}</td>
+        <td style="padding:10px 14px;border-bottom:1px solid #e5e7eb;color:#6b7280">${date}</td>
+        <td style="padding:10px 14px;border-bottom:1px solid #e5e7eb;color:#6b7280">${kb}</td>
+        <td style="padding:10px 14px;border-bottom:1px solid #e5e7eb">
+          <a href="${baseUrl}/api/exports/${f.id}" download style="background:#2563eb;color:#fff;padding:4px 12px;border-radius:6px;text-decoration:none;font-size:13px">↓ Download</a>
+        </td></tr>`;
+    }).join('');
+    res.setHeader('Content-Type', 'text/html');
+    res.send(`<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${section} — Exports</title>
+<style>body{font-family:system-ui,sans-serif;max-width:800px;margin:40px auto;padding:0 20px;color:#111}
+h1{font-size:1.5rem;margin-bottom:4px}p.sub{color:#6b7280;margin-bottom:24px}
+table{width:100%;border-collapse:collapse}th{text-align:left;padding:8px 14px;border-bottom:2px solid #e5e7eb;font-size:13px;color:#6b7280;text-transform:uppercase;letter-spacing:.05em}
+.empty{color:#9ca3af;padding:32px 0;text-align:center}</style></head>
+<body>
+<h1>📁 ${section}</h1>
+<p class="sub">Exported files — shared from Smartico Bridge</p>
+${files.length
+  ? `<table><thead><tr><th>File</th><th>Date</th><th>Size</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
+  : '<p class="empty">No files in this folder yet.</p>'}
+</body></html>`);
+  } catch(e) { res.status(500).send('Error: ' + e.message); }
 });
 
 app.get('/api/exports/:id', async (req, res) => {

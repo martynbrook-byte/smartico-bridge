@@ -1489,19 +1489,48 @@ parent.postMessage({ pluginMessage: { type: 'get-selection' } }, '*');
 // ── Server upload ─────────────────────────────────────────────────────────────
 var _uploadMode = false;
 
-async function uploadExportToServer(blob, filename) {
+async function uploadExportToServer(blob, filename, sectionName) {
   try {
     var fd = new FormData();
     fd.append('file', blob, filename);
+    if (sectionName) fd.append('sectionName', sectionName);
     var r = await fetch(serverUrl + '/api/exports', { method: 'POST', body: fd });
     var j = await r.json();
     if (!r.ok) throw new Error(j.error || 'Upload failed');
-    showToast('✓ Uploaded to server: ' + filename, 'success');
+    var exp = j.export || {};
+    if (exp.folderUrl) {
+      // Show folder URL in the asset banner so the user can copy it
+      setAssetBanner('');
+      var banner = document.getElementById('assetBanner') || document.getElementById('mainBanner');
+      showToast('✓ Uploaded — copy folder link below', 'success', 7000);
+      // Show a copyable link row under the panel progress area
+      _showFolderLink(exp.folderUrl, sectionName || filename);
+    } else {
+      showToast('✓ Uploaded: ' + filename, 'success');
+    }
     return true;
   } catch(e) {
     showToast('Upload failed: ' + e.message, 'error');
     return false;
   }
+}
+
+function _showFolderLink(url, label) {
+  var el = document.getElementById('_folderLinkRow');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = '_folderLinkRow';
+    el.style.cssText = 'display:flex;align-items:center;gap:6px;padding:8px;background:var(--white-strong);border:1px solid var(--border);border-radius:6px;margin-top:6px;font-size:11px';
+    // Insert after the progress row if possible, else after body
+    var prog = document.getElementById('ic-progress-row') || document.querySelector('#panel-optimiser-body');
+    if (prog && prog.parentNode) prog.parentNode.insertBefore(el, prog.nextSibling);
+    else document.body.appendChild(el);
+  }
+  el.innerHTML = '<span style="flex-shrink:0;color:var(--muted)">📁 ' + esc(label) + '</span>' +
+    '<input id="_folderLinkInput" readonly value="' + esc(url) + '" style="flex:1;font-size:10px;padding:3px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-family:monospace" onclick="this.select()">' +
+    '<button style="flex-shrink:0;padding:2px 8px;border-radius:4px;border:1px solid var(--border);background:var(--white-strong);cursor:pointer;font-size:10px" onclick="navigator.clipboard.writeText(document.getElementById(\'_folderLinkInput\').value).then(function(){showToast(\'Link copied\',\'success\',2000)})">Copy</button>';
+  el.style.display = 'flex';
+  setTimeout(function() { if (el) el.style.display = 'none'; }, 30000);
 }
 
 function startUploadExport() {
@@ -4220,18 +4249,13 @@ async function runExport() {
       if (_uploadMode) {
         progressText.textContent = 'Uploading to server…';
         _uploadMode = false;
-        if (collected.length === 1) {
-          const { bytes, filename } = collected[0];
-          const mime = filename.endsWith('.png') ? 'image/png'
-                     : filename.endsWith('.jpg') || filename.endsWith('.jpeg') ? 'image/jpeg'
-                     : filename.endsWith('.webp') ? 'image/webp' : 'application/octet-stream';
-          await uploadExportToServer(new Blob([bytes], { type: mime }), filename);
-        } else {
-          const zipBytes = buildZip(collected.map(f => ({ name: f.filename, bytes: f.bytes })));
-          const today = new Date().toISOString().slice(0,10);
-          const zipFilename = `exported-images-${today}.zip`;
-          await uploadExportToServer(new Blob([zipBytes], { type: 'application/zip' }), zipFilename);
-        }
+        // Determine section name (use first item's section, or null)
+        const uploadSection = (collected[0] && collected[0].sectionName) || null;
+        const zipBytes   = buildZip(collected.map(f => ({ name: f.filename, bytes: f.bytes })));
+        const today      = new Date().toISOString().slice(0,10);
+        const zipLabel   = uploadSection ? uploadSection + '-' + today : 'exported-images-' + today;
+        const zipFilename = zipLabel + '.zip';
+        await uploadExportToServer(new Blob([zipBytes], { type: 'application/zip' }), zipFilename, uploadSection);
       } else {
         progressText.textContent = collected.length > 1 ? 'Packing ZIP…' : 'Saving…';
         if (collected.length === 1) {
@@ -4476,7 +4500,8 @@ document.getElementById('gif-export-main-btn').addEventListener('click', async (
     const bytes  = encodeGif(scaled, delays, quality, transparent, bgColor);
     if (_uploadMode) {
       _uploadMode = false;
-      await uploadExportToServer(new Blob([bytes], { type: 'image/gif' }), 'animation.gif');
+      const gifSection = (state.layers && state.layers[0] && state.layers[0].sectionName) || null;
+      await uploadExportToServer(new Blob([bytes], { type: 'image/gif' }), (gifSection || 'animation') + '.gif', gifSection);
     } else {
       downloadBlob(new Blob([bytes], { type:'image/gif' }), 'animation.gif');
       showToast('✓ GIF saved to Downloads', 'success');
@@ -5086,7 +5111,8 @@ async function exportMultiPagePdf() {
   const name = (layers[0]?.name || 'Artwork').replace(/[/\\?%*:|"<>]/g,'-');
   if (_uploadMode) {
     _uploadMode = false;
-    await uploadExportToServer(new Blob([pdfBytes], { type: 'application/pdf' }), name + '.pdf');
+    const pdfSection = (layers[0] && layers[0].sectionName) || null;
+    await uploadExportToServer(new Blob([pdfBytes], { type: 'application/pdf' }), name + '.pdf', pdfSection);
   } else {
     downloadBlob(new Blob([pdfBytes], { type:'application/pdf' }), name + '.pdf');
     showToast(`✓ PDF saved (${pages.length} page${pages.length!==1?'s':''})`, 'success');

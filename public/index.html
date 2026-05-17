@@ -6180,17 +6180,41 @@ function renderExports(list) {
     return;
   }
   if (empty) empty.style.display = 'none';
-  container.innerHTML = list.map(function(e) {
-    var date = e.uploadedAt ? new Date(e.uploadedAt).toLocaleString() : '';
-    var size = e.size ? (e.size > 1048576 ? (e.size/1048576).toFixed(1)+'MB' : (e.size/1024).toFixed(0)+'KB') : '';
-    return '<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)">' +
-      '<div style="flex:1;min-width:0">' +
-        '<div style="font-weight:600;font-size:0.9rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+esc(e.name)+'">'+esc(e.name)+'</div>' +
-        '<div style="font-size:0.75rem;color:var(--muted)">'+esc(date)+(size?' · '+esc(size):'')+'</div>' +
-      '</div>' +
-      '<a href="'+DATA_SERVER_URL+'/api/exports/'+esc(e.id)+'" class="btn btn-small btn-primary" download>&#8595; Download</a>' +
-      '<button class="btn btn-small" style="color:var(--danger)" onclick="deleteExport(\''+esc(e.id)+'\')">&#x2715;</button>' +
-    '</div>';
+
+  // Group by sectionName (null = unsectioned)
+  var groups = {};
+  list.forEach(function(e) {
+    var key = e.sectionName || '';
+    if (!groups[key]) groups[key] = { sectionName: e.sectionName, folderUrl: e.folderUrl, files: [] };
+    groups[key].files.push(e);
+  });
+  var keys = Object.keys(groups).sort(function(a,b){ return a.localeCompare(b); });
+
+  container.innerHTML = keys.map(function(key) {
+    var g = groups[key];
+    var heading = g.sectionName
+      ? '<div style="display:flex;align-items:center;gap:10px;margin:14px 0 6px;flex-wrap:wrap">' +
+          '<span style="font-weight:700;font-size:0.95rem">📁 '+esc(g.sectionName)+'</span>' +
+          (g.folderUrl
+            ? '<input readonly value="'+esc(g.folderUrl)+'" style="flex:1;min-width:160px;font-size:0.72rem;padding:3px 8px;border:1px solid var(--border);border-radius:4px;background:var(--surface);font-family:monospace" onclick="this.select()" title="Shareable folder URL">' +
+              '<button class="btn btn-small" onclick="navigator.clipboard.writeText(\''+esc(g.folderUrl)+'\').then(function(){banner(\'Link copied\',\'success\',2000)})">Copy link</button>' +
+              '<a href="'+esc(g.folderUrl)+'" target="_blank" class="btn btn-small">Open ↗</a>'
+            : '') +
+        '</div>'
+      : '<div style="font-weight:700;font-size:0.85rem;color:var(--muted);margin:14px 0 4px;text-transform:uppercase;letter-spacing:.05em">Unsectioned</div>';
+    var rows = g.files.map(function(e) {
+      var date = e.uploadedAt ? new Date(e.uploadedAt).toLocaleString() : '';
+      var size = e.size ? (e.size > 1048576 ? (e.size/1048576).toFixed(1)+'MB' : Math.round(e.size/1024)+'KB') : '';
+      return '<div style="display:flex;align-items:center;gap:8px;padding:7px 0 7px 12px;border-bottom:1px solid var(--border)">' +
+        '<div style="flex:1;min-width:0">' +
+          '<div style="font-size:0.85rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+esc(e.name)+'">'+esc(e.name)+'</div>' +
+          '<div style="font-size:0.72rem;color:var(--muted)">'+esc(date)+(size?' · '+esc(size):'')+'</div>' +
+        '</div>' +
+        '<a href="'+DATA_SERVER_URL+'/api/exports/'+esc(e.id)+'" class="btn btn-small btn-primary" download>&#8595;</a>' +
+        '<button class="btn btn-small" style="color:var(--danger)" onclick="deleteExport(\''+esc(e.id)+'\')">&#x2715;</button>' +
+      '</div>';
+    }).join('');
+    return heading + rows;
   }).join('');
 }
 

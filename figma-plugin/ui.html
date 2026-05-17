@@ -1321,10 +1321,20 @@
 // EARLY MESSAGE LISTENER — registered before any IIFE so it survives crashes
 // Handles selection + inject-result directly via DOM manipulation
 // ═══════════════════════════════════════════════════════════════════════════
+var _figmaFileKey  = null;
+var _figmaFileName = null;
+
 var _SB_IC_TYPES = ['layers', 'thumbnail', 'export-result', 'export-error', 'pdf-results'];
 window.addEventListener('message', function(ev) {
   var msg = ev && ev.data && ev.data.pluginMessage;
   if (!msg) return;
+
+  // ── 0. File identity ─────────────────────────────────────────────────────────
+  if (msg.type === 'figma-file-info') {
+    _figmaFileKey  = msg.fileKey  || null;
+    _figmaFileName = msg.fileName || null;
+    return;
+  }
 
   // ── 1. Update status bar directly ────────────────────────────────────────────
   if (msg.type === 'selection') {
@@ -1493,7 +1503,9 @@ async function uploadExportToServer(blob, filename, sectionName) {
   try {
     var fd = new FormData();
     fd.append('file', blob, filename);
-    if (sectionName) fd.append('sectionName', sectionName);
+    if (sectionName)    fd.append('sectionName',    sectionName);
+    if (_figmaFileKey)  fd.append('figmaFileKey',   _figmaFileKey);
+    if (_figmaFileName) fd.append('figmaFileName',  _figmaFileName);
     var r = await fetch(serverUrl + '/api/exports', { method: 'POST', body: fd });
     var j = await r.json();
     if (!r.ok) throw new Error(j.error || 'Upload failed');

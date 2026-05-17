@@ -31,6 +31,13 @@
 
 figma.showUI(__html__, { width: 440, height: 640, title: 'Smartico Bridge' });
 
+// Send file identity to the UI so uploads can include a Figma deep-link
+figma.ui.postMessage({
+  type: 'figma-file-info',
+  fileKey:  figma.fileKey  || null,
+  fileName: figma.root ? figma.root.name : null,
+});
+
 // ── Selection broadcast ───────────────────────────────────────────────────────
 // expandSections: when a SECTION node is selected, substitute its direct frame
 // children so panels (Optimiser, Artworker, Animator) see the frames inside.

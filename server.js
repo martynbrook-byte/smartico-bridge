@@ -33,6 +33,7 @@ const fs         = require('fs');
 const fsp        = require('fs/promises');
 const path       = require('path');
 const crypto     = require('crypto');
+const { google } = require('googleapis');
 
 const app       = express();
 const PORT      = process.env.PORT || 3001;
@@ -41,6 +42,7 @@ const DATASETS_DIR  = path.join(DATA_DIR, 'datasets');
 const PIPELINES_DIR = path.join(DATA_DIR, 'pipelines');
 const DROPZONES_DIR = path.join(DATA_DIR, 'dropzones');
 const ASSETS_DIR    = path.join(DATA_DIR, 'assets');
+const GDRIVE_TOKEN_FILE = path.join(DATA_DIR, 'gdrive-token.json');
 const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
 const UPLOADS_DIR = path.join(__dirname, 'uploads');
 
@@ -3208,6 +3210,126 @@ app.get('/api/pipelines/:id/describe', async (req, res) => {
     });
   } catch (e) {
     if (e.code === 'ENOENT') return res.status(404).json({ error: 'Pipeline not found.' });
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── Google Drive OAuth ────────────────────────────────────────────────────────
+// Requires env vars: GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
+// APP_URL should be set to the Railway app's public URL (no trailing slash),
+// e.g. https://smartico-bridge-production.up.railway.app
+
+function gdrive_client() {
+  return new google.auth.OAuth2(
+    process.env.GOOGLE_CLIENT_ID,
+    process.env.GOOGLE_CLIENT_SECRET,
+    (process.env.APP_URL || 'http://localhost:3001') + '/api/google/callback'
+  );
+}
+
+async function gdrive_loadTokens() {
+  const raw = await fsp.readFile(GDRIVE_TOKEN_FILE, 'utf8');
+  return JSON.parse(raw);
+}
+
+async function gdrive_saveTokens(tokens) {
+  await fsp.writeFile(GDRIVE_TOKEN_FILE, JSON.stringify(tokens, null, 2));
+}
+
+async function gdrive_authedClient() {
+  const auth = gdrive_client();
+  const tokens = await gdrive_loadTokens();
+  auth.setCredentials(tokens);
+  // Auto-refresh when the access token is close to expiry
+  auth.on('tokens', async (freshTokens) => {
+    const merged = Object.assign({}, tokens, freshTokens);
+    await gdrive_saveTokens(merged).catch(() => {});
+  });
+  return auth;
+}
+
+app.get('/api/google/status', async (_req, res) => {
+  try {
+    const tokens = await gdrive_loadTokens();
+    const auth   = gdrive_client();
+    auth.setCredentials(tokens);
+    const oauth2 = google.oauth2({ version: 'v2', auth });
+    const info   = await oauth2.userinfo.get();
+    res.json({ connected: true, email: info.data.email });
+  } catch (_) {
+    res.json({ connected: false });
+  }
+});
+
+app.get('/api/google/auth', (_req, res) => {
+  const auth = gdrive_client();
+  const url = auth.generateAuthUrl({
+    access_type: 'offline',
+    scope: [
+      'https://www.googleapis.com/auth/drive.file',
+      'https://www.googleapis.com/auth/userinfo.email',
+    ],
+    prompt: 'consent',
+  });
+  res.redirect(url);
+});
+
+app.get('/api/google/callback', async (req, res) => {
+  try {
+    const auth  = gdrive_client();
+    const { tokens } = await auth.getToken(req.query.code);
+    await gdrive_saveTokens(tokens);
+    res.redirect('/?gdrive=connected');
+  } catch (e) {
+    res.redirect('/?gdrive=error&msg=' + encodeURIComponent(e.message));
+  }
+});
+
+app.delete('/api/google/disconnect', async (_req, res) => {
+  try { await fsp.unlink(GDRIVE_TOKEN_FILE); } catch (_) {}
+  res.json({ ok: true });
+});
+
+// POST /api/google/upload — accepts multipart: file + sectionName + filename
+// The plugin POSTs one file at a time; sectionName becomes the Drive folder name.
+app.post('/api/google/upload', upload.single('file'), async (req, res) => {
+  try {
+    const sectionName = (req.body.sectionName || 'General').trim();
+    const filename    = (req.body.filename    || req.file.originalname || 'export').trim();
+    const mimeType    = req.file.mimetype || 'application/octet-stream';
+
+    const auth  = await gdrive_authedClient();
+    const drive = google.drive({ version: 'v3', auth });
+
+    // Find or create the section folder at Drive root
+    const folderQuery = await drive.files.list({
+      q: `name='${sectionName.replace(/'/g, "\\'")}' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+      fields: 'files(id)',
+      spaces: 'drive',
+    });
+    let folderId;
+    if (folderQuery.data.files.length > 0) {
+      folderId = folderQuery.data.files[0].id;
+    } else {
+      const created = await drive.files.create({
+        requestBody: { name: sectionName, mimeType: 'application/vnd.google-apps.folder' },
+        fields: 'id',
+      });
+      folderId = created.data.id;
+    }
+
+    // Upload the file
+    const { Readable } = require('stream');
+    const fileStream = Readable.from(req.file.buffer);
+    const uploaded = await drive.files.create({
+      requestBody: { name: filename, parents: [folderId] },
+      media: { mimeType, body: fileStream },
+      fields: 'id,webViewLink',
+    });
+
+    res.json({ ok: true, fileId: uploaded.data.id, webViewLink: uploaded.data.webViewLink });
+  } catch (e) {
+    console.error('[gdrive upload]', e.message);
     res.status(500).json({ error: e.message });
   }
 });

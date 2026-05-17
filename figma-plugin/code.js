@@ -40,10 +40,10 @@ function expandSections(nodes) {
     var n = nodes[i];
     if (n.type === 'SECTION' && 'children' in n && n.children.length) {
       for (var j = 0; j < n.children.length; j++) {
-        out.push(n.children[j]);
+        out.push({ node: n.children[j], sectionName: n.name });
       }
     } else {
-      out.push(n);
+      out.push({ node: n, sectionName: null });
     }
   }
   return out;
@@ -1992,9 +1992,11 @@ function ic_buildLayerList() {
   // Expand sections to their direct children so Optimiser/Artworker/Animator
   // display the frames inside a section rather than the section itself
   // (SectionNode has no exportAsync and would otherwise produce an empty list).
-  var effectiveSel = expandSections(Array.from(figma.currentPage.selection));
-  for (var ni = 0; ni < effectiveSel.length; ni++) {
-    var node = effectiveSel[ni];
+  var entries = expandSections(Array.from(figma.currentPage.selection));
+  for (var ni = 0; ni < entries.length; ni++) {
+    var entry = entries[ni];
+    var node = entry.node;
+    var sectionName = entry.sectionName;
     if (!('exportAsync' in node)) continue;
     var nodeWidth  = 'width'  in node ? node.width  : 100;
     var nodeHeight = 'height' in node ? node.height : 100;
@@ -2008,14 +2010,16 @@ function ic_buildLayerList() {
           name: node.name + (s.suffix || ''),
           format: s.format, scale: scale,
           width:  Math.round(nodeWidth  * scale),
-          height: Math.round(nodeHeight * scale)
+          height: Math.round(nodeHeight * scale),
+          sectionName: sectionName,
         });
       }
     } else {
       layers.push({
         id: node.id, settingIndex: -1,
         name: node.name, format: 'PNG', scale: 1,
-        width: Math.round(nodeWidth), height: Math.round(nodeHeight)
+        width: Math.round(nodeWidth), height: Math.round(nodeHeight),
+        sectionName: sectionName,
       });
     }
   }

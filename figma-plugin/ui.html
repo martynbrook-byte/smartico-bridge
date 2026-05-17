@@ -869,8 +869,9 @@
       <span class="progress-text" id="progress-text">Exporting…</span>
     </div>
 
-    <div class="acc-export-foot">
-      <button class="btn-hero" id="export-btn">Export (0)</button>
+    <div class="acc-export-foot" style="display:flex;gap:6px;align-items:center">
+      <button class="btn-hero" id="export-btn" style="flex:1">Export (0)</button>
+      <button class="btn-hero drive-save-btn" style="display:none;flex-shrink:0;background:var(--blue);padding:0 12px" onclick="startDriveExport()" title="Save to Google Drive">&#9729; Drive</button>
     </div>
   </div>
 </div>
@@ -979,8 +980,9 @@
 
     </div>
 
-    <div class="acc-export-foot">
-      <button class="btn-hero" id="pdf-export-btn">Export PDF</button>
+    <div class="acc-export-foot" style="display:flex;gap:6px;align-items:center">
+      <button class="btn-hero" id="pdf-export-btn" style="flex:1">Export PDF</button>
+      <button class="btn-hero drive-save-btn" style="display:none;flex-shrink:0;background:var(--blue);padding:0 12px" onclick="startDrivePdf()" title="Save PDF to Google Drive">&#9729; Drive</button>
     </div>
   </div>
 </div>
@@ -1095,8 +1097,9 @@
 
     </div>
 
-    <div class="acc-export-foot">
-      <button class="btn-hero" id="gif-export-main-btn">Export GIF</button>
+    <div class="acc-export-foot" style="display:flex;gap:6px;align-items:center">
+      <button class="btn-hero" id="gif-export-main-btn" style="flex:1">Export GIF</button>
+      <button class="btn-hero drive-save-btn" style="display:none;flex-shrink:0;background:var(--blue);padding:0 12px" onclick="startDriveGif()" title="Save GIF to Google Drive">&#9729; Drive</button>
     </div>
   </div>
 </div>
@@ -1482,6 +1485,65 @@ parent.postMessage({ pluginMessage: { type: 'get-selection' } }, '*');
 // Set mute button icon from persisted preference
 (function() { var b = document.getElementById('muteBtn'); if (b) b.textContent = _audioMuted ? '🔇' : '🔊'; })();
 // loadUploadPipelines() deferred until data panel opens
+
+// ── Google Drive ──────────────────────────────────────────────────────────────
+var _gdriveConnected = false;
+
+async function checkDriveStatus() {
+  try {
+    var r = await api('/api/google/status');
+    _gdriveConnected = !!r.connected;
+  } catch(_) { _gdriveConnected = false; }
+  updateDriveButtons();
+}
+
+function updateDriveButtons() {
+  var btns = document.querySelectorAll('.drive-save-btn');
+  btns.forEach(function(b) {
+    b.style.display = _gdriveConnected ? 'flex' : 'none';
+  });
+}
+
+async function uploadToDrive(files) {
+  // files: array of { bytes: Uint8Array, filename: string, sectionName: string|null }
+  var total = files.length;
+  for (var i = 0; i < files.length; i++) {
+    var f = files[i];
+    var fd = new FormData();
+    fd.append('file', new Blob([f.bytes]), f.filename);
+    fd.append('filename', f.filename);
+    fd.append('sectionName', f.sectionName || 'General');
+    try {
+      var r = await fetch(serverUrl + '/api/google/upload', { method: 'POST', body: fd });
+      var j = await r.json();
+      if (!r.ok) throw new Error(j.error || 'Upload failed');
+    } catch(e) {
+      showToast('Drive upload failed: ' + e.message, 'error');
+      return false;
+    }
+  }
+  showToast('✓ ' + total + ' file' + (total !== 1 ? 's' : '') + ' saved to Google Drive', 'success');
+  return true;
+}
+
+var _driveMode = false;
+
+function startDriveExport() {
+  _driveMode = true;
+  runExport();
+}
+
+function startDriveGif() {
+  _driveMode = true;
+  document.getElementById('gif-export-main-btn').click();
+}
+
+function startDrivePdf() {
+  _driveMode = true;
+  document.getElementById('pdf-export-btn').click();
+}
+
+checkDriveStatus();
 
 // ── Panel accordion ───────────────────────────────────────────────────────────
 var PANELS = ['data', 'assets', 'casino', 'optimiser', 'artworker', 'animator', 'settings'];
@@ -4147,7 +4209,7 @@ async function runExport() {
   progressText.textContent = `Starting export of ${selected.length} layer${selected.length!==1?'s':''}…`;
 
   const errors = []; const total = selected.length;
-  const collected = []; // {bytes: Uint8Array, filename: string}
+  const collected = []; // {bytes: Uint8Array, filename: string, sectionName: string|null}
   try {
     for (let i = 0; i < selected.length; i++) {
       const layer = selected[i];
@@ -4166,7 +4228,7 @@ async function runExport() {
           ? await compressToTargetSize(canvas, fmt, qVal)
           : await canvasToBlob(canvas, fmt, qVal);
         const fileBytes = new Uint8Array(await blob.arrayBuffer());
-        collected.push({ bytes: fileBytes, filename: buildFilename(layer, outFmt, i) });
+        collected.push({ bytes: fileBytes, filename: buildFilename(layer, outFmt, i), sectionName: layer.sectionName || null });
       } catch (e) {
         const msg = e.message || String(e);
         errors.push(msg);
@@ -4181,26 +4243,32 @@ async function runExport() {
 
     if (collected.length > 0) {
       progressFill.style.width = '90%';
-      progressText.textContent = collected.length > 1 ? 'Packing ZIP…' : 'Saving…';
-      if (collected.length === 1) {
-        // Single file — direct download, no ZIP needed
-        const { bytes, filename } = collected[0];
-        const mime = filename.endsWith('.png') ? 'image/png'
-                   : filename.endsWith('.jpg') || filename.endsWith('.jpeg') ? 'image/jpeg'
-                   : filename.endsWith('.webp') ? 'image/webp' : 'application/octet-stream';
-        downloadBlob(new Blob([bytes], { type: mime }), filename);
+      if (_driveMode) {
+        progressText.textContent = 'Uploading to Google Drive…';
+        _driveMode = false;
+        await uploadToDrive(collected);
       } else {
-        // Multiple files → single ZIP download (no iframe multi-download issues)
-        const zipBytes = buildZip(collected.map(f => ({ name: f.filename, bytes: f.bytes })));
-        const today = new Date().toISOString().slice(0,10);
-        downloadBlob(new Blob([zipBytes], { type: 'application/zip' }), `exported-images-${today}.zip`);
+        progressText.textContent = collected.length > 1 ? 'Packing ZIP…' : 'Saving…';
+        if (collected.length === 1) {
+          // Single file — direct download, no ZIP needed
+          const { bytes, filename } = collected[0];
+          const mime = filename.endsWith('.png') ? 'image/png'
+                     : filename.endsWith('.jpg') || filename.endsWith('.jpeg') ? 'image/jpeg'
+                     : filename.endsWith('.webp') ? 'image/webp' : 'application/octet-stream';
+          downloadBlob(new Blob([bytes], { type: mime }), filename);
+        } else {
+          // Multiple files → single ZIP download (no iframe multi-download issues)
+          const zipBytes = buildZip(collected.map(f => ({ name: f.filename, bytes: f.bytes })));
+          const today = new Date().toISOString().slice(0,10);
+          downloadBlob(new Blob([zipBytes], { type: 'application/zip' }), `exported-images-${today}.zip`);
+        }
+        progressFill.style.width = '100%';
+        const label = collected.length > 1
+          ? `✓ ${collected.length} files → exported-images.zip`
+          : `✓ ${collected[0].filename}`;
+        progressText.textContent = label;
+        showToast(label, 'success');
       }
-      progressFill.style.width = '100%';
-      const label = collected.length > 1
-        ? `✓ ${collected.length} files → exported-images.zip`
-        : `✓ ${collected[0].filename}`;
-      progressText.textContent = label;
-      showToast(label, 'success');
       setTimeout(() => { progressRow.classList.remove('visible'); progressFill.style.width = '0%'; }, 3500);
     } else {
       progressFill.style.width = '0%';
@@ -4421,8 +4489,13 @@ document.getElementById('gif-export-main-btn').addEventListener('click', async (
     });
     const delays = gifState.frames.map(f => f.delay);
     const bytes  = encodeGif(scaled, delays, quality, transparent, bgColor);
-    downloadBlob(new Blob([bytes], { type:'image/gif' }), 'animation.gif');
-    showToast('✓ GIF saved to Downloads', 'success');
+    if (_driveMode) {
+      _driveMode = false;
+      await uploadToDrive([{ bytes: bytes, filename: 'animation.gif', sectionName: null }]);
+    } else {
+      downloadBlob(new Blob([bytes], { type:'image/gif' }), 'animation.gif');
+      showToast('✓ GIF saved to Downloads', 'success');
+    }
   } catch (e) { showToast('⚠ GIF failed: ' + e.message, 'error'); }
 });
 
@@ -5026,8 +5099,14 @@ async function exportMultiPagePdf() {
 
   const pdfBytes = buildMultiPagePdf(pages, { bleedPt, cropMarks: cropEnabled, password });
   const name = (layers[0]?.name || 'Artwork').replace(/[/\\?%*:|"<>]/g,'-');
-  downloadBlob(new Blob([pdfBytes], { type:'application/pdf' }), name + '.pdf');
-  showToast(`✓ PDF saved (${pages.length} page${pages.length!==1?'s':''})`, 'success');
+  if (_driveMode) {
+    _driveMode = false;
+    const sectionName = (layers[0]?.sectionName) || null;
+    await uploadToDrive([{ bytes: pdfBytes, filename: name + '.pdf', sectionName: sectionName }]);
+  } else {
+    downloadBlob(new Blob([pdfBytes], { type:'application/pdf' }), name + '.pdf');
+    showToast(`✓ PDF saved (${pages.length} page${pages.length!==1?'s':''})`, 'success');
+  }
 }
 
 // ── GIF encoder (LZW, pure JS) ────────────────────────────────────────

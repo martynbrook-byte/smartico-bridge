@@ -33,7 +33,6 @@ const fs         = require('fs');
 const fsp        = require('fs/promises');
 const path       = require('path');
 const crypto     = require('crypto');
-const { google } = require('googleapis');
 
 const app       = express();
 const PORT      = process.env.PORT || 3001;
@@ -42,7 +41,6 @@ const DATASETS_DIR  = path.join(DATA_DIR, 'datasets');
 const PIPELINES_DIR = path.join(DATA_DIR, 'pipelines');
 const DROPZONES_DIR = path.join(DATA_DIR, 'dropzones');
 const ASSETS_DIR    = path.join(DATA_DIR, 'assets');
-const GDRIVE_TOKEN_FILE = path.join(DATA_DIR, 'gdrive-token.json');
 const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
 const UPLOADS_DIR = path.join(__dirname, 'uploads');
 
@@ -98,6 +96,12 @@ const upload = multer({
     const ok = /\.csv$/i.test(file.originalname) || file.mimetype === 'text/csv';
     cb(ok ? null : new Error('Only .csv files are accepted'), ok);
   },
+});
+
+// Memory-storage multer for the exports endpoint (stores buffer in req.file.buffer)
+const uploadMemory = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 200 * 1024 * 1024 }, // 200 MB
 });
 
 // ── Settings shape & migration ───────────────────────────────────────────────
@@ -3214,124 +3218,81 @@ app.get('/api/pipelines/:id/describe', async (req, res) => {
   }
 });
 
-// ── Google Drive OAuth ────────────────────────────────────────────────────────
-// Requires env vars: GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
-// APP_URL should be set to the Railway app's public URL (no trailing slash),
-// e.g. https://smartico-bridge-production.up.railway.app
+// ── Exports storage ──────────────────────────────────────────────────────────
+// Stores ZIP files (and single exported files) uploaded from the Figma plugin.
+// Files are kept on the server so the team can download them via the website.
+//
+//   GET    /api/exports          — list all stored exports (metadata)
+//   POST   /api/exports          — upload a file (multipart form, field: file)
+//   GET    /api/exports/:id      — download a stored file
+//   DELETE /api/exports/:id      — delete a stored file
 
-function gdrive_client() {
-  return new google.auth.OAuth2(
-    process.env.GOOGLE_CLIENT_ID,
-    process.env.GOOGLE_CLIENT_SECRET,
-    (process.env.APP_URL || 'http://localhost:3001') + '/api/google/callback'
-  );
+const EXPORTS_DIR  = path.join(DATA_DIR, 'exports');
+const EXPORTS_META = path.join(DATA_DIR, 'exports-meta.json');
+
+// Ensure exports dir exists at startup
+(async () => { try { await fsp.mkdir(EXPORTS_DIR, { recursive: true }); } catch(_) {} })();
+
+async function readExportsMeta() {
+  try { return JSON.parse(await fsp.readFile(EXPORTS_META, 'utf8')); } catch(_) { return []; }
+}
+async function writeExportsMeta(list) {
+  await fsp.writeFile(EXPORTS_META, JSON.stringify(list, null, 2));
 }
 
-async function gdrive_loadTokens() {
-  const raw = await fsp.readFile(GDRIVE_TOKEN_FILE, 'utf8');
-  return JSON.parse(raw);
-}
-
-async function gdrive_saveTokens(tokens) {
-  await fsp.writeFile(GDRIVE_TOKEN_FILE, JSON.stringify(tokens, null, 2));
-}
-
-async function gdrive_authedClient() {
-  const auth = gdrive_client();
-  const tokens = await gdrive_loadTokens();
-  auth.setCredentials(tokens);
-  // Auto-refresh when the access token is close to expiry
-  auth.on('tokens', async (freshTokens) => {
-    const merged = Object.assign({}, tokens, freshTokens);
-    await gdrive_saveTokens(merged).catch(() => {});
-  });
-  return auth;
-}
-
-app.get('/api/google/status', async (_req, res) => {
+app.get('/api/exports', async (_req, res) => {
   try {
-    const tokens = await gdrive_loadTokens();
-    const auth   = gdrive_client();
-    auth.setCredentials(tokens);
-    const oauth2 = google.oauth2({ version: 'v2', auth });
-    const info   = await oauth2.userinfo.get();
-    res.json({ connected: true, email: info.data.email });
-  } catch (_) {
-    res.json({ connected: false });
-  }
+    const list = await readExportsMeta();
+    res.json({ exports: list });
+  } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-app.get('/api/google/auth', (_req, res) => {
-  const auth = gdrive_client();
-  const url = auth.generateAuthUrl({
-    access_type: 'offline',
-    scope: [
-      'https://www.googleapis.com/auth/drive.file',
-      'https://www.googleapis.com/auth/userinfo.email',
-    ],
-    prompt: 'consent',
-  });
-  res.redirect(url);
-});
-
-app.get('/api/google/callback', async (req, res) => {
+app.post('/api/exports', uploadMemory.single('file'), async (req, res) => {
   try {
-    const auth  = gdrive_client();
-    const { tokens } = await auth.getToken(req.query.code);
-    await gdrive_saveTokens(tokens);
-    res.redirect('/?gdrive=connected');
-  } catch (e) {
-    res.redirect('/?gdrive=error&msg=' + encodeURIComponent(e.message));
-  }
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+    const id       = crypto.randomUUID();
+    const origName = req.file.originalname || 'export.zip';
+    const ext      = path.extname(origName) || '.zip';
+    const filename = id + ext;
+    const dest     = path.join(EXPORTS_DIR, filename);
+    await fsp.writeFile(dest, req.file.buffer);
+    const record = {
+      id,
+      name:      origName,
+      filename,
+      size:      req.file.size,
+      mimeType:  req.file.mimetype || 'application/zip',
+      uploadedAt: new Date().toISOString(),
+    };
+    const list = await readExportsMeta();
+    list.unshift(record);
+    await writeExportsMeta(list);
+    res.json({ ok: true, export: record });
+  } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-app.delete('/api/google/disconnect', async (_req, res) => {
-  try { await fsp.unlink(GDRIVE_TOKEN_FILE); } catch (_) {}
-  res.json({ ok: true });
-});
-
-// POST /api/google/upload — accepts multipart: file + sectionName + filename
-// The plugin POSTs one file at a time; sectionName becomes the Drive folder name.
-app.post('/api/google/upload', upload.single('file'), async (req, res) => {
+app.get('/api/exports/:id', async (req, res) => {
   try {
-    const sectionName = (req.body.sectionName || 'General').trim();
-    const filename    = (req.body.filename    || req.file.originalname || 'export').trim();
-    const mimeType    = req.file.mimetype || 'application/octet-stream';
+    const list   = await readExportsMeta();
+    const record = list.find(e => e.id === req.params.id);
+    if (!record) return res.status(404).json({ error: 'Not found' });
+    const filepath = path.join(EXPORTS_DIR, record.filename);
+    res.setHeader('Content-Disposition', `attachment; filename="${record.name}"`);
+    res.setHeader('Content-Type', record.mimeType);
+    res.sendFile(filepath);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
 
-    const auth  = await gdrive_authedClient();
-    const drive = google.drive({ version: 'v3', auth });
-
-    // Find or create the section folder at Drive root
-    const folderQuery = await drive.files.list({
-      q: `name='${sectionName.replace(/'/g, "\\'")}' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
-      fields: 'files(id)',
-      spaces: 'drive',
-    });
-    let folderId;
-    if (folderQuery.data.files.length > 0) {
-      folderId = folderQuery.data.files[0].id;
-    } else {
-      const created = await drive.files.create({
-        requestBody: { name: sectionName, mimeType: 'application/vnd.google-apps.folder' },
-        fields: 'id',
-      });
-      folderId = created.data.id;
-    }
-
-    // Upload the file
-    const { Readable } = require('stream');
-    const fileStream = Readable.from(req.file.buffer);
-    const uploaded = await drive.files.create({
-      requestBody: { name: filename, parents: [folderId] },
-      media: { mimeType, body: fileStream },
-      fields: 'id,webViewLink',
-    });
-
-    res.json({ ok: true, fileId: uploaded.data.id, webViewLink: uploaded.data.webViewLink });
-  } catch (e) {
-    console.error('[gdrive upload]', e.message);
-    res.status(500).json({ error: e.message });
-  }
+app.delete('/api/exports/:id', async (req, res) => {
+  try {
+    const list   = await readExportsMeta();
+    const idx    = list.findIndex(e => e.id === req.params.id);
+    if (idx === -1) return res.status(404).json({ error: 'Not found' });
+    const [record] = list.splice(idx, 1);
+    try { await fsp.unlink(path.join(EXPORTS_DIR, record.filename)); } catch(_) {}
+    await writeExportsMeta(list);
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
 // ── Error handler (catches multer rejections etc.) ───────────────────────────

@@ -1623,6 +1623,7 @@
     <button class="pill-tab" data-tab="view" onclick="switchTab('view')">
       View Data
     </button>
+    <button class="pill-tab" data-tab="exports" onclick="switchTab('exports')">Exports <span class="count" id="tabCountExports">0</span></button>
     <button class="pill-tab" data-tab="settings" onclick="switchTab('settings')">
       Settings
     </button>
@@ -2016,23 +2017,22 @@
 
   </section>
 
-  <!-- ═══ Settings ═══ -->
-  <section id="tab-settings" class="tab-panel hidden">
-
-    <!-- Google Drive ──────────────────────────────────────────────────────── -->
+  <!-- ── Exports tab ─────────────────────────────────────────────────────── -->
+  <section id="tab-exports" class="tab-panel hidden">
     <div class="panel" style="margin-bottom:14px">
       <div class="panel-title" style="display:flex;align-items:center;justify-content:space-between">
-        <span>&#9729; Google Drive</span>
-        <span id="gdriveStatus" style="font-size:0.8rem;color:var(--muted)">Checking…</span>
+        <span>&#8593; Uploaded Exports</span>
+        <button class="btn btn-small" onclick="loadExports()">&#8635; Refresh</button>
       </div>
-      <div style="margin-top:10px;display:flex;gap:8px;align-items:center">
-        <a id="gdriveConnectBtn" href="/api/google/auth" class="btn btn-primary btn-small">Connect Google Drive</a>
-        <button id="gdriveDisconnectBtn" class="btn btn-small" style="display:none" onclick="disconnectDrive()">Disconnect</button>
-      </div>
-      <div style="margin-top:8px;font-size:0.78rem;color:var(--muted);line-height:1.5">
-        When connected, Optimiser, Artworker, and Animator can save exports directly to Drive. Figma section names become folder names.
+      <div id="exportsList" style="margin-top:12px"></div>
+      <div id="exportsEmpty" style="color:var(--muted);font-size:0.85rem;display:none;padding:20px 0;text-align:center">
+        No exports yet. Use the Figma plugin's &#8593; Upload button in Optimiser, Artworker or Animator.
       </div>
     </div>
+  </section>
+
+  <!-- ═══ Settings ═══ -->
+  <section id="tab-settings" class="tab-panel hidden">
 
     <!-- Backup / Restore ─────────────────────────────────────────────────── -->
     <div class="panel" style="border-color:#f5a62355">
@@ -2288,6 +2288,7 @@ function switchTab(name) {
   if (name === 'pipelines') renderPipelines();
   if (name === 'dropzones') renderDropzones();
   if (name === 'assets') loadWebAssets();
+  if (name === 'exports') loadExports();
 }
 
 // ── Datasets ────────────────────────────────────────────────────────────────
@@ -6158,44 +6159,48 @@ async function refreshAll() {
 
 refreshAll();
 
-// ── Google Drive status ──────────────────────────────────────────────────────
-async function checkWebDriveStatus() {
+// ── Exports ──────────────────────────────────────────────────────────────────
+async function loadExports() {
   try {
-    var r = await fetch('/api/google/status');
+    var r = await fetch(DATA_SERVER_URL + '/api/exports');
     var j = await r.json();
-    var statusEl      = document.getElementById('gdriveStatus');
-    var connectBtn    = document.getElementById('gdriveConnectBtn');
-    var disconnectBtn = document.getElementById('gdriveDisconnectBtn');
-    if (j.connected) {
-      if (statusEl)      statusEl.textContent        = '✓ Connected as ' + j.email;
-      if (connectBtn)    connectBtn.style.display    = 'none';
-      if (disconnectBtn) disconnectBtn.style.display = '';
-    } else {
-      if (statusEl)      statusEl.textContent        = 'Not connected';
-      if (connectBtn)    connectBtn.style.display    = '';
-      if (disconnectBtn) disconnectBtn.style.display = 'none';
-    }
-  } catch(e) {}
+    renderExports(j.exports || []);
+  } catch(e) { console.error('loadExports', e); }
 }
 
-async function disconnectDrive() {
-  await fetch('/api/google/disconnect', { method: 'DELETE' });
-  checkWebDriveStatus();
-}
-
-// Handle OAuth redirect result
-(function() {
-  var params = new URLSearchParams(window.location.search);
-  if (params.get('gdrive') === 'connected') {
-    banner('Google Drive connected successfully', 'success');
-    history.replaceState({}, '', window.location.pathname);
-  } else if (params.get('gdrive') === 'error') {
-    banner('Google Drive connection failed: ' + (params.get('msg') || 'unknown error'), 'error');
-    history.replaceState({}, '', window.location.pathname);
+function renderExports(list) {
+  var container = document.getElementById('exportsList');
+  var empty     = document.getElementById('exportsEmpty');
+  var cnt       = document.getElementById('tabCountExports');
+  if (cnt) cnt.textContent = list.length;
+  if (!container) return;
+  if (!list.length) {
+    container.innerHTML = '';
+    if (empty) empty.style.display = '';
+    return;
   }
-})();
+  if (empty) empty.style.display = 'none';
+  container.innerHTML = list.map(function(e) {
+    var date = e.uploadedAt ? new Date(e.uploadedAt).toLocaleString() : '';
+    var size = e.size ? (e.size > 1048576 ? (e.size/1048576).toFixed(1)+'MB' : (e.size/1024).toFixed(0)+'KB') : '';
+    return '<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)">' +
+      '<div style="flex:1;min-width:0">' +
+        '<div style="font-weight:600;font-size:0.9rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+esc(e.name)+'">'+esc(e.name)+'</div>' +
+        '<div style="font-size:0.75rem;color:var(--muted)">'+esc(date)+(size?' · '+esc(size):'')+'</div>' +
+      '</div>' +
+      '<a href="'+DATA_SERVER_URL+'/api/exports/'+esc(e.id)+'" class="btn btn-small btn-primary" download>&#8595; Download</a>' +
+      '<button class="btn btn-small" style="color:var(--danger)" onclick="deleteExport(\''+esc(e.id)+'\')">&#x2715;</button>' +
+    '</div>';
+  }).join('');
+}
 
-checkWebDriveStatus();
+async function deleteExport(id) {
+  try {
+    await fetch(DATA_SERVER_URL + '/api/exports/' + id, { method: 'DELETE' });
+    await loadExports();
+  } catch(e) { banner('Delete failed: ' + e.message, 'error'); }
+}
+
 setInterval(tickUptime, 1000);
 setInterval(loadHealth, 15000);
 

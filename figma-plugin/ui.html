@@ -871,7 +871,7 @@
 
     <div class="acc-export-foot" style="display:flex;gap:6px;align-items:center">
       <button class="btn-hero" id="export-btn" style="flex:1">Export (0)</button>
-      <button class="btn-hero drive-save-btn" style="display:none;flex-shrink:0;background:var(--blue);padding:0 12px" onclick="startDriveExport()" title="Save to Google Drive">&#9729; Drive</button>
+      <button class="btn-hero" style="flex-shrink:0;background:var(--surface);color:var(--text);border:1px solid var(--border);padding:0 14px;font-size:14px" onclick="startUploadExport()" title="Upload to server">&#8593; Upload</button>
     </div>
   </div>
 </div>
@@ -982,7 +982,7 @@
 
     <div class="acc-export-foot" style="display:flex;gap:6px;align-items:center">
       <button class="btn-hero" id="pdf-export-btn" style="flex:1">Export PDF</button>
-      <button class="btn-hero drive-save-btn" style="display:none;flex-shrink:0;background:var(--blue);padding:0 12px" onclick="startDrivePdf()" title="Save PDF to Google Drive">&#9729; Drive</button>
+      <button class="btn-hero" style="flex-shrink:0;background:var(--surface);color:var(--text);border:1px solid var(--border);padding:0 14px;font-size:14px" onclick="startUploadPdf()" title="Upload to server">&#8593; Upload</button>
     </div>
   </div>
 </div>
@@ -1099,7 +1099,7 @@
 
     <div class="acc-export-foot" style="display:flex;gap:6px;align-items:center">
       <button class="btn-hero" id="gif-export-main-btn" style="flex:1">Export GIF</button>
-      <button class="btn-hero drive-save-btn" style="display:none;flex-shrink:0;background:var(--blue);padding:0 12px" onclick="startDriveGif()" title="Save GIF to Google Drive">&#9729; Drive</button>
+      <button class="btn-hero" style="flex-shrink:0;background:var(--surface);color:var(--text);border:1px solid var(--border);padding:0 14px;font-size:14px" onclick="startUploadGif()" title="Upload to server">&#8593; Upload</button>
     </div>
   </div>
 </div>
@@ -1486,64 +1486,38 @@ parent.postMessage({ pluginMessage: { type: 'get-selection' } }, '*');
 (function() { var b = document.getElementById('muteBtn'); if (b) b.textContent = _audioMuted ? '🔇' : '🔊'; })();
 // loadUploadPipelines() deferred until data panel opens
 
-// ── Google Drive ──────────────────────────────────────────────────────────────
-var _gdriveConnected = false;
+// ── Server upload ─────────────────────────────────────────────────────────────
+var _uploadMode = false;
 
-async function checkDriveStatus() {
+async function uploadExportToServer(blob, filename) {
   try {
-    var r = await api('/api/google/status');
-    _gdriveConnected = !!r.connected;
-  } catch(_) { _gdriveConnected = false; }
-  updateDriveButtons();
-}
-
-function updateDriveButtons() {
-  var btns = document.querySelectorAll('.drive-save-btn');
-  btns.forEach(function(b) {
-    b.style.display = _gdriveConnected ? 'flex' : 'none';
-  });
-}
-
-async function uploadToDrive(files) {
-  // files: array of { bytes: Uint8Array, filename: string, sectionName: string|null }
-  var total = files.length;
-  for (var i = 0; i < files.length; i++) {
-    var f = files[i];
     var fd = new FormData();
-    fd.append('file', new Blob([f.bytes]), f.filename);
-    fd.append('filename', f.filename);
-    fd.append('sectionName', f.sectionName || 'General');
-    try {
-      var r = await fetch(serverUrl + '/api/google/upload', { method: 'POST', body: fd });
-      var j = await r.json();
-      if (!r.ok) throw new Error(j.error || 'Upload failed');
-    } catch(e) {
-      showToast('Drive upload failed: ' + e.message, 'error');
-      return false;
-    }
+    fd.append('file', blob, filename);
+    var r = await fetch(serverUrl + '/api/exports', { method: 'POST', body: fd });
+    var j = await r.json();
+    if (!r.ok) throw new Error(j.error || 'Upload failed');
+    showToast('✓ Uploaded to server: ' + filename, 'success');
+    return true;
+  } catch(e) {
+    showToast('Upload failed: ' + e.message, 'error');
+    return false;
   }
-  showToast('✓ ' + total + ' file' + (total !== 1 ? 's' : '') + ' saved to Google Drive', 'success');
-  return true;
 }
 
-var _driveMode = false;
-
-function startDriveExport() {
-  _driveMode = true;
+function startUploadExport() {
+  _uploadMode = true;
   runExport();
 }
 
-function startDriveGif() {
-  _driveMode = true;
+function startUploadGif() {
+  _uploadMode = true;
   document.getElementById('gif-export-main-btn').click();
 }
 
-function startDrivePdf() {
-  _driveMode = true;
+function startUploadPdf() {
+  _uploadMode = true;
   document.getElementById('pdf-export-btn').click();
 }
-
-checkDriveStatus();
 
 // ── Panel accordion ───────────────────────────────────────────────────────────
 var PANELS = ['data', 'assets', 'casino', 'optimiser', 'artworker', 'animator', 'settings'];
@@ -4243,10 +4217,21 @@ async function runExport() {
 
     if (collected.length > 0) {
       progressFill.style.width = '90%';
-      if (_driveMode) {
-        progressText.textContent = 'Uploading to Google Drive…';
-        _driveMode = false;
-        await uploadToDrive(collected);
+      if (_uploadMode) {
+        progressText.textContent = 'Uploading to server…';
+        _uploadMode = false;
+        if (collected.length === 1) {
+          const { bytes, filename } = collected[0];
+          const mime = filename.endsWith('.png') ? 'image/png'
+                     : filename.endsWith('.jpg') || filename.endsWith('.jpeg') ? 'image/jpeg'
+                     : filename.endsWith('.webp') ? 'image/webp' : 'application/octet-stream';
+          await uploadExportToServer(new Blob([bytes], { type: mime }), filename);
+        } else {
+          const zipBytes = buildZip(collected.map(f => ({ name: f.filename, bytes: f.bytes })));
+          const today = new Date().toISOString().slice(0,10);
+          const zipFilename = `exported-images-${today}.zip`;
+          await uploadExportToServer(new Blob([zipBytes], { type: 'application/zip' }), zipFilename);
+        }
       } else {
         progressText.textContent = collected.length > 1 ? 'Packing ZIP…' : 'Saving…';
         if (collected.length === 1) {
@@ -4489,9 +4474,9 @@ document.getElementById('gif-export-main-btn').addEventListener('click', async (
     });
     const delays = gifState.frames.map(f => f.delay);
     const bytes  = encodeGif(scaled, delays, quality, transparent, bgColor);
-    if (_driveMode) {
-      _driveMode = false;
-      await uploadToDrive([{ bytes: bytes, filename: 'animation.gif', sectionName: null }]);
+    if (_uploadMode) {
+      _uploadMode = false;
+      await uploadExportToServer(new Blob([bytes], { type: 'image/gif' }), 'animation.gif');
     } else {
       downloadBlob(new Blob([bytes], { type:'image/gif' }), 'animation.gif');
       showToast('✓ GIF saved to Downloads', 'success');
@@ -5099,10 +5084,9 @@ async function exportMultiPagePdf() {
 
   const pdfBytes = buildMultiPagePdf(pages, { bleedPt, cropMarks: cropEnabled, password });
   const name = (layers[0]?.name || 'Artwork').replace(/[/\\?%*:|"<>]/g,'-');
-  if (_driveMode) {
-    _driveMode = false;
-    const sectionName = (layers[0]?.sectionName) || null;
-    await uploadToDrive([{ bytes: pdfBytes, filename: name + '.pdf', sectionName: sectionName }]);
+  if (_uploadMode) {
+    _uploadMode = false;
+    await uploadExportToServer(new Blob([pdfBytes], { type: 'application/pdf' }), name + '.pdf');
   } else {
     downloadBlob(new Blob([pdfBytes], { type:'application/pdf' }), name + '.pdf');
     showToast(`✓ PDF saved (${pages.length} page${pages.length!==1?'s':''})`, 'success');

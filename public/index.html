@@ -2041,8 +2041,8 @@
         <span class="hint" style="color:var(--muted)">Export before committing · import to recover rules &amp; mappings</span>
       </div>
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-        <a class="btn btn-primary" href="/api/settings/export" download
-           title="Downloads settings.json with all your rules, mappings and presets">
+        <a class="btn btn-primary" id="settingsExportLink" href="#" onclick="this.href=DATA_SERVER_URL+'/api/settings/export'" download
+           title="Downloads a full backup with all rules, mappings, presets and pipelines from Railway">
           ⬇ Export settings.json
         </a>
         <label class="btn" style="cursor:pointer" title="Restore rules &amp; mappings from a previously exported file">
@@ -2203,7 +2203,7 @@ function rid(prefix = 'r') {
 // Pipelines, datasets, and dropzones are stored on Railway (HTTPS) so that
 // files uploaded from the Figma plugin (which also uses Railway) appear here.
 var DATA_SERVER_URL = 'https://smartico-bridge-production.up.railway.app';
-var _DATA_PATHS = ['/api/pipelines', '/api/datasets', '/api/dropzones'];
+var _DATA_PATHS = ['/api/pipelines', '/api/datasets', '/api/dropzones', '/api/settings'];
 function _resolveUrl(path) {
   for (var _i = 0; _i < _DATA_PATHS.length; _i++) {
     if (path === _DATA_PATHS[_i] || path.startsWith(_DATA_PATHS[_i] + '/') || path.startsWith(_DATA_PATHS[_i] + '?')) {
@@ -2253,7 +2253,12 @@ async function importSettings(evtOrInput) {
       body: JSON.stringify(json),
     });
     await refreshAll();
-    setStatus(`✓ Restored — ${r.ruleSets} rule set(s), ${r.mappingSets} mapping set(s)`, false);
+    const parts = [];
+    if (r.restoredPipelines)  parts.push(r.restoredPipelines + ' pipeline(s)');
+    if (r.ruleSets)           parts.push(r.ruleSets + ' rule set(s)');
+    if (r.mappingSets)        parts.push(r.mappingSets + ' mapping set(s)');
+    if (r.restoredAssets)     parts.push(r.restoredAssets + ' asset(s)');
+    setStatus('✓ Restored — ' + (parts.join(', ') || 'settings'), false);
   } catch (e) {
     setStatus('✕ Import failed: ' + e.message, true);
   }

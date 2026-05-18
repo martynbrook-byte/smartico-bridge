@@ -79,6 +79,7 @@
     margin: 0 0 8px 0;
     min-height: 0;
     background: var(--bg);
+    position: relative;
     transition: transform .35s cubic-bezier(0.4,0,0.2,1), opacity .28s;
   }
   .app-content {
@@ -213,6 +214,69 @@
     letter-spacing: 0.02em; padding: 16px 12px; cursor: pointer; transition: filter .15s;
   }
   .btn-hero:hover { filter: brightness(0.9); }
+  .btn-panel-action {
+    background: var(--surface); color: var(--text); border: 1px solid var(--border);
+    font-size: 14px; transition: background .15s, border-color .15s, color .15s;
+  }
+  .btn-panel-action:hover {
+    background: rgba(0,0,0,.08); border-color: rgba(0,0,0,.3); color: var(--text);
+  }
+  .btn-panel-action:active { background: rgba(0,0,0,.14); }
+
+  /* ── Upload modal overlay — same template as .processing-overlay ──── */
+  #upload-modal {
+    display: none; position: absolute; inset: 0; z-index: 200;
+    background: var(--bg, #f4f4f2);
+    flex-direction: column; align-items: center;
+    padding: 24px 20px 20px; overflow-y: auto;
+    border-radius: var(--radius-xl);
+  }
+  #upload-modal.active { display: flex; animation: overlay-expand .28s ease forwards; }
+  /* header row */
+  .upm-header { display: flex; align-items: center; justify-content: space-between; width: 100%; margin-bottom: 4px; }
+  .upm-title  { font-family: var(--font-display); font-size: 20px; font-weight: 800; letter-spacing: .02em; }
+  .upm-close-btn { background: none; border: none; cursor: pointer; font-size: 18px; color: var(--muted); padding: 2px 4px; border-radius: 4px; line-height: 1; }
+  .upm-close-btn:hover { background: rgba(0,0,0,.07); }
+  /* gif — same class as proc-gif */
+  .upm-gif { width: 120px; height: 120px; object-fit: contain; image-rendering: auto; border-radius: var(--radius-sm); margin: 12px 0 4px; }
+  /* step text — same cadence as proc-label / proc-sub */
+  .upm-step { font-family: var(--font-display); font-size: 20px; font-weight: 800; letter-spacing: .02em; text-align: center; margin-bottom: 4px; }
+  .upm-sub  { font-size: var(--fs-body); font-weight: 600; color: rgba(0,0,0,.5); text-align: center; margin-bottom: 14px; min-height: 18px; }
+  /* progress bar */
+  .upm-bar { height: 6px; background: rgba(0,0,0,.1); border-radius: 3px; overflow: hidden; width: 100%; margin-bottom: 4px; }
+  .upm-bar-fill { height: 100%; background: rgba(0,0,0,.72); border-radius: 3px; transition: width .35s ease; }
+  .upm-bar-label { font-size: 10px; color: var(--muted); text-align: right; width: 100%; margin-bottom: 0; }
+  /* results */
+  .upm-done-icon  { font-size: 44px; line-height: 1; margin: 8px 0 6px; }
+  .upm-done-title { font-family: var(--font-display); font-size: 20px; font-weight: 800; letter-spacing: .02em; text-align: center; margin-bottom: 3px; }
+  .upm-done-sub   { font-size: var(--fs-body); font-weight: 600; color: rgba(0,0,0,.5); text-align: center; margin-bottom: 16px; }
+  .upm-link-list  { display: flex; flex-direction: column; gap: 7px; width: 100%; }
+  .upm-folder-row {
+    display: flex; align-items: center; gap: 6px;
+    background: rgba(0,0,0,.07); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); padding: 9px 10px;
+  }
+  .upm-file-row {
+    display: flex; align-items: center; gap: 6px;
+    background: var(--white-strong, rgba(255,255,255,.7)); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); padding: 9px 10px;
+  }
+  .upm-row-name { flex: 0 0 auto; max-width: 110px; font-size: 11px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .upm-row-url  {
+    flex: 1 1 0; min-width: 0; font-size: 10px; font-family: monospace;
+    border: 1px solid var(--border); border-radius: 3px; padding: 3px 5px;
+    background: rgba(0,0,0,.04); color: var(--muted);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: text;
+  }
+  .upm-copy-btn {
+    flex-shrink: 0; padding: 4px 11px; border-radius: var(--radius-xs);
+    border: 1px solid var(--border); background: var(--surface);
+    cursor: pointer; font-size: 11px; white-space: nowrap; transition: background .12s;
+  }
+  .upm-copy-btn:hover { background: rgba(0,0,0,.08); }
+  .upm-copy-btn.copied { background: rgba(0,180,80,.15); border-color: rgba(0,150,60,.3); }
+  .upm-error-row { font-size: 11px; color: #c00; padding: 6px 10px; background: rgba(200,0,0,.06); border: 1px solid rgba(200,0,0,.2); border-radius: var(--radius-sm); }
+  .upm-done-btn { margin-top: 16px; width: 100%; }
   .btn-export {
     background: rgba(0,0,0,.82); color: #fff; border: 1.5px solid transparent;
     border-radius: var(--radius-sm); font-size: var(--fs-body); font-weight: 700;
@@ -870,8 +934,8 @@
     </div>
 
     <div class="acc-export-foot" style="display:flex;gap:6px;align-items:center">
-      <button class="btn-hero" id="export-btn" style="flex:1">Export (0)</button>
-      <button class="btn-hero" style="flex:1;background:var(--surface);color:var(--text);border:1px solid var(--border);font-size:14px" onclick="startUploadExport()" title="Upload to server">&#8593; Upload</button>
+      <button class="btn-hero btn-panel-action" id="export-btn" style="flex:1">Export (0)</button>
+      <button class="btn-hero btn-panel-action" id="optimiser-upload-btn" style="flex:1" onclick="startUploadExport()" title="Upload to server">Upload (0)</button>
     </div>
   </div>
 </div>
@@ -981,8 +1045,8 @@
     </div>
 
     <div class="acc-export-foot" style="display:flex;gap:6px;align-items:center">
-      <button class="btn-hero" id="pdf-export-btn" style="flex:1">Export PDF</button>
-      <button class="btn-hero" style="flex:1;background:var(--surface);color:var(--text);border:1px solid var(--border);font-size:14px" onclick="startUploadPdf()" title="Upload to server">&#8593; Upload</button>
+      <button class="btn-hero btn-panel-action" id="pdf-export-btn" style="flex:1">Export PDF (0)</button>
+      <button class="btn-hero btn-panel-action" id="pdf-upload-btn" style="flex:1" onclick="startUploadPdf()" title="Upload to server">Upload PDF (0)</button>
     </div>
   </div>
 </div>
@@ -1098,8 +1162,8 @@
     </div>
 
     <div class="acc-export-foot" style="display:flex;gap:6px;align-items:center">
-      <button class="btn-hero" id="gif-export-main-btn" style="flex:1">Export GIF</button>
-      <button class="btn-hero" style="flex:1;background:var(--surface);color:var(--text);border:1px solid var(--border);font-size:14px" onclick="startUploadGif()" title="Upload to server">&#8593; Upload</button>
+      <button class="btn-hero btn-panel-action" id="gif-export-main-btn" style="flex:1">Export GIF (0)</button>
+      <button class="btn-hero btn-panel-action" id="gif-upload-btn" style="flex:1" onclick="startUploadGif()" title="Upload to server">Upload GIF (0)</button>
     </div>
   </div>
 </div>
@@ -1247,6 +1311,35 @@
 
 
 </div><!-- /.app-content -->
+<!-- ── Upload progress / results modal — inside app-frame so nav stays visible ── -->
+<div id="upload-modal">
+
+  <!-- header -->
+  <div class="upm-header">
+    <div class="upm-title" id="upm-title">Uploading</div>
+    <button class="upm-close-btn" id="upm-close-btn" style="display:none" onclick="closeUploadModal()">✕</button>
+  </div>
+
+  <!-- progress phase -->
+  <div id="upm-progress-phase" style="display:flex;flex-direction:column;align-items:center;width:100%">
+    <img id="upm-gif" class="upm-gif" src="" alt="">
+    <div class="upm-step" id="upm-step">Preparing…</div>
+    <div class="upm-sub"  id="upm-sub"></div>
+    <div class="upm-bar" style="width:100%"><div class="upm-bar-fill" id="upm-bar-fill" style="width:0%"></div></div>
+    <div class="upm-bar-label" id="upm-bar-label"></div>
+  </div>
+
+  <!-- results phase -->
+  <div id="upm-results-phase" style="display:none;flex-direction:column;align-items:center;width:100%">
+    <div class="upm-done-icon">✓</div>
+    <div class="upm-done-title" id="upm-done-title">Upload complete</div>
+    <div class="upm-done-sub"   id="upm-done-sub">Files are ready to share</div>
+    <div class="upm-link-list"  id="upm-link-list"></div>
+    <button class="btn-hero btn-panel-action upm-done-btn" onclick="closeUploadModal()">Done</button>
+  </div>
+
+</div>
+
 </div><!-- /.app-frame -->
 
 <!-- ── Bottom nav ─────────────────────────────────────────────────── -->
@@ -1545,19 +1638,40 @@ function _showFolderLink(url, label) {
   setTimeout(function() { if (el) el.style.display = 'none'; }, 30000);
 }
 
-function startUploadExport() {
+async function startUploadExport() {
+  openUploadModal('Optimiser Upload');
   _uploadMode = true;
-  runExport();
+  try {
+    await runExport();
+  } catch(e) {
+    _uploadMode = false;
+    setUploadModalStep('Upload failed', e.message || String(e), 0);
+    document.getElementById('upm-close-btn').style.display = '';
+  }
 }
 
-function startUploadGif() {
+async function startUploadGif() {
+  openUploadModal('Animator Upload');
   _uploadMode = true;
-  document.getElementById('gif-export-main-btn').click();
+  try {
+    document.getElementById('gif-export-main-btn').click();
+  } catch(e) {
+    _uploadMode = false;
+    setUploadModalStep('Upload failed', e.message || String(e), 0);
+    document.getElementById('upm-close-btn').style.display = '';
+  }
 }
 
-function startUploadPdf() {
+async function startUploadPdf() {
+  openUploadModal('Artworker Upload');
   _uploadMode = true;
-  document.getElementById('pdf-export-btn').click();
+  try {
+    document.getElementById('pdf-export-btn').click();
+  } catch(e) {
+    _uploadMode = false;
+    setUploadModalStep('Upload failed', e.message || String(e), 0);
+    document.getElementById('upm-close-btn').style.display = '';
+  }
 }
 
 // ── Panel accordion ───────────────────────────────────────────────────────────
@@ -3835,6 +3949,8 @@ function updateSelectAllVisual() {
   if (!state.exporting) {
     exportBtn.textContent = `Export (${sel})`;
     exportBtn.disabled = false;
+    const uploadOptBtn = document.getElementById('optimiser-upload-btn');
+    if (uploadOptBtn) uploadOptBtn.textContent = `Upload (${sel})`;
   }
 }
 
@@ -4034,11 +4150,16 @@ function updatePdfSelectCount() {
   const list    = document.getElementById('pdf-layer-list');
   const all     = list.querySelectorAll('.pdf-layer-check');
   const checked = list.querySelectorAll('.pdf-layer-check:checked');
+  const n = checked.length;
   document.getElementById('pdf-select-count').textContent =
-    `${checked.length}/${all.length} Parent Frames Selected`;
+    `${n}/${all.length} Parent Frames Selected`;
   const allChk = document.getElementById('pdf-select-all');
-  allChk.checked       = checked.length === all.length && all.length > 0;
-  allChk.indeterminate = checked.length > 0 && checked.length < all.length;
+  allChk.checked       = n === all.length && all.length > 0;
+  allChk.indeterminate = n > 0 && n < all.length;
+  const pdfExpBtn = document.getElementById('pdf-export-btn');
+  const pdfUpBtn  = document.getElementById('pdf-upload-btn');
+  if (pdfExpBtn && !pdfExpBtn.disabled) pdfExpBtn.textContent = `Export PDF (${n})`;
+  if (pdfUpBtn) pdfUpBtn.textContent = `Upload PDF (${n})`;
 }
 
 function applyThumbnail(nodeId, url) {
@@ -4210,10 +4331,10 @@ function requestExport(layer) {
 }
 
 async function runExport() {
-  if (state.exporting) { showToast('Already exporting, please wait…'); return; }
+  if (state.exporting) { showToast('Already exporting, please wait…'); _uploadMode = false; closeUploadModal(); return; }
   const selected = state.layers.filter(l => state.selected[layerKey(l)]);
-  if (!state.layers.length)  { showToast('Select a frame or layer in Figma first', 'error'); return; }
-  if (!selected.length)      { showToast('No layers checked', 'error'); return; }
+  if (!state.layers.length)  { showToast('Select a frame or layer in Figma first', 'error'); _uploadMode = false; closeUploadModal(); return; }
+  if (!selected.length)      { showToast('No layers checked', 'error'); _uploadMode = false; closeUploadModal(); return; }
 
   state.exporting = true;
   exportBtn.textContent = 'Exporting…';
@@ -4234,10 +4355,12 @@ async function runExport() {
       const rowEl = layerList.querySelector(`[data-key="${key}"]`);
       progressFill.style.width = `${Math.round((i/total)*100)}%`;
       progressText.textContent = `Exporting ${i+1}/${total}: ${layer.name}…`;
+      if (_uploadMode) setUploadModalStep(`Compressing ${i+1} of ${total}`, layer.name, Math.round((i/total)*48));
       if (rowEl) rowEl.classList.add('exporting');
       try {
         const bytes  = await requestExport(layer);
         progressText.textContent = `Compressing ${i+1}/${total}…`;
+        if (_uploadMode) setUploadModalStep(`Compressing ${i+1} of ${total}`, 'Optimising image quality…', Math.round(((i+0.5)/total)*48));
         const canvas = await bytesToCanvas(bytes);
         const { blob, format: outFmt } = state.sizeTargetMode
           ? await compressToTargetSize(canvas, fmt, qVal)
@@ -4259,15 +4382,13 @@ async function runExport() {
     if (collected.length > 0) {
       progressFill.style.width = '90%';
       if (_uploadMode) {
-        progressText.textContent = 'Uploading to server…';
         _uploadMode = false;
-        // Determine section name (use first item's section, or null)
-        const uploadSection = (collected[0] && collected[0].sectionName) || null;
-        const zipBytes   = buildZip(collected.map(f => ({ name: f.filename, bytes: f.bytes })));
-        const today      = new Date().toISOString().slice(0,10);
-        const zipLabel   = uploadSection ? uploadSection + '-' + today : 'exported-images-' + today;
-        const zipFilename = zipLabel + '.zip';
-        await uploadExportToServer(new Blob([zipBytes], { type: 'application/zip' }), zipFilename, uploadSection);
+        progressRow.classList.remove('visible');
+        await _doModalUpload(collected.map(f => ({
+          blob: new Blob([f.bytes], { type: _mimeFor(f.filename) }),
+          filename: f.filename,
+          sectionName: f.sectionName || null,
+        })));
       } else {
         progressText.textContent = collected.length > 1 ? 'Packing ZIP…' : 'Saving…';
         if (collected.length === 1) {
@@ -4295,8 +4416,23 @@ async function runExport() {
       progressFill.style.width = '0%';
       progressText.className = 'progress-text error';
       progressText.textContent = errors.length ? `⚠ ${errors[0]}` : '⚠ Nothing exported';
-      showToast('⚠ Export failed — see progress bar', 'error');
+      const errMsg = errors.length ? errors[0] : 'Nothing exported — select frames first';
+      if (_uploadMode) {
+        _uploadMode = false;
+        setUploadModalStep('Export failed', errMsg, 0);
+        document.getElementById('upm-close-btn').style.display = '';
+      } else {
+        showToast('⚠ Export failed — see progress bar', 'error');
+        closeUploadModal();
+      }
     }
+  } catch(e) {
+    if (_uploadMode) {
+      _uploadMode = false;
+      setUploadModalStep('Error', e.message || String(e), 0);
+      document.getElementById('upm-close-btn').style.display = '';
+    }
+    throw e; // re-throw so startUploadExport's catch also sees it
   } finally {
     state.exporting = false; updateSelectAllVisual();
   }
@@ -4369,7 +4505,14 @@ async function loadGifFrames() {
 }
 
 function updateGifLayerCount() {
-  document.getElementById('gif-layer-count').textContent = `Selected Layers (${gifState.frames.length})`;
+  const n = gifState.frames.length;
+  document.getElementById('gif-layer-count').textContent = `Selected Layers (${n})`;
+  const fmt = (document.getElementById('gif-format-select') || {}).value || 'GIF';
+  const fmtLabel = fmt === 'GIF' ? 'Export GIF' : fmt === 'MP4' ? 'Export MP4' : 'Export WebM';
+  const gifExpBtn = document.getElementById('gif-export-main-btn');
+  const gifUpBtn  = document.getElementById('gif-upload-btn');
+  if (gifExpBtn) gifExpBtn.textContent = `${fmtLabel} (${n})`;
+  if (gifUpBtn)  gifUpBtn.textContent  = `Upload GIF (${n})`;
 }
 
 function updateGifDims() {
@@ -4468,9 +4611,7 @@ gifQSlider.addEventListener('input', e => gifQInput.value = e.target.value);
 document.getElementById('gif-scale-select').addEventListener('change', updateGifDims);
 
 document.getElementById('gif-format-select').addEventListener('change', () => {
-  const fmt = document.getElementById('gif-format-select').value;
-  const btn = document.getElementById('gif-export-main-btn');
-  btn.textContent = fmt === 'GIF' ? 'Export GIF' : fmt === 'MP4' ? 'Export MP4' : 'Export WebM';
+  updateGifLayerCount();
 });
 
 document.getElementById('gif-export-main-btn').addEventListener('click', async () => {
@@ -4513,12 +4654,20 @@ document.getElementById('gif-export-main-btn').addEventListener('click', async (
     if (_uploadMode) {
       _uploadMode = false;
       const gifSection = (state.layers && state.layers[0] && state.layers[0].sectionName) || null;
-      await uploadExportToServer(new Blob([bytes], { type: 'image/gif' }), (gifSection || 'animation') + '.gif', gifSection);
+      setUploadModalStep('Encoding complete', 'Preparing upload…', 48);
+      await _doModalUpload([{
+        blob: new Blob([bytes], { type: 'image/gif' }),
+        filename: (gifSection || 'animation') + '.gif',
+        sectionName: gifSection,
+      }]);
     } else {
       downloadBlob(new Blob([bytes], { type:'image/gif' }), 'animation.gif');
       showToast('✓ GIF saved to Downloads', 'success');
     }
-  } catch (e) { showToast('⚠ GIF failed: ' + e.message, 'error'); }
+  } catch (e) {
+    closeUploadModal();
+    showToast('⚠ GIF failed: ' + e.message, 'error');
+  }
 });
 
 // ── WebM export via MediaRecorder ────────────────────────────────────
@@ -5116,7 +5265,7 @@ async function exportMultiPagePdf() {
     }
   }
 
-  pdfBtn.disabled = false; pdfBtn.textContent = 'Export PDF';
+  pdfBtn.disabled = false; updatePdfSelectCount();
   if (!pages.length) { showToast('No pages built', 'error'); return; }
 
   const pdfBytes = buildMultiPagePdf(pages, { bleedPt, cropMarks: cropEnabled, password });
@@ -5124,7 +5273,12 @@ async function exportMultiPagePdf() {
   if (_uploadMode) {
     _uploadMode = false;
     const pdfSection = (layers[0] && layers[0].sectionName) || null;
-    await uploadExportToServer(new Blob([pdfBytes], { type: 'application/pdf' }), name + '.pdf', pdfSection);
+    setUploadModalStep('PDF built', 'Preparing upload…', 48);
+    await _doModalUpload([{
+      blob: new Blob([pdfBytes], { type: 'application/pdf' }),
+      filename: name + '.pdf',
+      sectionName: pdfSection,
+    }]);
   } else {
     downloadBlob(new Blob([pdfBytes], { type:'application/pdf' }), name + '.pdf');
     showToast(`✓ PDF saved (${pages.length} page${pages.length!==1?'s':''})`, 'success');
@@ -5330,8 +5484,183 @@ window.__sbIcHandler = _icHandleMsg;
 // Request initial selection once on startup (single shot, no polling)
 try { parent.postMessage({ pluginMessage: { type: 'get-selection' } }, '*'); } catch(_) {}
 
-</script>
+// ── Upload modal ──────────────────────────────────────────────────────────────
 
+var _upmGifs = [
+  'images/Run.gif',
+  'images/polifolli-robot.gif',
+  'images/daniel-tolwinski-robocikanimacja.gif',
+  'images/azucena-lopez-robot02-movemment.gif',
+  'images/Pixel-art-boss-fight-Spam-Bot-robot-animated-Hubspot-video-game.gif',
+  'images/shootrun.gif',
+  'images/player-stand-1.gif',
+  'images/dcdd35m-4d53c6c9-160a-471a-861a-38f9744ebbd3.gif',
+];
+
+function openUploadModal(label) {
+  const m = document.getElementById('upload-modal');
+  document.getElementById('upm-title').textContent = label || 'Uploading';
+  document.getElementById('upm-progress-phase').style.display = 'flex';
+  document.getElementById('upm-results-phase').style.display  = 'none';
+  document.getElementById('upm-close-btn').style.display      = 'none';
+  // Pick a random GIF
+  const gifEl = document.getElementById('upm-gif');
+  if (gifEl) gifEl.src = _upmGifs[Math.floor(Math.random() * _upmGifs.length)];
+  setUploadModalStep('Preparing…', '', 0);
+  m.classList.add('active');
+}
+
+function closeUploadModal() {
+  document.getElementById('upload-modal').classList.remove('active');
+}
+
+function setUploadModalStep(label, sub, pct) {
+  document.getElementById('upm-step').textContent = label;
+  document.getElementById('upm-sub').textContent  = sub  || '';
+  document.getElementById('upm-bar-fill').style.width = pct + '%';
+  document.getElementById('upm-bar-label').textContent = pct < 100 ? pct + '%' : '';
+}
+
+function showUploadModalResults(results) {
+  document.getElementById('upm-progress-phase').style.display = 'none';
+  document.getElementById('upm-results-phase').style.display  = 'flex';
+  document.getElementById('upm-close-btn').style.display      = '';
+
+  const ok     = results.filter(r => r.url);
+  const failed = results.filter(r => r.error);
+  document.getElementById('upm-done-title').textContent = ok.length + ' file' + (ok.length !== 1 ? 's' : '') + ' uploaded';
+  document.getElementById('upm-done-sub').textContent   = failed.length
+    ? failed.length + ' failed · ' + ok.length + ' succeeded'
+    : 'All files ready to share';
+
+  const list = document.getElementById('upm-link-list');
+  list.innerHTML = '';
+
+  // Folder-level rows (one per unique section with a folderUrl)
+  const seenFolders = new Set();
+  results.forEach(r => {
+    if (r.folderUrl && !seenFolders.has(r.folderUrl)) {
+      seenFolders.add(r.folderUrl);
+      list.appendChild(_upmRow('folder', '📁 ' + (r.sectionName || 'Folder'), r.folderUrl));
+    }
+  });
+
+  // Per-file rows
+  results.forEach(r => {
+    if (r.error) {
+      const el = document.createElement('div');
+      el.className = 'upm-error-row';
+      el.textContent = '⚠ ' + r.name + ': ' + r.error;
+      list.appendChild(el);
+    } else {
+      list.appendChild(_upmRow('file', r.name, r.url));
+    }
+  });
+}
+
+function _upmRow(type, label, url) {
+  const row = document.createElement('div');
+  row.className = type === 'folder' ? 'upm-folder-row' : 'upm-file-row';
+  const nameEl = document.createElement('span');
+  nameEl.className = 'upm-row-name';
+  nameEl.title = label;
+  nameEl.textContent = label;
+  const urlEl = document.createElement('input');
+  urlEl.className = 'upm-row-url';
+  urlEl.readOnly = true;
+  urlEl.value = url;
+  urlEl.title = url;
+  urlEl.addEventListener('click', function() { this.select(); });
+  const btn = document.createElement('button');
+  btn.className = 'upm-copy-btn';
+  btn.textContent = 'Copy';
+  btn.addEventListener('click', function() {
+    navigator.clipboard.writeText(url).then(function() {
+      btn.textContent = 'Copied!';
+      btn.classList.add('copied');
+      setTimeout(function() { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 2000);
+    });
+  });
+  row.appendChild(nameEl);
+  row.appendChild(urlEl);
+  row.appendChild(btn);
+  return row;
+}
+
+// Upload a single blob to the server; returns {name, url, folderUrl, sectionName}
+async function _uploadOneToServer(blob, filename, sectionName) {
+  const fd = new FormData();
+  fd.append('file', blob, filename);
+  if (sectionName)    fd.append('sectionName',    sectionName);
+  if (_figmaFileKey)  fd.append('figmaFileKey',   _figmaFileKey);
+  if (_figmaFileName) fd.append('figmaFileName',  _figmaFileName);
+
+  // Abort if no response within 90s (covers Railway cold-start ~20–30s)
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 90000);
+  let r;
+  try {
+    r = await fetch(serverUrl + '/api/exports', { method: 'POST', body: fd, signal: ctrl.signal });
+  } catch(e) {
+    throw new Error(e.name === 'AbortError' ? 'Server timeout — Railway may be waking up, try again' : e.message);
+  } finally {
+    clearTimeout(timer);
+  }
+
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.error || 'Upload failed');
+  const exp = j.export || {};
+  return {
+    name:        filename,
+    sectionName: sectionName || null,
+    url:         serverUrl + '/api/exports/' + exp.id,
+    folderUrl:   exp.folderUrl || null,
+  };
+}
+
+// Drive the modal through a list of files to upload
+// files: [{blob, filename, sectionName}]
+async function _doModalUpload(files) {
+  const total = files.length;
+  const results = [];
+  const subMsgs = [
+    'Uploading to Smartico Bridge server…',
+    'Sending files securely…',
+    'Transferring to cloud storage…',
+    'Server may be warming up — hang tight…',
+  ];
+  for (let i = 0; i < total; i++) {
+    const { blob, filename, sectionName } = files[i];
+    const pct = Math.round(50 + (i / total) * 45);
+    setUploadModalStep(
+      'Uploading ' + (i + 1) + ' of ' + total,
+      subMsgs[i % subMsgs.length],
+      pct
+    );
+    try {
+      const rec = await _uploadOneToServer(blob, filename, sectionName);
+      results.push(rec);
+    } catch (e) {
+      results.push({ name: filename, sectionName: sectionName || null, url: null, folderUrl: null, error: e.message });
+    }
+  }
+  setUploadModalStep('Generating shareable links…', 'Almost done…', 98);
+  await new Promise(r => setTimeout(r, 350));
+  setUploadModalStep('Complete', '', 100);
+  await new Promise(r => setTimeout(r, 200));
+  showUploadModalResults(results);
+}
+
+function _mimeFor(filename) {
+  if (filename.endsWith('.png'))              return 'image/png';
+  if (filename.endsWith('.jpg') || filename.endsWith('.jpeg')) return 'image/jpeg';
+  if (filename.endsWith('.webp'))             return 'image/webp';
+  if (filename.endsWith('.gif'))              return 'image/gif';
+  if (filename.endsWith('.pdf'))              return 'application/pdf';
+  return 'application/octet-stream';
+}
+
+</script>
 
 </body>
 </html>

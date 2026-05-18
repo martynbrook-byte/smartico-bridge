@@ -1633,7 +1633,7 @@ function _showFolderLink(url, label) {
   }
   el.innerHTML = '<span style="flex-shrink:0;color:var(--muted)">📁 ' + esc(label) + '</span>' +
     '<input id="_folderLinkInput" readonly value="' + esc(url) + '" style="flex:1;font-size:10px;padding:3px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-family:monospace" onclick="this.select()">' +
-    '<button style="flex-shrink:0;padding:2px 8px;border-radius:4px;border:1px solid var(--border);background:var(--white-strong);cursor:pointer;font-size:10px" onclick="navigator.clipboard.writeText(document.getElementById(\'_folderLinkInput\').value).then(function(){showToast(\'Link copied\',\'success\',2000)})">Copy</button>';
+    '<button style="flex-shrink:0;padding:2px 8px;border-radius:4px;border:1px solid var(--border);background:var(--white-strong);cursor:pointer;font-size:10px" onclick="_copyToClipboard(document.getElementById(\'_folderLinkInput\').value,this);showToast(\'Link copied\',\'success\',2000)">Copy</button>';
   el.style.display = 'flex';
   setTimeout(function() { if (el) el.style.display = 'none'; }, 30000);
 }
@@ -1642,7 +1642,8 @@ async function startUploadExport() {
   openUploadModal('Optimiser Upload');
   _uploadMode = true;
   try {
-    await runExport();
+    if (typeof window.runExport !== 'function') throw new Error('Optimiser not ready — open the panel first');
+    await window.runExport();
   } catch(e) {
     _uploadMode = false;
     setUploadModalStep('Upload failed', e.message || String(e), 0);
@@ -5467,6 +5468,8 @@ window.addEventListener('message', function(ev) {
 });
 // Also expose as global fallback
 window.__sbIcHandler = _icHandleMsg;
+// Expose export entry-points so outer-scope upload helpers can call them
+window.runExport = runExport;
 
 }) (); } catch(_icIifeErr) {
   // IC IIFE crashed — log to console AND set a global so messages don't overwrite it
@@ -5575,11 +5578,7 @@ function _upmRow(type, label, url) {
   btn.className = 'upm-copy-btn';
   btn.textContent = 'Copy';
   btn.addEventListener('click', function() {
-    navigator.clipboard.writeText(url).then(function() {
-      btn.textContent = 'Copied!';
-      btn.classList.add('copied');
-      setTimeout(function() { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 2000);
-    });
+    _copyToClipboard(url, btn);
   });
   row.appendChild(nameEl);
   row.appendChild(urlEl);
@@ -5649,6 +5648,45 @@ async function _doModalUpload(files) {
   setUploadModalStep('Complete', '', 100);
   await new Promise(r => setTimeout(r, 200));
   showUploadModalResults(results);
+}
+
+// Clipboard helper — navigator.clipboard is blocked in Figma plugin iframes;
+// fall back to the legacy execCommand approach which always works.
+function _copyToClipboard(text, btn) {
+  var ok = false;
+  // Try modern API first (works in some Figma contexts)
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(function() {
+      _copyFlash(btn);
+    }).catch(function() {
+      ok = _execCopy(text);
+      if (ok) _copyFlash(btn);
+    });
+    return;
+  }
+  ok = _execCopy(text);
+  if (ok) _copyFlash(btn);
+}
+
+function _execCopy(text) {
+  var ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.cssText = 'position:fixed;left:-9999px;top:-9999px;opacity:0';
+  document.body.appendChild(ta);
+  ta.focus();
+  ta.select();
+  var ok = false;
+  try { ok = document.execCommand('copy'); } catch(_) {}
+  document.body.removeChild(ta);
+  return ok;
+}
+
+function _copyFlash(btn) {
+  if (!btn) return;
+  var orig = btn.textContent;
+  btn.textContent = 'Copied!';
+  btn.classList.add('copied');
+  setTimeout(function() { btn.textContent = orig; btn.classList.remove('copied'); }, 2000);
 }
 
 function _mimeFor(filename) {

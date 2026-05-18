@@ -3282,6 +3282,167 @@ app.post('/api/exports', uploadMemory.single('file'), async (req, res) => {
 });
 
 // Public folder page — shareable URL listing all exports for a section
+// ── /exports — index page listing every folder with collapsible file lists ──
+app.get('/exports', async (_req, res) => {
+  try {
+    const all     = await readExportsMeta();
+    const baseUrl = process.env.APP_URL || 'https://smartico-bridge-production.up.railway.app';
+
+    // Group files by section name (null → "Unsorted")
+    const groups = {};
+    for (const f of all) {
+      const key = f.sectionName || '__unsorted__';
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(f);
+    }
+
+    // Sort sections alphabetically, unsorted last
+    const sectionKeys = Object.keys(groups).sort((a, b) => {
+      if (a === '__unsorted__') return 1;
+      if (b === '__unsorted__') return -1;
+      return a.localeCompare(b);
+    });
+
+    const sectionsHtml = sectionKeys.map((key, idx) => {
+      const files       = groups[key];
+      const label       = key === '__unsorted__' ? 'Unsorted' : key;
+      const folderUrl   = key === '__unsorted__' ? null : `${baseUrl}/exports/${encodeURIComponent(key)}`;
+      const totalSize   = files.reduce((s, f) => s + (f.size || 0), 0);
+      const sizeLabel   = totalSize > 1048576
+        ? (totalSize / 1048576).toFixed(1) + ' MB'
+        : Math.round(totalSize / 1024) + ' KB';
+      const latest      = files.reduce((d, f) => (!d || f.uploadedAt > d) ? f.uploadedAt : d, null);
+      const latestLabel = latest ? new Date(latest).toLocaleDateString(undefined, { day:'numeric', month:'short', year:'numeric' }) : '';
+
+      const rows = files.map(f => {
+        const kb      = f.size ? Math.round(f.size / 1024) + ' KB' : '';
+        const date    = f.uploadedAt ? new Date(f.uploadedAt).toLocaleString() : '';
+        const dlUrl   = `${baseUrl}/api/exports/${f.id}`;
+        const figmaLnk = f.figmaUrl
+          ? `<a href="${f.figmaUrl}" target="_blank" class="figma-pill">🔗 Figma</a>`
+          : '';
+        return `<tr>
+          <td class="td-name">${esc(f.name)}${figmaLnk}</td>
+          <td class="td-meta">${date}</td>
+          <td class="td-meta">${kb}</td>
+          <td class="td-action">
+            <button class="copy-btn" onclick="copyLink('${dlUrl}',this)">Copy link</button>
+            <a class="dl-btn" href="${dlUrl}" download>↓</a>
+          </td></tr>`;
+      }).join('');
+
+      const folderLinkHtml = folderUrl
+        ? `<a href="${folderUrl}" class="folder-link" title="Shareable folder page">🔗 Share folder</a>`
+        : '';
+
+      return `
+<details class="section-card" ${idx === 0 ? 'open' : ''}>
+  <summary class="section-summary">
+    <span class="section-icon">📁</span>
+    <span class="section-name">${esc(label)}</span>
+    <span class="section-meta">${files.length} file${files.length !== 1 ? 's' : ''} · ${sizeLabel} · ${latestLabel}</span>
+    ${folderLinkHtml}
+    <span class="chevron">▾</span>
+  </summary>
+  <div class="section-body">
+    <table><thead><tr>
+      <th>File</th><th>Uploaded</th><th>Size</th><th></th>
+    </tr></thead><tbody>${rows}</tbody></table>
+  </div>
+</details>`;
+    }).join('\n');
+
+    const emptyHtml = sectionKeys.length === 0
+      ? '<p class="empty">No exports yet — upload files from the Figma plugin.</p>'
+      : '';
+
+    function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+    res.setHeader('Content-Type', 'text/html');
+    res.send(`<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Exports — Smartico Bridge</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,sans-serif;background:#f8f9fa;color:#111;min-height:100vh}
+.page{max-width:900px;margin:0 auto;padding:32px 20px 60px}
+header{margin-bottom:28px}
+h1{font-size:1.6rem;font-weight:800;letter-spacing:-.02em;margin-bottom:4px}
+.subtitle{color:#6b7280;font-size:.9rem}
+.stats{display:flex;gap:20px;margin-top:14px;flex-wrap:wrap}
+.stat{background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:10px 16px;font-size:.82rem;color:#6b7280}
+.stat strong{display:block;font-size:1.1rem;font-weight:700;color:#111}
+.section-card{background:#fff;border:1px solid #e5e7eb;border-radius:12px;margin-bottom:12px;overflow:hidden}
+.section-card[open]>.section-summary .chevron{transform:rotate(180deg)}
+.section-summary{display:flex;align-items:center;gap:10px;padding:14px 18px;cursor:pointer;list-style:none;user-select:none}
+.section-summary::-webkit-details-marker{display:none}
+.section-summary:hover{background:#f9fafb}
+.section-icon{font-size:1.1rem;flex-shrink:0}
+.section-name{font-weight:700;font-size:.95rem;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.section-meta{font-size:.78rem;color:#9ca3af;white-space:nowrap}
+.folder-link{font-size:.78rem;color:#2563eb;text-decoration:none;white-space:nowrap;padding:2px 8px;border:1px solid #bfdbfe;border-radius:20px;background:#eff6ff}
+.folder-link:hover{background:#dbeafe}
+.chevron{font-size:.75rem;color:#9ca3af;transition:transform .2s;flex-shrink:0}
+.section-body{border-top:1px solid #f3f4f6;overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:.84rem}
+th{text-align:left;padding:8px 16px;font-size:.72rem;color:#9ca3af;text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid #f3f4f6;background:#fafafa;font-weight:600}
+td{padding:10px 16px;border-bottom:1px solid #f9fafb;vertical-align:middle}
+tr:last-child td{border-bottom:none}
+.td-name{font-weight:500;max-width:340px}
+.td-meta{color:#9ca3af;white-space:nowrap}
+.td-action{white-space:nowrap;text-align:right;display:flex;align-items:center;gap:6px;justify-content:flex-end}
+.figma-pill{display:inline-flex;align-items:center;font-size:.72rem;color:#6b7280;text-decoration:none;margin-left:8px;padding:1px 6px;border:1px solid #e5e7eb;border-radius:10px}
+.figma-pill:hover{background:#f3f4f6}
+.copy-btn{padding:4px 10px;border:1px solid #e5e7eb;border-radius:6px;background:#fff;cursor:pointer;font-size:.78rem;color:#374151;transition:background .12s}
+.copy-btn:hover{background:#f3f4f6}
+.copy-btn.ok{background:#dcfce7;border-color:#86efac;color:#166534}
+.dl-btn{padding:4px 10px;border:1px solid #bfdbfe;border-radius:6px;background:#eff6ff;color:#2563eb;text-decoration:none;font-size:.78rem;font-weight:600}
+.dl-btn:hover{background:#dbeafe}
+.empty{color:#9ca3af;padding:48px 0;text-align:center;font-size:.95rem}
+</style>
+</head>
+<body>
+<div class="page">
+  <header>
+    <h1>📦 Exports</h1>
+    <p class="subtitle">Files uploaded from Figma — organised by section</p>
+    <div class="stats">
+      <div class="stat"><strong>${all.length}</strong>Total files</div>
+      <div class="stat"><strong>${sectionKeys.filter(k => k !== '__unsorted__').length}</strong>Folders</div>
+      <div class="stat"><strong>${(() => { const b = all.reduce((s,f)=>s+(f.size||0),0); return b>1048576?(b/1048576).toFixed(1)+' MB':Math.round(b/1024)+' KB'; })()}</strong>Total size</div>
+    </div>
+  </header>
+
+  ${emptyHtml}
+  ${sectionsHtml}
+</div>
+
+<script>
+function copyLink(url, btn) {
+  var ta = document.createElement('textarea');
+  ta.value = url;
+  ta.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0';
+  document.body.appendChild(ta);
+  ta.focus(); ta.select();
+  var ok = false;
+  try { ok = document.execCommand('copy'); } catch(_) {}
+  document.body.removeChild(ta);
+  if (!ok && navigator.clipboard) { navigator.clipboard.writeText(url).catch(function(){}); ok = true; }
+  if (ok) {
+    var orig = btn.textContent;
+    btn.textContent = 'Copied!'; btn.classList.add('ok');
+    setTimeout(function(){ btn.textContent = orig; btn.classList.remove('ok'); }, 2000);
+  }
+}
+</script>
+</body>
+</html>`);
+  } catch(e) { res.status(500).send('Error: ' + e.message); }
+});
+
 app.get('/exports/:sectionName', async (req, res) => {
   try {
     const section = decodeURIComponent(req.params.sectionName);
